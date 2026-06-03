@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="好きなnoteクリエイターの記事を、年月でたどる小さな道具です。" />
+    <title>YOMIASA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ========================================================= -->
+      <!-- クリエイター一覧画面                                       -->
+      <!-- ========================================================= -->
+      <section id="view-list" class="view">
+        <header class="header">
+          <h1 class="header-title">YOMIASA<span class="header-version">v0.2</span></h1>
+          <p class="header-tagline">好きなクリエイターの記事を、年月でたどる。</p>
+        </header>
+
+        <!-- 空状態 -->
+        <div id="empty-state" class="empty hidden">
+          <p class="empty-lead">
+            好きなクリエイターの記事を、<br />年月でたどる小さな道具です。
+          </p>
+          <p class="empty-sub">
+            noteのURLを追加すると、<br />過去記事を探しやすくできます。
+          </p>
+          <button id="empty-add-btn" class="btn btn-primary">＋ クリエイターを追加</button>
+        </div>
+
+        <!-- 一覧 -->
+        <div id="list-body" class="hidden">
+          <button id="add-btn" class="btn add-btn-top">＋ クリエイターを追加</button>
+          <h2 class="section-label">クリエイター一覧</h2>
+          <div id="creator-list" class="creator-cards"></div>
+        </div>
+      </section>
+
+      <!-- ========================================================= -->
+      <!-- 記事一覧画面                                               -->
+      <!-- ========================================================= -->
+      <section id="view-read" class="view hidden">
+        <button id="back-btn" class="back-btn" type="button">← クリエイター一覧へ</button>
+
+        <header class="read-header">
+          <h2 id="read-name" class="read-name"></h2>
+          <p id="read-id" class="read-id"></p>
+          <p id="read-stats" class="read-stats"></p>
+          <div id="read-progress" class="read-progress"></div>
+          <button id="fetch-btn" class="btn">記事一覧を取得 / 更新</button>
+        </header>
+
+        <!-- フィルタ -->
+        <div class="filters">
+          <input
+            id="keyword"
+            class="field"
+            type="search"
+            placeholder="タイトルを検索"
+            autocomplete="off"
+          />
+          <div class="filter-row">
+            <label class="select-wrap">
+              <span class="select-label">年</span>
+              <select id="year-filter" class="field"></select>
+            </label>
+            <label class="select-wrap">
+              <span class="select-label">月</span>
+              <select id="month-filter" class="field"></select>
+            </label>
+          </div>
+          <label class="toggle">
+            <input id="unread-only" type="checkbox" />
+            <span>未読のみ</span>
+          </label>
+        </div>
+
+        <p id="status-msg" class="status-msg hidden"></p>
+
+        <div id="articles" class="articles"></div>
+      </section>
+    </div>
+
+    <!-- FAB（クリエイター一覧画面でのみ表示） -->
+    <button id="fab" class="fab hidden" type="button" aria-label="クリエイターを追加">＋</button>
+
+    <!-- ===================== 追加モーダル ===================== -->
+    <div id="add-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
+        <h2 id="add-modal-title" class="modal-title">クリエイターを追加</h2>
+        <label class="modal-label" for="add-input">noteのURL または ID</label>
+        <input
+          id="add-input"
+          class="field"
+          type="text"
+          placeholder="https://note.com/kotaya_log"
+          autocomplete="off"
+        />
+
+        <!-- 入力中に取得したプロフィールのプレビュー -->
+        <div id="add-preview" class="add-preview hidden"></div>
+
+        <div id="add-name-wrap" class="hidden">
+          <label class="modal-label" for="add-name">表示名</label>
+          <input id="add-name" class="field" type="text" autocomplete="off" />
+        </div>
+
+        <p id="add-error" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="add-cancel" class="btn">キャンセル</button>
+          <button id="add-confirm" class="btn btn-primary" disabled>追加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== 編集モーダル ===================== -->
+    <div id="edit-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+        <h2 id="edit-modal-title" class="modal-title">表示名を編集</h2>
+        <label class="modal-label" for="edit-name">表示名</label>
+        <input id="edit-name" class="field" type="text" autocomplete="off" />
+        <p id="edit-error" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="edit-cancel" class="btn">キャンセル</button>
+          <button id="edit-save" class="btn btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== 初期既読セットアップ ===================== -->
+    <div id="setup-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+        <!-- ステップ1: 軽い3択 -->
+        <div id="setup-step-ask">
+          <h2 id="setup-title" class="modal-title">記事を取得しました</h2>
+          <p id="setup-lead" class="setup-lead"></p>
+          <p class="setup-question">すでに読んだ記事がありますか？</p>
+          <div class="setup-choices">
+            <button id="setup-all-unread" class="btn">すべて未読から始める</button>
+            <button id="setup-bulk" class="btn btn-primary">既読をまとめて設定する</button>
+            <button id="setup-later" class="btn btn-ghost">あとで</button>
+          </div>
+        </div>
+
+        <!-- ステップ2: 年月選択 -->
+        <div id="setup-step-bulk" class="hidden">
+          <h2 class="modal-title">既読にする年月を選んでください</h2>
+          <p class="setup-hint">選んだ年月の記事をまとめて読了にします。あとから変更できます。</p>
+          <div id="setup-month-list" class="setup-month-list"></div>
+          <div class="modal-actions">
+            <button id="setup-bulk-back" class="btn">戻る</button>
+            <button id="setup-bulk-apply" class="btn btn-primary">選択した年月を既読にする</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== 読了確認モーダル（記事から戻ったとき） ===================== -->
+    <div id="readback-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="readback-title">
+        <h2 id="readback-title" class="modal-title">記事を読みましたか？</h2>
+        <p id="readback-article" class="readback-article"></p>
+        <div class="modal-actions">
+          <button id="readback-no" class="btn">まだ</button>
+          <button id="readback-yes" class="btn btn-primary">読んだ</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
