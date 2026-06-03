@@ -4,12 +4,14 @@
  */
 var CACHE = 'yomiasa-v0.1.1';
 
-// スコープ基準（/yomiasa/）からの相対でアプリシェルを列挙
+// スコープ基準（/yomiasa/）からの相対でアプリシェルを列挙。
+// style.css / app.js は index.html と同じ ?v= 付きURLでプリキャッシュする
+// （クエリ違いはSWのキャッシュ照合では別物扱いなので、URLを揃える）。
 var SHELL = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=0.1.1',
+  './app.js?v=0.1.1',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
