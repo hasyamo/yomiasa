@@ -102,6 +102,46 @@
     }
   }
 
+  // 現在の状態を JSON テキストにする（エクスポート用）。
+  function exportData() {
+    return JSON.stringify(
+      {
+        app: 'yomiasa',
+        version: APP_VERSION,
+        exportedAt: new Date().toISOString(),
+        state: state,
+      },
+      null,
+      2
+    );
+  }
+
+  // JSON テキストから状態を復元して上書き保存する（インポート用）。
+  // 失敗時は例外を投げる。成功時は新しい state を返す。
+  function importData(jsonText) {
+    var parsed = JSON.parse(jsonText);
+    // エクスポート形式（{app,version,state}）と、生の state 直貼りの両対応
+    var incoming = parsed && parsed.state ? parsed.state : parsed;
+    if (!incoming || typeof incoming !== 'object') {
+      throw new Error('形式が正しくありません');
+    }
+    var base = defaultState();
+    var next = {
+      creators: Array.isArray(incoming.creators) ? incoming.creators : base.creators,
+      selectedCreatorId: incoming.selectedCreatorId || base.selectedCreatorId,
+      articlesByCreator:
+        incoming.articlesByCreator && typeof incoming.articlesByCreator === 'object'
+          ? incoming.articlesByCreator
+          : base.articlesByCreator,
+      readArticles: migrateReadArticles(incoming.readArticles),
+      uiState: Object.assign({}, base.uiState, incoming.uiState || {}),
+    };
+    state = next;
+    var saved = saveState();
+    if (saved !== true) throw new Error(saved);
+    return state;
+  }
+
   // ---------------------------------------------------------------------------
   // 状態
   // ---------------------------------------------------------------------------
@@ -453,6 +493,24 @@
     updateVersion: document.getElementById('update-version'),
     updateBody: document.getElementById('update-body'),
     updateClose: document.getElementById('update-close'),
+
+    settingsBtn: document.getElementById('settings-btn'),
+    settingsModal: document.getElementById('settings-modal'),
+    settingsExport: document.getElementById('settings-export'),
+    settingsImport: document.getElementById('settings-import'),
+    settingsClose: document.getElementById('settings-close'),
+
+    exportModal: document.getElementById('export-modal'),
+    exportText: document.getElementById('export-text'),
+    exportCopy: document.getElementById('export-copy'),
+    exportClose: document.getElementById('export-close'),
+
+    importModal: document.getElementById('import-modal'),
+    importText: document.getElementById('import-text'),
+    importError: document.getElementById('import-error'),
+    importPaste: document.getElementById('import-paste'),
+    importConfirm: document.getElementById('import-confirm'),
+    importCancel: document.getElementById('import-cancel'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -1500,6 +1558,28 @@
     els.readbackYes.addEventListener('click', confirmReadbackYes);
     els.readbackNo.addEventListener('click', confirmReadbackNo);
 
+    // 設定 / エクスポート / インポート
+    els.settingsBtn.addEventListener('click', openSettingsModal);
+    els.settingsClose.addEventListener('click', closeSettingsModal);
+    els.settingsModal.addEventListener('click', function (e) {
+      if (e.target === els.settingsModal) closeSettingsModal();
+    });
+    els.settingsExport.addEventListener('click', openExportModal);
+    els.settingsImport.addEventListener('click', openImportModal);
+
+    els.exportCopy.addEventListener('click', copyExport);
+    els.exportClose.addEventListener('click', closeExportModal);
+    els.exportModal.addEventListener('click', function (e) {
+      if (e.target === els.exportModal) closeExportModal();
+    });
+
+    els.importPaste.addEventListener('click', pasteFromClipboard);
+    els.importConfirm.addEventListener('click', confirmImport);
+    els.importCancel.addEventListener('click', closeImportModal);
+    els.importModal.addEventListener('click', function (e) {
+      if (e.target === els.importModal) closeImportModal();
+    });
+
     // 記事を読んで戻ってきたことの検知
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') handleReturn();
@@ -1537,6 +1617,9 @@
         if (!els.editModal.classList.contains('hidden')) closeEditModal();
         if (!els.readbackModal.classList.contains('hidden')) closeReadbackModal();
         if (!els.updateModal.classList.contains('hidden')) closeUpdateModal();
+        if (!els.settingsModal.classList.contains('hidden')) closeSettingsModal();
+        if (!els.exportModal.classList.contains('hidden')) closeExportModal();
+        if (!els.importModal.classList.contains('hidden')) closeImportModal();
       }
     });
   }
@@ -1601,6 +1684,131 @@
   function closeUpdateModal() {
     rememberSeenVersion();
     els.updateModal.classList.add('hidden');
+  }
+
+  // ---------------------------------------------------------------------------
+  // 設定 / エクスポート / インポート
+  // ---------------------------------------------------------------------------
+
+  function openSettingsModal() {
+    els.settingsModal.classList.remove('hidden');
+  }
+  function closeSettingsModal() {
+    els.settingsModal.classList.add('hidden');
+  }
+
+  function openExportModal() {
+    closeSettingsModal();
+    els.exportText.value = exportData();
+    els.exportCopy.textContent = 'コピー';
+    els.exportModal.classList.remove('hidden');
+    // 選択しておくと手動コピーもしやすい
+    setTimeout(function () {
+      els.exportText.focus();
+      els.exportText.select();
+    }, 50);
+  }
+  function closeExportModal() {
+    els.exportModal.classList.add('hidden');
+  }
+
+  function copyExport() {
+    var text = els.exportText.value;
+    var done = function () {
+      els.exportCopy.textContent = 'コピーしました';
+      setTimeout(function () {
+        els.exportCopy.textContent = 'コピー';
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () {
+        legacyCopy(els.exportText);
+        done();
+      });
+    } else {
+      legacyCopy(els.exportText);
+      done();
+    }
+  }
+
+  function legacyCopy(textarea) {
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand('copy');
+    } catch (e) {
+      /* noop */
+    }
+  }
+
+  function openImportModal() {
+    closeSettingsModal();
+    els.importText.value = '';
+    hideError(els.importError);
+    els.importModal.classList.remove('hidden');
+    setTimeout(function () {
+      els.importText.focus();
+    }, 50);
+  }
+  function closeImportModal() {
+    els.importModal.classList.add('hidden');
+  }
+
+  function pasteFromClipboard() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      showError(els.importError, 'この環境では自動貼り付けに対応していません。\n手動で貼り付けてください。');
+      els.importText.focus();
+      return;
+    }
+    navigator.clipboard.readText().then(
+      function (text) {
+        els.importText.value = text;
+        hideError(els.importError);
+      },
+      function () {
+        showError(els.importError, 'クリップボードを読み取れませんでした。\n手動で貼り付けてください。');
+        els.importText.focus();
+      }
+    );
+  }
+
+  // 貼り付けで混入しがちな不可視文字を正規化する。
+  //   BOM除去 / ゼロ幅スペース除去 / ノーブレークスペース等を通常スペースへ
+  function normalizePasted(raw) {
+    return raw
+      .replace(/^﻿/, '')
+      .replace(/[​-‍]/g, '')
+      .replace(/[   ]/g, ' ')
+      .trim();
+  }
+
+  function confirmImport() {
+    var raw = els.importText.value;
+    if (!raw || !raw.trim()) {
+      showError(els.importError, 'テキストを貼り付けてください。');
+      return;
+    }
+    var ok = window.confirm('現在のデータを、貼り付けた内容で上書きします。よろしいですか?');
+    if (!ok) return;
+
+    try {
+      importData(normalizePasted(raw));
+    } catch (e) {
+      showError(
+        els.importError,
+        '読み込みに失敗しました。\nエクスポートしたテキストか確認してください。'
+      );
+      return;
+    }
+    closeImportModal();
+    // 選択中クリエイターの整合性を取り直して全再描画
+    if (state.selectedCreatorId && !getCreator(state.selectedCreatorId)) {
+      state.selectedCreatorId = '';
+      saveState();
+    }
+    clearStatus();
+    goTo('list');
+    renderRoute();
   }
 
   // ---------------------------------------------------------------------------

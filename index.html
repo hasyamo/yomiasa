@@ -29,7 +29,15 @@
       <!-- ========================================================= -->
       <section id="view-list" class="view">
         <header class="header">
-          <h1 class="header-title">YOMIASA<span class="header-version" id="header-version"></span></h1>
+          <div class="header-top">
+            <h1 class="header-title">YOMIASA<span class="header-version" id="header-version"></span></h1>
+            <button id="settings-btn" class="header-settings-btn" type="button" aria-label="設定">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </button>
+          </div>
           <p class="header-tagline">好きなクリエイターの記事を、年月でたどる。</p>
         </header>
 
@@ -56,13 +64,16 @@
       <!-- 記事一覧画面                                               -->
       <!-- ========================================================= -->
       <section id="view-read" class="view hidden">
-        <button id="back-btn" class="back-btn" type="button">← クリエイター一覧へ</button>
-
-        <header class="read-header">
+        <!-- スクロールしても上部に固定される領域（戻る〜進捗バー） -->
+        <div class="read-sticky">
+          <button id="back-btn" class="back-btn" type="button">← クリエイター一覧へ</button>
           <h2 id="read-name" class="read-name"></h2>
           <p id="read-id" class="read-id"></p>
           <p id="read-stats" class="read-stats"></p>
           <div id="read-progress" class="read-progress"></div>
+        </div>
+
+        <header class="read-header">
           <button id="fetch-btn" class="btn">記事一覧を取得 / 更新</button>
         </header>
 
@@ -191,6 +202,56 @@
         <ul id="update-body" class="update-body"></ul>
         <div class="modal-actions">
           <button id="update-close" class="btn btn-primary">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== 設定 ===================== -->
+    <div id="settings-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <h2 id="settings-title" class="modal-title">設定</h2>
+        <div class="settings-list">
+          <button id="settings-export" class="settings-item" type="button">
+            <span class="settings-item-label">データをエクスポート</span>
+            <span class="settings-item-desc">登録・既読状態をテキストにして書き出す</span>
+          </button>
+          <button id="settings-import" class="settings-item" type="button">
+            <span class="settings-item-label">データをインポート</span>
+            <span class="settings-item-desc">書き出したテキストから復元する（上書き）</span>
+          </button>
+        </div>
+        <div class="modal-actions">
+          <button id="settings-close" class="btn">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== エクスポート ===================== -->
+    <div id="export-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
+        <h2 id="export-title" class="modal-title">エクスポート</h2>
+        <p class="settings-hint">下のテキストをコピーして保管してください。別の端末でインポートすると復元できます。</p>
+        <textarea id="export-text" class="modal-textarea" readonly></textarea>
+        <div class="modal-actions">
+          <button id="export-close" class="btn">閉じる</button>
+          <button id="export-copy" class="btn btn-primary">コピー</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== インポート ===================== -->
+    <div id="import-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+        <h2 id="import-title" class="modal-title">インポート</h2>
+        <p class="settings-hint">エクスポートしたテキストを貼り付けてください。現在のデータは上書きされます。</p>
+        <textarea id="import-text" class="modal-textarea" placeholder="ここに貼り付け"></textarea>
+        <p id="import-error" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="import-paste" class="btn">クリップボードから貼り付け</button>
+        </div>
+        <div class="modal-actions">
+          <button id="import-cancel" class="btn">キャンセル</button>
+          <button id="import-confirm" class="btn btn-primary">インポート（上書き）</button>
         </div>
       </div>
     </div>
