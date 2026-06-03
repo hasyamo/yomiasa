@@ -13,10 +13,13 @@
   // ?id= でクリエイタープロフィール、?path= で任意の note API パスを中継できる。
   var PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/';
   var STORAGE_KEY = 'yomiasa:v0';
-  var PAGE_LIMIT = 50; // 取得ページ上限（安全策）
+  // 取得ページ上限。通常は isLastPage / 空ページで終端するので実質無制限。
+  // この値は API が isLastPage を返さない等の不具合時に無限ループを防ぐ保険。
+  // 1ページ6件なので 9999 = 約6万件まで対応。
+  var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.0';
+  var APP_VERSION = '0.1.1';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -201,12 +204,20 @@
       });
   }
 
+  // 1ページの取得件数。per 未指定だとデフォルト6件になり、ページ番号上限(約100)に
+  // 早く到達して ~600件で打ち切られる。per=18（note web の「もっと見る」と同値・
+  // per の許容上限は20）にすることで多記事クリエイターも全件取得できる。
+  var PER_PAGE = 18;
+
   function buildContentsUrl(creatorId, page) {
     var notePath =
       '/api/v2/creators/' +
       encodeURIComponent(creatorId) +
       '/contents?kind=note&page=' +
-      page;
+      page +
+      '&per=' +
+      PER_PAGE +
+      '&disabled_pinned=false&with_notes=false';
     return PROXY_URL + '?path=' + encodeURIComponent(notePath);
   }
 
