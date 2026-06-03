@@ -1,4 +1,4 @@
-/* よみ漁 v0.2
+/* YOMIASA v0.1
  * 好きなnoteクリエイターの記事を、年月でたどる小さな道具。
  * Vanilla JS / ビルド不要 / 状態は localStorage に保存。
  *
@@ -14,6 +14,10 @@
   var PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/';
   var STORAGE_KEY = 'yomiasa:v0';
   var PAGE_LIMIT = 50; // 取得ページ上限（安全策）
+
+  // アプリのバージョン。updates.json のキーと一致させること。
+  var APP_VERSION = '0.1.0';
+  var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
   // 状態は常に上書き可能なので優先順位は持たない（最後の操作が勝つ）。
@@ -443,6 +447,12 @@
     readbackArticle: document.getElementById('readback-article'),
     readbackYes: document.getElementById('readback-yes'),
     readbackNo: document.getElementById('readback-no'),
+
+    headerVersion: document.getElementById('header-version'),
+    updateModal: document.getElementById('update-modal'),
+    updateVersion: document.getElementById('update-version'),
+    updateBody: document.getElementById('update-body'),
+    updateClose: document.getElementById('update-close'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -1526,7 +1536,82 @@
         if (!els.addModal.classList.contains('hidden')) closeAddModal();
         if (!els.editModal.classList.contains('hidden')) closeEditModal();
         if (!els.readbackModal.classList.contains('hidden')) closeReadbackModal();
+        if (!els.updateModal.classList.contains('hidden')) closeUpdateModal();
       }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // アップデートお知らせ
+  //   updates.json から現バージョンの更新内容を取得し、未読なら1回だけ表示する。
+  // ---------------------------------------------------------------------------
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function checkVersionUpdate() {
+    if (els.headerVersion) els.headerVersion.textContent = 'v' + APP_VERSION;
+
+    var lastSeen = null;
+    try {
+      lastSeen = localStorage.getItem(VERSION_KEY);
+    } catch (e) {
+      /* noop */
+    }
+    if (lastSeen === APP_VERSION) return;
+
+    // updates.json を取得（キャッシュ回避のため t= を付ける）
+    fetch('updates.json?t=' + new Date().getTime())
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .then(function (data) {
+        var items = data ? data[APP_VERSION] : null;
+        if (!items || items.length === 0) {
+          // お知らせが無ければ静かに既読化
+          rememberSeenVersion();
+          return;
+        }
+        els.updateVersion.textContent = 'v' + APP_VERSION;
+        els.updateBody.innerHTML = items
+          .map(function (t) {
+            return '<li>' + escapeHtml(t) + '</li>';
+          })
+          .join('');
+        els.updateModal.classList.remove('hidden');
+      })
+      .catch(function () {
+        /* 取得失敗時はモーダルを出さない（既読化もしない＝次回再試行） */
+      });
+  }
+
+  function rememberSeenVersion() {
+    try {
+      localStorage.setItem(VERSION_KEY, APP_VERSION);
+    } catch (e) {
+      /* noop */
+    }
+  }
+
+  function closeUpdateModal() {
+    rememberSeenVersion();
+    els.updateModal.classList.add('hidden');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Service Worker（PWA）
+  // ---------------------------------------------------------------------------
+
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    // 相対パスで登録（GitHub Pages の /yomiasa/ サブパスでも動く）
+    navigator.serviceWorker.register('sw.js').catch(function () {
+      /* 登録失敗は致命的でないので無視 */
     });
   }
 
@@ -1540,8 +1625,11 @@
       state.selectedCreatorId = '';
     }
     wireEvents();
+    els.updateClose.addEventListener('click', closeUpdateModal);
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
+    checkVersionUpdate();
+    registerServiceWorker();
   }
 
   init();

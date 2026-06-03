@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="好きなnoteクリエイターの記事を、年月でたどる小さな道具です。" />
     <title>YOMIASA</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="YOMIASA" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,7 +29,7 @@
       <!-- ========================================================= -->
       <section id="view-list" class="view">
         <header class="header">
-          <h1 class="header-title">YOMIASA<span class="header-version">v0.2</span></h1>
+          <h1 class="header-title">YOMIASA<span class="header-version" id="header-version"></span></h1>
           <p class="header-tagline">好きなクリエイターの記事を、年月でたどる。</p>
         </header>
 
@@ -170,6 +179,18 @@
         <div class="modal-actions">
           <button id="readback-no" class="btn">まだ</button>
           <button id="readback-yes" class="btn btn-primary">読んだ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== アップデートお知らせ ===================== -->
+    <div id="update-modal" class="modal-overlay hidden">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
+        <h2 id="update-modal-title" class="modal-title">アップデート</h2>
+        <div id="update-version" class="update-version"></div>
+        <ul id="update-body" class="update-body"></ul>
+        <div class="modal-actions">
+          <button id="update-close" class="btn btn-primary">OK</button>
         </div>
       </div>
     </div>
