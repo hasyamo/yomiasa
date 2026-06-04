@@ -234,6 +234,18 @@ body {
   text-overflow: ellipsis;
 }
 
+.badge-new {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--on-accent);
+  background: var(--progress);
+  border-radius: 999px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
 .creator-card-id {
   font-size: 12px;
   color: var(--ink-subtle);
@@ -277,6 +289,14 @@ body {
   margin-top: 12px;
   font-size: 13px;
   color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.creator-card-stats-text {
+  min-width: 0;
 }
 
 /* 進捗バー（既読率） */
@@ -400,11 +420,36 @@ body {
   font-size: 13px;
   color: var(--ink-muted);
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 集計テキストを左に伸ばして新着バッジを右端へ寄せる */
+.read-stats > span:first-child {
+  margin-right: auto;
 }
 
 .read-stats:last-child,
 .read-progress:empty {
   margin-bottom: 0;
+}
+
+/* 取得ボタン右上の通知ドット（数字なし・新着ありのみ示す） */
+.fetch-btn-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.fetch-dot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--progress);
+  border: 2px solid var(--bg);
 }
 
 /* --- Fields --- */

@@ -19,7 +19,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.1';
+  var APP_VERSION = '0.1.2';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -153,6 +153,10 @@
   var isFetching = false;
   var editingCreatorId = null;
 
+  // 一覧表示時に取得する各クリエイターの最新totalCount（揮発・保存しない）。
+  // バッジ = latestTotalCount[id] - creator.seenTotalCount。
+  var latestTotalCount = {};
+
   // 追加モーダルのプレビュー用。取得に成功すると {id, displayName, iconUrl} が入る。
   var pendingProfile = null;
   var addPreviewToken = 0; // 入力連打時の取得結果の競合を防ぐ
@@ -233,10 +237,22 @@
     };
   }
 
-  // onProgress(count) は取得済み件数を都度通知する（任意）。
-  function fetchArticles(creatorId, onProgress) {
+  // 記事を取得する。差分取得対応。
+  //   opts.knownIds : 既に持っている記事IDの Set。新しい順に取得し、
+  //                   既知IDに当たった時点で停止する（＝新着分だけ取れる）。
+  //   opts.knownTotal : 前回の totalCount。page1 の totalCount がこれと同じなら
+  //                     新着なしと判断し、page1 すら全部見ずに即終了する。
+  //   onProgress(count) : 取得済み件数を都度通知（任意）。
+  // 戻り値: { articles: 新しい順の取得分, totalCount, reachedKnown: 既知に到達して止めたか }
+  function fetchArticles(creatorId, onProgress, opts) {
+    opts = opts || {};
+    var knownIds = opts.knownIds || null;
+    var knownTotal = typeof opts.knownTotal === 'number' ? opts.knownTotal : null;
+
     var collected = [];
     var page = 1;
+    var totalCount = null;
+    var reachedKnown = false;
 
     function next() {
       return fetch(buildContentsUrl(creatorId, page))
@@ -248,21 +264,58 @@
           var data = json && json.data;
           if (!data || typeof data !== 'object' || !Array.isArray(data.contents)) {
             if (page === 1) throw new Error('no contents');
-            return collected;
+            return finish();
           }
-          data.contents.forEach(function (item) {
-            collected.push(normalizeArticle(item, creatorId));
-          });
+
+          if (page === 1) {
+            totalCount = typeof data.totalCount === 'number' ? data.totalCount : null;
+            // 総数が前回と変わっていなければ新着なし → 取得を打ち切る
+            if (knownTotal !== null && totalCount !== null && totalCount === knownTotal) {
+              return finish();
+            }
+          }
+
+          for (var i = 0; i < data.contents.length; i++) {
+            var art = normalizeArticle(data.contents[i], creatorId);
+            // 既知IDに到達したら、そこから先は持っているので停止
+            if (knownIds && knownIds.has(art.id)) {
+              reachedKnown = true;
+              return finish();
+            }
+            collected.push(art);
+          }
+
           if (typeof onProgress === 'function') onProgress(collected.length);
           if (data.isLastPage || data.contents.length === 0 || page >= PAGE_LIMIT) {
-            return collected;
+            return finish();
           }
           page += 1;
           return next();
         });
     }
 
+    function finish() {
+      return { articles: collected, totalCount: totalCount, reachedKnown: reachedKnown };
+    }
+
     return next();
+  }
+
+  // 記事総数(totalCount)だけを軽量に取得する（page1の1リクエスト）。
+  // 一覧画面で全クリエイターの新着判定に使う。失敗時は null。
+  function fetchTotalCount(creatorId) {
+    return fetch(buildContentsUrl(creatorId, 1))
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .then(function (json) {
+        var data = json && json.data;
+        if (!data || typeof data !== 'object') return null;
+        return typeof data.totalCount === 'number' ? data.totalCount : null;
+      })
+      .catch(function () {
+        return null;
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -354,6 +407,15 @@
   function readPercent(stats) {
     if (!stats.total) return 0;
     return Math.round((stats.read / stats.total) * 100);
+  }
+
+  // 新着件数 = 最新totalCount − 取得時totalCount(seenTotalCount)。
+  // 最新が未取得（latestが無い）なら0扱い。差が負なら0。
+  function newCountOf(creator) {
+    var latest = latestTotalCount[creator.id];
+    if (typeof latest !== 'number') return 0;
+    var seen = typeof creator.seenTotalCount === 'number' ? creator.seenTotalCount : latest;
+    return Math.max(0, latest - seen);
   }
 
   // 進捗バー要素を生成する（水平バー＋パーセント）。
@@ -461,6 +523,7 @@
     readStats: document.getElementById('read-stats'),
     readProgress: document.getElementById('read-progress'),
     fetchBtn: document.getElementById('fetch-btn'),
+    fetchDot: document.getElementById('fetch-dot'),
     keyword: document.getElementById('keyword'),
     yearFilter: document.getElementById('year-filter'),
     monthFilter: document.getElementById('month-filter'),
@@ -573,6 +636,27 @@
     els.listBody.classList.toggle('hidden', !has);
     if (!has) return;
     renderCreatorCards();
+    // 各クリエイターの最新totalCountを取得して新着バッジを更新する
+    refreshLatestCounts();
+  }
+
+  // 一覧の全クリエイターの最新totalCountをAPIで取得し、新着バッジを更新する。
+  // page1の1リクエスト/人。取得済みのものから順次カードに反映する。
+  var refreshCountsToken = 0;
+  function refreshLatestCounts() {
+    var token = ++refreshCountsToken;
+    state.creators.forEach(function (c) {
+      // 記事未取得（seenTotalCount無し）のクリエイターは新着判定対象外
+      if (typeof c.seenTotalCount !== 'number') return;
+      fetchTotalCount(c.id).then(function (total) {
+        if (token !== refreshCountsToken) return; // 一覧を離れた等で古い結果は破棄
+        if (typeof total !== 'number') return;
+        if (latestTotalCount[c.id] === total) return; // 変化なし
+        latestTotalCount[c.id] = total;
+        // 該当カードだけ作り直して差し替え（全再描画は避ける）
+        if (currentRoute() === 'list') renderCreatorCards();
+      });
+    });
   }
 
   function renderCreatorCards() {
@@ -648,11 +732,22 @@
 
     card.appendChild(top);
 
-    // stats
+    // stats（左にテキスト、右端に新着バッジ）
     var statsEl = document.createElement('div');
     statsEl.className = 'creator-card-stats';
-    statsEl.textContent =
+    var statsText = document.createElement('span');
+    statsText.className = 'creator-card-stats-text';
+    statsText.textContent =
       '記事 ' + stats.total + '件 / 読了 ' + stats.read + '件 / 未読 ' + stats.unread + '件';
+    statsEl.appendChild(statsText);
+    // 新着バッジ = 最新totalCount − 取得時totalCount
+    var nc = newCountOf(c);
+    if (nc > 0) {
+      var badge = document.createElement('span');
+      badge.className = 'badge-new';
+      badge.textContent = '新着 ' + nc;
+      statsEl.appendChild(badge);
+    }
     card.appendChild(statsEl);
 
     // 進捗バー（記事取得済みのときだけ）
@@ -713,6 +808,7 @@
       state.uiState.month = 'all';
       saveState();
     }
+    // 遷移しただけではバッジを消さない（記事一覧で取得して件数を取り込むまで残す）
     clearStatus();
     goTo('read');
   }
@@ -735,6 +831,20 @@
 
     renderFilterOptions();
     renderArticles();
+
+    // 最新totalCountを取得して新着バッジ/ドットを更新（記事取得済みのときのみ）
+    if (typeof c.seenTotalCount === 'number') {
+      var cid = c.id;
+      fetchTotalCount(cid).then(function (total) {
+        if (typeof total !== 'number') return;
+        if (latestTotalCount[cid] === total) return;
+        latestTotalCount[cid] = total;
+        // まだ同じクリエイターの記事一覧を見ているなら再描画
+        if (currentRoute() === 'read' && state.selectedCreatorId === cid) {
+          renderReadHeaderStats(statsOf(cid));
+        }
+      });
+    }
   }
 
   function renderFilterOptions() {
@@ -945,8 +1055,23 @@
 
   // ヘッダーの「記事/読了/未読」テキストと進捗バーを更新する。
   function renderReadHeaderStats(stats) {
-    els.readStats.textContent =
+    els.readStats.innerHTML = '';
+    var statsText = document.createElement('span');
+    statsText.textContent =
       '記事 ' + stats.total + '件 / 読了 ' + stats.read + '件 / 未読 ' + stats.unread + '件';
+    els.readStats.appendChild(statsText);
+
+    // 新着バッジ（クリエイター一覧カードと同じ見た目）＋ 取得ボタン右上のドット
+    var c = getSelectedCreator();
+    var nc = c ? newCountOf(c) : 0;
+    if (nc > 0) {
+      var badge = document.createElement('span');
+      badge.className = 'badge-new';
+      badge.textContent = '新着 ' + nc;
+      els.readStats.appendChild(badge);
+    }
+    els.fetchDot.classList.toggle('hidden', nc <= 0);
+
     els.readProgress.innerHTML = '';
     if (stats.total > 0) {
       els.readProgress.appendChild(progressBarEl(stats));
@@ -1445,34 +1570,82 @@
     var c = getSelectedCreator();
     if (!c) return;
 
+    var existing = articlesOf(c.id);
+    var isFirstFetch = !c.lastFetchedAt || existing.length === 0;
+
     isFetching = true;
     els.fetchBtn.disabled = true;
-    // ボタンはスピナー表示（ラベルは CSS で透明化されるので変更しない）
     els.fetchBtn.classList.add('is-loading');
-    setStatus('記事一覧を取得しています…', 'loading');
+    setStatus(isFirstFetch ? '記事一覧を取得しています…' : '新着を確認しています…', 'loading');
 
-    // ページ取得のたびに途中経過を表示する
     function onProgress(count) {
       setStatus(count + '件を取得中…', 'loading');
     }
 
-    fetchArticles(c.id, onProgress)
-      .then(function (articles) {
-        if (!articles || articles.length === 0) {
-          setStatus('記事が見つかりませんでした。', 'error');
-          return;
+    // 差分取得: 既知IDと前回totalCountを渡す（初回は素の全件取得）
+    var opts = isFirstFetch
+      ? {}
+      : {
+          knownIds: new Set(
+            existing.map(function (a) {
+              return a.id;
+            })
+          ),
+          knownTotal: typeof c.knownTotalCount === 'number' ? c.knownTotalCount : null,
+        };
+
+    fetchArticles(c.id, onProgress, opts)
+      .then(function (result) {
+        var fresh = result.articles || [];
+
+        if (isFirstFetch) {
+          if (fresh.length === 0) {
+            setStatus('記事が見つかりませんでした。', 'error');
+            return;
+          }
+          state.articlesByCreator[c.id] = fresh;
+        } else {
+          // 新着分を既存の先頭にマージ（fresh は新しい順）。重複は除外。
+          if (fresh.length > 0) {
+            var have = new Set(
+              existing.map(function (a) {
+                return a.id;
+              })
+            );
+            var add = fresh.filter(function (a) {
+              return !have.has(a.id);
+            });
+            state.articlesByCreator[c.id] = add.concat(existing);
+          }
         }
-        var isFirstFetch = !c.lastFetchedAt;
-        state.articlesByCreator[c.id] = articles;
+
+        // 取得＝件数を取り込んだので seen を最新に合わせる → バッジは消える
+        if (typeof result.totalCount === 'number') {
+          c.knownTotalCount = result.totalCount;
+          c.seenTotalCount = result.totalCount;
+          latestTotalCount[c.id] = result.totalCount;
+        }
         c.lastFetchedAt = new Date().toISOString();
+
         var saved = saveState();
         if (saved !== true) {
           setStatus(saved, 'error');
           return;
         }
-        clearStatus();
+
+        // 結果メッセージ
+        if (!isFirstFetch) {
+          var addedNow = state.articlesByCreator[c.id].length - existing.length;
+          if (addedNow > 0) {
+            setStatus('新着 ' + addedNow + '件を取得しました。', 'info');
+          } else {
+            setStatus('新着はありませんでした。', 'info');
+          }
+        } else {
+          clearStatus();
+        }
+
         renderReadView();
-        // 初回取得かつ未セットアップなら、初期既読セットアップを表示する
         if (isFirstFetch && !c.initialSetupDone) {
           openSetupModal(c.id);
         }
