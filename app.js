@@ -19,7 +19,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.2';
+  var APP_VERSION = '0.1.3';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -153,9 +153,10 @@
   var isFetching = false;
   var editingCreatorId = null;
 
-  // 一覧表示時に取得する各クリエイターの最新totalCount（揮発・保存しない）。
-  // バッジ = latestTotalCount[id] - creator.seenTotalCount。
-  var latestTotalCount = {};
+  // 一覧表示時に取得する各クリエイターの最新状態（揮発・保存しない）。
+  //   latestStatus[id] = { totalCount, latestPublishedAt }
+  // 新着 = 件数が増えた or 最新公開日が seenLatestPublishedAt より新しい。
+  var latestStatus = {};
 
   // 追加モーダルのプレビュー用。取得に成功すると {id, displayName, iconUrl} が入る。
   var pendingProfile = null;
@@ -238,20 +239,26 @@
   }
 
   // 記事を取得する。差分取得対応。
-  //   opts.knownIds : 既に持っている記事IDの Set。新しい順に取得し、
-  //                   既知IDに当たった時点で停止する（＝新着分だけ取れる）。
-  //   opts.knownTotal : 前回の totalCount。page1 の totalCount がこれと同じなら
-  //                     新着なしと判断し、page1 すら全部見ずに即終了する。
+  //   opts.sincePublishedAt : 前回取得時の最新公開日（ISO文字列）。各ページを
+  //       公開日の降順にソートし、これ以下の公開日に達したら以降は既知として停止
+  //       する（＝新着分だけ取れる）。null/未指定なら全件取得（初回）。
+  //   opts.knownIds : 既に持っている記事IDの Set。重複の保険として収集後に除外する。
   //   onProgress(count) : 取得済み件数を都度通知（任意）。
-  // 戻り値: { articles: 新しい順の取得分, totalCount, reachedKnown: 既知に到達して止めたか }
+  // 戻り値: { articles: 新しい順の取得分, totalCount, latestPublishedAt, reachedKnown }
+  //   latestPublishedAt : page1 全記事のうち最も新しい公開日（ピン留めに影響されない）。
+  //
+  // 注意: note は page1 の先頭にピン留め記事（古い記事のことが多い）を固定する。
+  // contents の素の並び順に頼ると先頭で誤って停止するため、必ず公開日でソートしてから
+  // 判定する。これによりピン留めの有無・最新記事がピン留めされたケースも自然に扱える。
   function fetchArticles(creatorId, onProgress, opts) {
     opts = opts || {};
+    var since = typeof opts.sincePublishedAt === 'string' ? opts.sincePublishedAt : null;
     var knownIds = opts.knownIds || null;
-    var knownTotal = typeof opts.knownTotal === 'number' ? opts.knownTotal : null;
 
     var collected = [];
     var page = 1;
     var totalCount = null;
+    var latestPublishedAt = null;
     var reachedKnown = false;
 
     function next() {
@@ -269,16 +276,25 @@
 
           if (page === 1) {
             totalCount = typeof data.totalCount === 'number' ? data.totalCount : null;
-            // 総数が前回と変わっていなければ新着なし → 取得を打ち切る
-            if (knownTotal !== null && totalCount !== null && totalCount === knownTotal) {
-              return finish();
-            }
           }
 
-          for (var i = 0; i < data.contents.length; i++) {
-            var art = normalizeArticle(data.contents[i], creatorId);
-            // 既知IDに到達したら、そこから先は持っているので停止
-            if (knownIds && knownIds.has(art.id)) {
+          // ページ内を公開日の降順にソートしてから走査する（ピン留め対策）。
+          var arts = data.contents.map(function (item) {
+            return normalizeArticle(item, creatorId);
+          });
+          arts.sort(function (a, b) {
+            return a.publishedAt < b.publishedAt ? 1 : a.publishedAt > b.publishedAt ? -1 : 0;
+          });
+
+          // page1 の最大公開日 = そのクリエイターの最新公開日。
+          if (page === 1 && arts.length > 0) {
+            latestPublishedAt = arts[0].publishedAt;
+          }
+
+          for (var i = 0; i < arts.length; i++) {
+            var art = arts[i];
+            // 差分取得: 前回の最新公開日以下に達したら、以降は降順で全て既知 → 停止
+            if (since !== null && art.publishedAt <= since) {
               reachedKnown = true;
               return finish();
             }
@@ -295,23 +311,44 @@
     }
 
     function finish() {
-      return { articles: collected, totalCount: totalCount, reachedKnown: reachedKnown };
+      // 保険: 既知IDが混じっていれば除外（公開日が等しい・編集で前後した等の端ケース）。
+      var articles = knownIds
+        ? collected.filter(function (a) {
+            return !knownIds.has(a.id);
+          })
+        : collected;
+      return {
+        articles: articles,
+        totalCount: totalCount,
+        latestPublishedAt: latestPublishedAt,
+        reachedKnown: reachedKnown,
+      };
     }
 
     return next();
   }
 
-  // 記事総数(totalCount)だけを軽量に取得する（page1の1リクエスト）。
-  // 一覧画面で全クリエイターの新着判定に使う。失敗時は null。
-  function fetchTotalCount(creatorId) {
+  // page1 を1リクエストだけ取得し、新着判定に使う最新状態を返す。
+  //   { totalCount, latestPublishedAt }
+  // latestPublishedAt は page1 全記事の最大公開日（ピン留めに影響されない）。
+  // 一覧/読書画面の新着バッジ更新に使う。失敗時は null。
+  function fetchLatestStatus(creatorId) {
     return fetch(buildContentsUrl(creatorId, 1))
       .then(function (res) {
         return res.ok ? res.json() : null;
       })
       .then(function (json) {
         var data = json && json.data;
-        if (!data || typeof data !== 'object') return null;
-        return typeof data.totalCount === 'number' ? data.totalCount : null;
+        if (!data || typeof data !== 'object' || !Array.isArray(data.contents)) return null;
+        var totalCount = typeof data.totalCount === 'number' ? data.totalCount : null;
+        var latestPublishedAt = null;
+        for (var i = 0; i < data.contents.length; i++) {
+          var pub = data.contents[i].publishAt || data.contents[i].publish_at || '';
+          if (pub && (latestPublishedAt === null || pub > latestPublishedAt)) {
+            latestPublishedAt = pub;
+          }
+        }
+        return { totalCount: totalCount, latestPublishedAt: latestPublishedAt };
       })
       .catch(function () {
         return null;
@@ -394,6 +431,15 @@
     return state.articlesByCreator[creatorId] || [];
   }
 
+  // 記事配列のうち最も新しい publishedAt を返す（無ければ null）。
+  function maxPublishedAt(articles) {
+    var max = null;
+    (articles || []).forEach(function (a) {
+      if (a.publishedAt && (max === null || a.publishedAt > max)) max = a.publishedAt;
+    });
+    return max;
+  }
+
   function statsOf(creatorId) {
     var arts = articlesOf(creatorId);
     var read = 0;
@@ -409,13 +455,27 @@
     return Math.round((stats.read / stats.total) * 100);
   }
 
-  // 新着件数 = 最新totalCount − 取得時totalCount(seenTotalCount)。
-  // 最新が未取得（latestが無い）なら0扱い。差が負なら0。
+  // 新着件数を返す。最新状態が未取得なら0。
+  // 基本は件数差分（最新totalCount − seenTotalCount）。ただし件数据え置きでも
+  // 最新公開日が seenLatestPublishedAt より新しければ「新着あり」とみなし最低1件を返す。
+  // （古い記事の削除＋新規投稿で件数が変わらないケースを公開日で拾う。）
   function newCountOf(creator) {
-    var latest = latestTotalCount[creator.id];
-    if (typeof latest !== 'number') return 0;
-    var seen = typeof creator.seenTotalCount === 'number' ? creator.seenTotalCount : latest;
-    return Math.max(0, latest - seen);
+    var status = latestStatus[creator.id];
+    if (!status || typeof status.totalCount !== 'number') return 0;
+    var seenCount =
+      typeof creator.seenTotalCount === 'number' ? creator.seenTotalCount : status.totalCount;
+    var byCount = Math.max(0, status.totalCount - seenCount);
+    if (byCount > 0) return byCount;
+    // 件数差が無くても公開日が進んでいれば新着扱い
+    var seenPub = creator.seenLatestPublishedAt;
+    if (
+      typeof seenPub === 'string' &&
+      status.latestPublishedAt &&
+      status.latestPublishedAt > seenPub
+    ) {
+      return 1;
+    }
+    return 0;
   }
 
   // 進捗バー要素を生成する（水平バー＋パーセント）。
@@ -636,11 +696,11 @@
     els.listBody.classList.toggle('hidden', !has);
     if (!has) return;
     renderCreatorCards();
-    // 各クリエイターの最新totalCountを取得して新着バッジを更新する
+    // 各クリエイターの最新状態を取得して新着バッジを更新する
     refreshLatestCounts();
   }
 
-  // 一覧の全クリエイターの最新totalCountをAPIで取得し、新着バッジを更新する。
+  // 一覧の全クリエイターの最新状態(件数+最新公開日)をAPIで取得し、新着バッジを更新する。
   // page1の1リクエスト/人。取得済みのものから順次カードに反映する。
   var refreshCountsToken = 0;
   function refreshLatestCounts() {
@@ -648,11 +708,18 @@
     state.creators.forEach(function (c) {
       // 記事未取得（seenTotalCount無し）のクリエイターは新着判定対象外
       if (typeof c.seenTotalCount !== 'number') return;
-      fetchTotalCount(c.id).then(function (total) {
+      fetchLatestStatus(c.id).then(function (status) {
         if (token !== refreshCountsToken) return; // 一覧を離れた等で古い結果は破棄
-        if (typeof total !== 'number') return;
-        if (latestTotalCount[c.id] === total) return; // 変化なし
-        latestTotalCount[c.id] = total;
+        if (!status) return;
+        var prev = latestStatus[c.id];
+        if (
+          prev &&
+          prev.totalCount === status.totalCount &&
+          prev.latestPublishedAt === status.latestPublishedAt
+        ) {
+          return; // 変化なし
+        }
+        latestStatus[c.id] = status;
         // 該当カードだけ作り直して差し替え（全再描画は避ける）
         if (currentRoute() === 'list') renderCreatorCards();
       });
@@ -832,13 +899,20 @@
     renderFilterOptions();
     renderArticles();
 
-    // 最新totalCountを取得して新着バッジ/ドットを更新（記事取得済みのときのみ）
+    // 最新状態を取得して新着バッジ/ドットを更新（記事取得済みのときのみ）
     if (typeof c.seenTotalCount === 'number') {
       var cid = c.id;
-      fetchTotalCount(cid).then(function (total) {
-        if (typeof total !== 'number') return;
-        if (latestTotalCount[cid] === total) return;
-        latestTotalCount[cid] = total;
+      fetchLatestStatus(cid).then(function (status) {
+        if (!status) return;
+        var prev = latestStatus[cid];
+        if (
+          prev &&
+          prev.totalCount === status.totalCount &&
+          prev.latestPublishedAt === status.latestPublishedAt
+        ) {
+          return;
+        }
+        latestStatus[cid] = status;
         // まだ同じクリエイターの記事一覧を見ているなら再描画
         if (currentRoute() === 'read' && state.selectedCreatorId === cid) {
           renderReadHeaderStats(statsOf(cid));
@@ -1582,16 +1656,21 @@
       setStatus(count + '件を取得中…', 'loading');
     }
 
-    // 差分取得: 既知IDと前回totalCountを渡す（初回は素の全件取得）
+    // 差分取得: 前回の最新公開日を渡す（公開日でソート後、これ以下に達したら停止）。
+    // 既存データに seenLatestPublishedAt が無い場合（旧バージョン保存分）は、
+    // 既存記事の最大公開日で代替する。既知IDは重複除外の保険として渡す。初回は全件。
     var opts = isFirstFetch
       ? {}
       : {
+          sincePublishedAt:
+            typeof c.seenLatestPublishedAt === 'string'
+              ? c.seenLatestPublishedAt
+              : maxPublishedAt(existing),
           knownIds: new Set(
             existing.map(function (a) {
               return a.id;
             })
           ),
-          knownTotal: typeof c.knownTotalCount === 'number' ? c.knownTotalCount : null,
         };
 
     fetchArticles(c.id, onProgress, opts)
@@ -1619,12 +1698,17 @@
           }
         }
 
-        // 取得＝件数を取り込んだので seen を最新に合わせる → バッジは消える
+        // 取得＝最新状態を取り込んだので seen を最新に合わせる → バッジは消える。
+        // 最新公開日は取得後の記事一覧から算出（page1が取れない端ケースの保険）。
         if (typeof result.totalCount === 'number') {
-          c.knownTotalCount = result.totalCount;
           c.seenTotalCount = result.totalCount;
-          latestTotalCount[c.id] = result.totalCount;
         }
+        var newLatestPub = result.latestPublishedAt || maxPublishedAt(state.articlesByCreator[c.id]);
+        if (newLatestPub) c.seenLatestPublishedAt = newLatestPub;
+        latestStatus[c.id] = {
+          totalCount: typeof result.totalCount === 'number' ? result.totalCount : c.seenTotalCount,
+          latestPublishedAt: c.seenLatestPublishedAt || null,
+        };
         c.lastFetchedAt = new Date().toISOString();
 
         var saved = saveState();
