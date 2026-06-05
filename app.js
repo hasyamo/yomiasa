@@ -19,7 +19,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.3';
+  var APP_VERSION = '0.1.4';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -1097,7 +1097,7 @@
     var chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'article-chip' + (read ? ' is-read' : '');
-    chip.textContent = read ? '読了 ✓' : '読んだにする';
+    chip.textContent = read ? '読了 ✓' : '読んだ';
     chip.addEventListener('click', function () {
       var nowRead = !isRead(creatorId, article.id);
       setRead(creatorId, article.id, nowRead, SOURCE.MANUAL);
@@ -1108,7 +1108,7 @@
       } else {
         wrap.classList.toggle('is-read', nowRead);
         chip.classList.toggle('is-read', nowRead);
-        chip.textContent = nowRead ? '読了 ✓' : '読んだにする';
+        chip.textContent = nowRead ? '読了 ✓' : '読んだ';
       }
       updateReadStatsHeader();
     });
