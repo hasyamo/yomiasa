@@ -1172,6 +1172,7 @@ select.field {
 .kitacore-rank-text.rank-a { background: linear-gradient(145deg, #059669, #34d399); }
 .kitacore-rank-text.rank-s { background: linear-gradient(145deg, #d97706, #fbbf24); }
 .kitacore-rank-text.rank-national { background: linear-gradient(145deg, #fde68a, #fb923c); }
+.kitacore-rank-text.rank-lord-prev { background: linear-gradient(145deg, #4f46e5, #3730a3); } /* 君主前・青寄り紫 */
 .kitacore-rank-text.rank-monarch {
   background:
     radial-gradient(circle at 70% 20%, rgba(139, 92, 246, 0.34), transparent 30%),

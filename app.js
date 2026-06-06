@@ -73,6 +73,26 @@
   // プレイヤー名（システムメッセージ内で固定表示）。
   var KITACORE_PLAYER = 'ktcrs1107';
 
+  // 覚醒後ランク（確定閾値・実データ検算済み）。覚醒＝S級スタートで、
+  // 回収した累計ワイ(totalWai)が min 以上の最上位ランクを採用する。
+  // key は CSS の rank-<key> と対応（バッジ色）。
+  var KITACORE_GOAL = 2000; // 君主到達ライン＝進捗バーの最大
+  var KITACORE_RANKS = [
+    { rank: 'S級覚醒', key: 's', min: 0 },
+    { rank: '国家級', key: 'national', min: 600 },
+    { rank: '君主前', key: 'lord-prev', min: 1200 },
+    { rank: '君主', key: 'monarch', min: 2000 },
+  ];
+
+  // 累計ワイ数 → 現在ランク（min 以上の最上位）。
+  function kitacoreRankOf(totalWai) {
+    var cur = KITACORE_RANKS[0];
+    for (var i = 0; i < KITACORE_RANKS.length; i++) {
+      if (totalWai >= KITACORE_RANKS[i].min) cur = KITACORE_RANKS[i];
+    }
+    return cur;
+  }
+
   // このクリエイターがキタコレ発動対象か（ktcrs1107 限定）。
   function isKitacoreTarget(creatorId) {
     return creatorId === KITACORE_ID;
@@ -1573,11 +1593,11 @@
     els.kitacoreProgress.classList.toggle('hidden', !on);
     if (!on) return;
 
-    // --- ダミー値（ランク判定ロジックは未実装。ランク名・色キーは仮で E級） ---
+    // 回収した累計ワイから現在ランクを判定（覚醒＝S級スタート）。
     var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
-    var rankName = 'E級';
-    var rankKey = 'e'; // rank-<key> で文字色が変わる。実装時に判定で差し替え。
-    var KITACORE_GOAL = 2000; // 君主到達ライン＝進捗バーの最大
+    var rankInfo = kitacoreRankOf(totalWai);
+    var rankName = rankInfo.rank;
+    var rankKey = rankInfo.key;
     var pct = Math.min(100, (totalWai / KITACORE_GOAL) * 100);
 
     // ランクバッジに「ワイ語ハンターランク E級」を丸ごと入れ、右端に寄せる
