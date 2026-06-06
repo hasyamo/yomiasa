@@ -47,24 +47,26 @@
       // keyword は一時的な絞り込みなのでグローバル(uiState)のまま覚えない。
       uiByCreator: {},
       // キタコレモード。
-      //   counts[id]    : 記事ごとのワイ数カウント（収集結果。article.id 単位）
-      //   collected[id] : ワイ語チップを回収済み（ポイント加算済み。二重取り防止）
-      //   totalWai      : 回収した累計ワイ数（＝ランクの燃料）
-      //   awakened      : 覚醒済みクリエイター（note ID 単位）
-      kitacore: { counts: {}, collected: {}, totalWai: 0, awakened: {} },
+      //   mode[id]        : キタコレモードON（ダブルタップで立つ。E級スタート）
+      //   counts[id]      : 記事ごとのワイ数カウント（収集結果。article.id 単位）
+      //   collected[id]   : ワイ語チップを回収済み（ポイント加算済み。二重取り防止）
+      //   totalWai        : 回収した累計ワイ数（＝覚醒後ランクの燃料）
+      //   keys[id]        : 鍵の数（覚醒前。クイズ正解で +1）
+      //   defeatedBosses[id] : 撃破済みボス key の配列（覚醒前ランク・覚醒の導出元）
+      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {} },
     };
   }
 
   // state.kitacore とその各キーの遅延初期化。読み書き前に必ず通す。
   function ensureKitacore() {
-    if (!state.kitacore || typeof state.kitacore !== 'object') {
-      state.kitacore = { counts: {}, collected: {}, totalWai: 0, awakened: {} };
-    }
+    if (!state.kitacore || typeof state.kitacore !== 'object') state.kitacore = {};
     var k = state.kitacore;
+    if (!k.mode || typeof k.mode !== 'object') k.mode = {};
     if (!k.counts || typeof k.counts !== 'object') k.counts = {};
     if (!k.collected || typeof k.collected !== 'object') k.collected = {};
     if (typeof k.totalWai !== 'number') k.totalWai = 0;
-    if (!k.awakened || typeof k.awakened !== 'object') k.awakened = {};
+    if (!k.keys || typeof k.keys !== 'object') k.keys = {};
+    if (!k.defeatedBosses || typeof k.defeatedBosses !== 'object') k.defeatedBosses = {};
     return k;
   }
 
@@ -93,25 +95,60 @@
     return cur;
   }
 
+  // 覚醒前ボス（撃破で昇格）。order 順に挑戦。最後の wing 撃破で S級覚醒。
+  //   rankAfter = そのボスを倒した後のランク。cost = 挑戦に要る鍵数。
+  var KITACORE_PRE_BOSSES = [
+    { key: 'reaper', name: 'REAPER', title: '終焉の執行者', cost: 3, rankBefore: 'E級', rankBeforeKey: 'e' },
+    { key: 'armored', name: 'ARMORED WARRIOR', title: '戦場の死', cost: 3, rankBefore: 'C級', rankBeforeKey: 'c' },
+    { key: 'wing', name: 'WING OF DEATH', title: '収穫の獣', cost: 3, rankBefore: 'A級', rankBeforeKey: 'a' },
+  ];
+
   // このクリエイターがキタコレ発動対象か（ktcrs1107 限定）。
   function isKitacoreTarget(creatorId) {
     return creatorId === KITACORE_ID;
   }
 
-  // 覚醒済みか。
-  function isAwakened(creatorId) {
-    return !!(state.kitacore && state.kitacore.awakened && state.kitacore.awakened[creatorId]);
+  // キタコレモードON か（ダブルタップで立つ。表示全般の前提条件）。
+  function isModeOn(creatorId) {
+    return !!(state.kitacore && state.kitacore.mode && state.kitacore.mode[creatorId]);
   }
 
-  // 覚醒トグル。ON→金縁＋解放メッセージ / OFF→解除メッセージ。発動対象のみ反応。
-  function toggleAwaken(creatorId) {
+  // 撃破済みボス key の配列。
+  function defeatedBossesOf(creatorId) {
+    var d = state.kitacore && state.kitacore.defeatedBosses ? state.kitacore.defeatedBosses[creatorId] : null;
+    return Array.isArray(d) ? d : [];
+  }
+
+  // S級覚醒済みか＝覚醒前の最終ボス(wing)を撃破済み。
+  function isPostAwakening(creatorId) {
+    return defeatedBossesOf(creatorId).indexOf('wing') !== -1;
+  }
+
+  // 鍵の数。
+  function keysOf(creatorId) {
+    var n = state.kitacore && state.kitacore.keys ? state.kitacore.keys[creatorId] : 0;
+    return typeof n === 'number' ? n : 0;
+  }
+
+  // 次に挑むべき覚醒前ボス（未撃破の先頭）。全撃破なら null。
+  function nextPreBoss(creatorId) {
+    var done = defeatedBossesOf(creatorId);
+    for (var i = 0; i < KITACORE_PRE_BOSSES.length; i++) {
+      if (done.indexOf(KITACORE_PRE_BOSSES[i].key) === -1) return KITACORE_PRE_BOSSES[i];
+    }
+    return null;
+  }
+
+  // キタコレモードのトグル。ON→E級スタート（修行開始）/ OFF→終了。発動対象のみ反応。
+  // ※覚醒(S級)は A級ボス撃破で起きる。ここでは覚醒しない。
+  function toggleMode(creatorId) {
     if (!isKitacoreTarget(creatorId)) return;
     ensureKitacore();
-    var now = isAwakened(creatorId);
+    var now = isModeOn(creatorId);
     if (now) {
-      delete state.kitacore.awakened[creatorId];
+      delete state.kitacore.mode[creatorId];
     } else {
-      state.kitacore.awakened[creatorId] = { at: new Date().toISOString() };
+      state.kitacore.mode[creatorId] = { at: new Date().toISOString() };
     }
     saveState();
     renderCreatorCards();
@@ -1075,12 +1112,12 @@
     var avatar = document.createElement('div');
     avatar.className = 'creator-card-avatar';
     // 発動対象が覚醒済みなら金縁。隠しコマンド（ダブルタップ）で切り替える。
-    if (isKitacoreTarget(c.id) && isAwakened(c.id)) {
+    if (isKitacoreTarget(c.id) && isModeOn(c.id)) {
       avatar.classList.add('is-awakened');
     }
     if (isKitacoreTarget(c.id)) {
       attachDoubleTap(avatar, function () {
-        toggleAwaken(c.id);
+        toggleMode(c.id);
       });
     }
     if (c.iconUrl) {
@@ -1520,7 +1557,7 @@
     // キタコレ：覚醒済みクリエイターで「収集済み」の記事だけワイ語チップを出す。
     //   未収集（タップ前）はチップ無し。ワイ>0未回収=タップ可。
     //   ワイ0 / 回収済み=非活性。
-    if (isKitacoreTarget(creatorId) && isAwakened(creatorId) && isCounted(article.id)) {
+    if (isKitacoreTarget(creatorId) && isModeOn(creatorId) && isCounted(article.id)) {
       var entry = state.kitacore.counts[article.id];
       var collected = isCollected(article.id);
       var claimable = entry.wai > 0 && !collected;
@@ -1584,32 +1621,32 @@
     renderKitacoreHeader();
   }
 
-  // キタコレ：記事数行＋進捗バーと同じ作りで、ワイ数・ランクを出す。
-  // 覚醒済みクリエイターのときだけ表示。※レイアウト確認用にダミー値。
+  // キタコレ：ヘッダーにランク行＋進捗バーを出す。モードON のときだけ表示。
+  //   覚醒前（A級ボス未撃破）= 覚醒前ランク（E/C/A）＋鍵の数。
+  //   覚醒後（wing 撃破済み）= ワイ語ハンターランク＋ワイ累計バー。
   function renderKitacoreHeader() {
     var c = getSelectedCreator();
-    var on = c && isKitacoreTarget(c.id) && isAwakened(c.id);
+    var on = c && isKitacoreTarget(c.id) && isModeOn(c.id);
     els.kitacoreStats.classList.toggle('hidden', !on);
     els.kitacoreProgress.classList.toggle('hidden', !on);
     if (!on) return;
 
-    // 回収した累計ワイから現在ランクを判定（覚醒＝S級スタート）。
-    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
-    var rankInfo = kitacoreRankOf(totalWai);
-    var rankName = rankInfo.rank;
-    var rankKey = rankInfo.key;
-    var pct = Math.min(100, (totalWai / KITACORE_GOAL) * 100);
+    if (isPostAwakening(c.id)) {
+      renderKitacorePostHeader(c.id);
+    } else {
+      renderKitacorePreHeader(c.id);
+    }
+  }
 
-    // ランクバッジに「ワイ語ハンターランク E級」を丸ごと入れ、右端に寄せる
-    // （#kitacore-stats は justify-content:flex-end。新着チップと縦が揃う）。
+  // バッジ＋進捗バーを共通レイアウトで描く。
+  //   badgeText/badgeKey = ランクバッジ。barCur/barMax/barText = 進捗バー。
+  function paintKitacoreHeader(badgeText, badgeKey, barCur, barMax, barText) {
     els.kitacoreStats.innerHTML = '';
     var rank = document.createElement('span');
-    rank.className = 'kitacore-rank-text rank-' + rankKey;
-    rank.textContent = 'ワイ語ハンターランク ' + rankName;
+    rank.className = 'kitacore-rank-text rank-' + badgeKey;
+    rank.textContent = badgeText;
     els.kitacoreStats.appendChild(rank);
 
-    // 進捗バーと同じ構造（track + fill + label）。
-    // 最大=君主2000。右端ラベルは「現在値／目標値」。
     els.kitacoreProgress.innerHTML = '';
     var wrap = document.createElement('div');
     wrap.className = 'progress';
@@ -1617,14 +1654,41 @@
     track.className = 'progress-track';
     var fill = document.createElement('div');
     fill.className = 'progress-fill';
-    fill.style.width = pct + '%';
+    fill.style.width = Math.min(100, barMax > 0 ? (barCur / barMax) * 100 : 0) + '%';
     track.appendChild(fill);
     var barLabel = document.createElement('span');
     barLabel.className = 'progress-pct kitacore-wai-count';
-    barLabel.textContent = totalWai + '／' + KITACORE_GOAL;
+    barLabel.textContent = barText;
     wrap.appendChild(track);
     wrap.appendChild(barLabel);
     els.kitacoreProgress.appendChild(wrap);
+  }
+
+  // 覚醒後ヘッダー：ワイ累計→ランク、バーは N／2000。
+  function renderKitacorePostHeader(creatorId) {
+    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
+    var rankInfo = kitacoreRankOf(totalWai);
+    paintKitacoreHeader(
+      'ワイ語ハンターランク ' + rankInfo.rank,
+      rankInfo.key,
+      totalWai,
+      KITACORE_GOAL,
+      totalWai + '／' + KITACORE_GOAL
+    );
+  }
+
+  // 覚醒前ヘッダー：覚醒前ランク（次ボスの rankBefore）＋鍵の数。
+  // バーは「次ボス挑戦に必要な鍵」への進捗（cost 到達で挑戦可能）。
+  function renderKitacorePreHeader(creatorId) {
+    var boss = nextPreBoss(creatorId); // モードON＆未覚醒なら必ず非null
+    var keys = keysOf(creatorId);
+    paintKitacoreHeader(
+      'ワイ語ハンターランク ' + boss.rankBefore,
+      boss.rankBeforeKey,
+      keys,
+      boss.cost,
+      '鍵 ' + keys + '／' + boss.cost
+    );
   }
 
   function emptyArticlesEl(text) {
@@ -2037,7 +2101,7 @@
     }
     // キタコレ：覚醒済みクリエイターの記事なら、遷移前に裏でワイ数を収集する。
     // （ポイント加算は後で記事行のチップをタップして回収＝ここでは点を入れない）
-    if (isKitacoreTarget(creatorId) && isAwakened(creatorId)) {
+    if (isKitacoreTarget(creatorId) && isModeOn(creatorId)) {
       fetchAndCountArticle(article, creatorId);
     }
   }
@@ -2118,7 +2182,9 @@
         }
         delete state.kitacore.counts[a.id];
       });
-      delete state.kitacore.awakened[id];
+      delete state.kitacore.mode[id];
+      delete state.kitacore.keys[id];
+      delete state.kitacore.defeatedBosses[id];
     }
     delete state.articlesByCreator[id];
     // この creator の読了状態も掃除
