@@ -1510,7 +1510,7 @@
         'article-wai' +
         (collected ? ' is-collected' : '') +
         (claimable ? ' is-claimable' : ' is-locked');
-      wai.textContent = collected ? '✓ ワイ ' + entry.wai : 'ワイ ' + entry.wai;
+      wai.textContent = collected ? 'ワイ ' + entry.wai + ' ✓' : 'ワイ ' + entry.wai;
       wai.disabled = !claimable;
       if (claimable) {
         wai.addEventListener('click', function () {
