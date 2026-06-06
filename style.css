@@ -1152,12 +1152,33 @@ select.field {
 
 /* ===================== キタコレモード ===================== */
 
-/* 覚醒したクリエイターのアバター：ゴールドの金縁。 */
+/* 覚醒したクリエイターのアバター：ゴールドの枠がゆっくり明滅する。
+   枠の色は固定（金）で、明るさ・グローの強さだけを上下させる。 */
 .creator-card-avatar.is-awakened {
-  box-shadow:
-    0 0 0 2px #fde68a,
-    0 0 0 4px #d4af37,
-    0 0 12px 2px rgba(212, 175, 55, 0.55);
+  animation: kitacore-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes kitacore-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(212, 175, 55, 0.45),
+      0 0 6px 1px rgba(212, 175, 55, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px #d4af37,
+      0 0 14px 3px rgba(212, 175, 55, 0.75);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .creator-card-avatar.is-awakened {
+    animation: none;
+    box-shadow:
+      0 0 0 2px #d4af37,
+      0 0 10px 2px rgba(212, 175, 55, 0.5);
+  }
 }
 
 /* システムメッセージ：俺レベ「システム」風の無機質ウィンドウ。 */
