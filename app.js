@@ -96,6 +96,52 @@
     showSystemMessage(now ? kitacoreSleepLines() : kitacoreWakeLines());
   }
 
+  // ダブルタップ／ダブルクリックを要素に仕込む。
+  //   デスクトップ: dblclick。
+  //   モバイル: touchend の間隔(<=350ms)＋移動量(<=24px)で自前判定する。
+  //     iOS Safari はダブルタップがズーム/合成 dblclick と競合するため、
+  //     touchend 側で判定したら preventDefault して合成イベントを抑止し、
+  //     直後の dblclick を無視して二重発火を防ぐ。
+  function attachDoubleTap(el, handler) {
+    var DT_MS = 350;
+    var DT_MOVE = 24;
+    var lastTime = 0;
+    var lastX = 0;
+    var lastY = 0;
+    var suppressDblclickUntil = 0;
+
+    el.addEventListener('dblclick', function (e) {
+      // touch 由来で合成された dblclick は無視（touchend 側で処理済み）
+      if (e.timeStamp <= suppressDblclickUntil) return;
+      e.stopPropagation();
+      handler();
+    });
+
+    el.addEventListener(
+      'touchend',
+      function (e) {
+        if (!e.changedTouches || e.changedTouches.length !== 1) return;
+        var t = e.changedTouches[0];
+        var dt = e.timeStamp - lastTime;
+        var moved =
+          Math.abs(t.clientX - lastX) > DT_MOVE || Math.abs(t.clientY - lastY) > DT_MOVE;
+        if (dt > 0 && dt <= DT_MS && !moved) {
+          // ダブルタップ成立：ズーム/合成クリックを止めて発火
+          e.preventDefault();
+          e.stopPropagation();
+          suppressDblclickUntil = e.timeStamp + 700;
+          lastTime = 0; // 連続トリプルタップを誤検出しない
+          handler();
+          return;
+        }
+        lastTime = e.timeStamp;
+        lastX = t.clientX;
+        lastY = t.clientY;
+      },
+      { passive: false }
+    );
+  }
+
   // ON 時のシステムメッセージ（俺レベ「システム」風・無機質）。
   function kitacoreWakeLines() {
     return [
@@ -918,8 +964,7 @@
       avatar.classList.add('is-awakened');
     }
     if (isKitacoreTarget(c.id)) {
-      avatar.addEventListener('dblclick', function (e) {
-        e.stopPropagation();
+      attachDoubleTap(avatar, function () {
         toggleAwaken(c.id);
       });
     }
