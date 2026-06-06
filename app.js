@@ -46,7 +46,123 @@
       // year / month / showUnreadOnly / sortOrder はクリエイターごとに記憶する。
       // keyword は一時的な絞り込みなのでグローバル(uiState)のまま覚えない。
       uiByCreator: {},
+      // キタコレモード。counts は記事ごとのワイ/関西度カウント（article.id 単位）。
+      // awakened は覚醒済みクリエイター（note ID 単位）。
+      kitacore: { counts: {}, awakened: {} },
     };
+  }
+
+  // state.kitacore / .counts / .awakened の遅延初期化。読み書き前に必ず通す。
+  function ensureKitacore() {
+    if (!state.kitacore || typeof state.kitacore !== 'object') {
+      state.kitacore = { counts: {}, awakened: {} };
+    }
+    if (!state.kitacore.counts || typeof state.kitacore.counts !== 'object') {
+      state.kitacore.counts = {};
+    }
+    if (!state.kitacore.awakened || typeof state.kitacore.awakened !== 'object') {
+      state.kitacore.awakened = {};
+    }
+    return state.kitacore;
+  }
+
+  // キタコレモードが発動できる唯一の note ID（KITAさん専用。汎用化しない）。
+  var KITACORE_ID = 'ktcrs1107';
+  // プレイヤー名（システムメッセージ内で固定表示）。
+  var KITACORE_PLAYER = 'ktcrs1107';
+
+  // このクリエイターがキタコレ発動対象か（ktcrs1107 限定）。
+  function isKitacoreTarget(creatorId) {
+    return creatorId === KITACORE_ID;
+  }
+
+  // 覚醒済みか。
+  function isAwakened(creatorId) {
+    return !!(state.kitacore && state.kitacore.awakened && state.kitacore.awakened[creatorId]);
+  }
+
+  // 覚醒トグル。ON→金縁＋解放メッセージ / OFF→解除メッセージ。発動対象のみ反応。
+  function toggleAwaken(creatorId) {
+    if (!isKitacoreTarget(creatorId)) return;
+    ensureKitacore();
+    var now = isAwakened(creatorId);
+    if (now) {
+      delete state.kitacore.awakened[creatorId];
+    } else {
+      state.kitacore.awakened[creatorId] = { at: new Date().toISOString() };
+    }
+    saveState();
+    renderCreatorCards();
+    showSystemMessage(now ? kitacoreSleepLines() : kitacoreWakeLines());
+  }
+
+  // ON 時のシステムメッセージ（俺レベ「システム」風・無機質）。
+  function kitacoreWakeLines() {
+    return [
+      '［ システム ］',
+      'プレイヤー〈' + KITACORE_PLAYER + '〉の覚醒を確認しました。',
+      '隠しモード『キタコレモード』が解放されました。',
+      'ワイ語の収集を開始します。',
+    ];
+  }
+
+  // OFF 時のシステムメッセージ。
+  function kitacoreSleepLines() {
+    return [
+      '［ システム ］',
+      '『キタコレモード』を終了します。',
+      'プレイヤー〈' + KITACORE_PLAYER + '〉、また会いましょう。',
+    ];
+  }
+
+  // 進行中のタイプライターの状態。null=非表示。
+  //   { lines, full, typed, timer, done } done=true なら次タップで閉じる。
+  var systemMsg = null;
+
+  // システムメッセージをタイプライター表示する。
+  //   1回目タップ: 全文即時表示（スキップ）/ 2回目タップ: 閉じる。
+  function showSystemMessage(lines) {
+    if (!els.kitacoreSystem || !els.kitacoreSystemText) return;
+    // 進行中があれば片付ける
+    if (systemMsg && systemMsg.timer) clearTimeout(systemMsg.timer);
+    var full = lines.join('\n');
+    systemMsg = { full: full, typed: 0, timer: null, done: false };
+    els.kitacoreSystemText.textContent = '';
+    els.kitacoreSystem.classList.remove('hidden');
+    typeNextChar();
+  }
+
+  function typeNextChar() {
+    if (!systemMsg) return;
+    if (systemMsg.typed >= systemMsg.full.length) {
+      systemMsg.done = true;
+      return;
+    }
+    systemMsg.typed += 1;
+    els.kitacoreSystemText.textContent = systemMsg.full.slice(0, systemMsg.typed);
+    // 改行は少し溜める＝行送りの間。それ以外は等速。
+    var ch = systemMsg.full.charAt(systemMsg.typed - 1);
+    var delay = ch === '\n' ? 260 : 34;
+    systemMsg.timer = setTimeout(typeNextChar, delay);
+  }
+
+  // オーバーレイのタップ: 未完了なら全文即表示、完了済みなら閉じる。
+  function onSystemMessageTap() {
+    if (!systemMsg) return;
+    if (!systemMsg.done) {
+      if (systemMsg.timer) clearTimeout(systemMsg.timer);
+      systemMsg.typed = systemMsg.full.length;
+      els.kitacoreSystemText.textContent = systemMsg.full;
+      systemMsg.done = true;
+      return;
+    }
+    closeSystemMessage();
+  }
+
+  function closeSystemMessage() {
+    if (systemMsg && systemMsg.timer) clearTimeout(systemMsg.timer);
+    systemMsg = null;
+    if (els.kitacoreSystem) els.kitacoreSystem.classList.add('hidden');
   }
 
   // クリエイター別に覚える UI 項目のデフォルト。
@@ -124,6 +240,10 @@
           parsed.uiByCreator && typeof parsed.uiByCreator === 'object'
             ? parsed.uiByCreator
             : base.uiByCreator,
+        kitacore:
+          parsed.kitacore && typeof parsed.kitacore === 'object'
+            ? parsed.kitacore
+            : base.kitacore,
       };
     } catch (e) {
       return defaultState();
@@ -177,6 +297,10 @@
         incoming.uiByCreator && typeof incoming.uiByCreator === 'object'
           ? incoming.uiByCreator
           : base.uiByCreator,
+      kitacore:
+        incoming.kitacore && typeof incoming.kitacore === 'object'
+          ? incoming.kitacore
+          : base.kitacore,
     };
     state = next;
     var saved = saveState();
@@ -685,6 +809,9 @@
     importPaste: document.getElementById('import-paste'),
     importConfirm: document.getElementById('import-confirm'),
     importCancel: document.getElementById('import-cancel'),
+
+    kitacoreSystem: document.getElementById('kitacore-system'),
+    kitacoreSystemText: document.getElementById('kitacore-system-text'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -786,6 +913,16 @@
 
     var avatar = document.createElement('div');
     avatar.className = 'creator-card-avatar';
+    // 発動対象が覚醒済みなら金縁。隠しコマンド（ダブルタップ）で切り替える。
+    if (isKitacoreTarget(c.id) && isAwakened(c.id)) {
+      avatar.classList.add('is-awakened');
+    }
+    if (isKitacoreTarget(c.id)) {
+      avatar.addEventListener('dblclick', function (e) {
+        e.stopPropagation();
+        toggleAwaken(c.id);
+      });
+    }
     if (c.iconUrl) {
       var img = document.createElement('img');
       img.src = c.iconUrl;
@@ -1731,6 +1868,13 @@
     state.creators = state.creators.filter(function (x) {
       return x.id !== id;
     });
+    // この creator のキタコレ計測も掃除（counts は article.id 単位なので削除前に拾う）。
+    if (state.kitacore && state.kitacore.counts) {
+      (state.articlesByCreator[id] || []).forEach(function (a) {
+        if (a && a.id) delete state.kitacore.counts[a.id];
+      });
+    }
+    if (state.kitacore && state.kitacore.awakened) delete state.kitacore.awakened[id];
     delete state.articlesByCreator[id];
     // この creator の読了状態も掃除
     Object.keys(state.readArticles).forEach(function (k) {
@@ -2219,6 +2363,10 @@
     }
     wireEvents();
     els.updateClose.addEventListener('click', closeUpdateModal);
+    // キタコレ：システムメッセージのタップ（全文表示→閉じる）
+    if (els.kitacoreSystem) {
+      els.kitacoreSystem.addEventListener('click', onSystemMessageTap);
+    }
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
     checkVersionUpdate();

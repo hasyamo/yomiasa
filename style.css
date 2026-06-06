@@ -1149,3 +1149,70 @@ select.field {
     padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ===================== キタコレモード ===================== */
+
+/* 覚醒したクリエイターのアバター：ゴールドの金縁。 */
+.creator-card-avatar.is-awakened {
+  box-shadow:
+    0 0 0 2px #fde68a,
+    0 0 0 4px #d4af37,
+    0 0 12px 2px rgba(212, 175, 55, 0.55);
+}
+
+/* システムメッセージ：俺レベ「システム」風の無機質ウィンドウ。 */
+.kitacore-system {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.kitacore-system.hidden {
+  display: none;
+}
+
+.kitacore-system-window {
+  width: 100%;
+  max-width: 420px;
+  padding: 22px 20px 16px;
+  border: 1px solid #38bdf8;
+  border-radius: 10px;
+  background: rgba(8, 17, 38, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.35),
+    0 0 22px 2px rgba(56, 189, 248, 0.35);
+}
+
+.kitacore-system-text {
+  margin: 0;
+  min-height: 6em;
+  white-space: pre-wrap;
+  color: #e0f2fe;
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 15px;
+  line-height: 1.9;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.55);
+}
+
+.kitacore-system-hint {
+  margin-top: 14px;
+  text-align: right;
+  color: rgba(186, 230, 253, 0.65);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  animation: kitacore-blink 1.4s steps(1) infinite;
+}
+
+@keyframes kitacore-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
