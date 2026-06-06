@@ -1516,6 +1516,7 @@
         wai.addEventListener('click', function () {
           collectWai(article.id);
           renderArticles();
+          updateReadStatsHeader(); // 累計ワイ→ヘッダーのランクバーへ反映
         });
       }
       meta.appendChild(wai);
