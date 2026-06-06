@@ -53,7 +53,7 @@
       //   totalWai        : 回収した累計ワイ数（＝覚醒後ランクの燃料）
       //   keys[id]        : 鍵の数（覚醒前。クイズ正解で +1）
       //   defeatedBosses[id] : 撃破済みボス key の配列（覚醒前ランク・覚醒の導出元）
-      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {} },
+      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {} },
     };
   }
 
@@ -67,6 +67,7 @@
     if (typeof k.totalWai !== 'number') k.totalWai = 0;
     if (!k.keys || typeof k.keys !== 'object') k.keys = {};
     if (!k.defeatedBosses || typeof k.defeatedBosses !== 'object') k.defeatedBosses = {};
+    if (!k.quizCleared || typeof k.quizCleared !== 'object') k.quizCleared = {};
     return k;
   }
 
@@ -153,6 +154,100 @@
     saveState();
     renderCreatorCards();
     showSystemMessage(now ? kitacoreSleepLines() : kitacoreWakeLines());
+  }
+
+  // クイズデータ（覚醒前）。起動時に一度だけ読み、メモリに保持する。
+  //   キー = 記事URLのスラッグ(n...)。{ q, choices[], answer }
+  var kitacoreQuizzes = null;
+  function loadKitacoreQuizzes() {
+    fetch('kitacore_quiz.json?v=' + APP_VERSION)
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        kitacoreQuizzes = data && data.quizzes ? data.quizzes : {};
+      })
+      .catch(function () {
+        kitacoreQuizzes = {}; // 読めなくてもクイズ無しで動く
+      });
+  }
+
+  // 記事に紐づくクイズ（無ければ null）。スラッグで引く。
+  function quizForArticle(article) {
+    if (!kitacoreQuizzes) return null;
+    var key = articleKeyFromUrl(article && article.url);
+    return key && kitacoreQuizzes[key] ? kitacoreQuizzes[key] : null;
+  }
+
+  // クイズ正解済みか（記事ごと1回。鍵の二重獲得防止）。collected を流用せず専用に持つ。
+  function isQuizCleared(creatorId, articleId) {
+    var k = state.kitacore && state.kitacore.quizCleared ? state.kitacore.quizCleared : null;
+    return !!(k && k[articleId]);
+  }
+
+  // 鍵を1つ獲得（クイズ正解時）。記事ごと1回きり。
+  function awardKey(creatorId, articleId) {
+    ensureKitacore();
+    if (!state.kitacore.quizCleared) state.kitacore.quizCleared = {};
+    if (state.kitacore.quizCleared[articleId]) return; // 既に獲得済み
+    state.kitacore.quizCleared[articleId] = true;
+    state.kitacore.keys[creatorId] = keysOf(creatorId) + 1;
+    saveState();
+  }
+
+  // 進行中クイズの文脈。
+  var activeQuiz = null; // { creatorId, articleId, quiz }
+
+  // クイズモーダルを開く（覚醒前・モードON・未覚醒・クイズ有りのときだけ）。
+  function openQuiz(creatorId, article, quiz) {
+    activeQuiz = { creatorId: creatorId, articleId: article.id, quiz: quiz };
+    els.kitacoreQuizQ.textContent = quiz.q;
+    els.kitacoreQuizResult.classList.add('hidden');
+    els.kitacoreQuizResult.textContent = '';
+    els.kitacoreQuizChoices.innerHTML = '';
+    var cleared = isQuizCleared(creatorId, article.id);
+    quiz.choices.forEach(function (choice, idx) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kitacore-quiz-choice';
+      btn.textContent = choice;
+      btn.addEventListener('click', function () {
+        answerQuiz(idx);
+      });
+      els.kitacoreQuizChoices.appendChild(btn);
+    });
+    if (cleared) {
+      // 既に正解済みなら鍵は出ないことを明示（再挑戦自体は可）
+      els.kitacoreQuizResult.textContent = 'この試練の終焉の鍵は取得済みです。';
+      els.kitacoreQuizResult.classList.remove('hidden');
+    }
+    els.kitacoreQuiz.classList.remove('hidden');
+  }
+
+  function answerQuiz(idx) {
+    if (!activeQuiz) return;
+    var correct = idx === activeQuiz.quiz.answer;
+    var btns = els.kitacoreQuizChoices.querySelectorAll('.kitacore-quiz-choice');
+    btns[idx].classList.add(correct ? 'is-correct' : 'is-wrong');
+    if (correct) {
+      btns[activeQuiz.quiz.answer].classList.add('is-correct');
+    }
+    var alreadyHad = isQuizCleared(activeQuiz.creatorId, activeQuiz.articleId);
+    if (correct && !alreadyHad) {
+      awardKey(activeQuiz.creatorId, activeQuiz.articleId);
+      els.kitacoreQuizResult.textContent = '正解。終焉の鍵を 1 獲得しました。';
+      updateReadStatsHeader(); // 鍵の数→ヘッダーへ反映
+    } else if (correct) {
+      els.kitacoreQuizResult.textContent = '正解。この試練の終焉の鍵は取得済みです。';
+    } else {
+      els.kitacoreQuizResult.textContent = '不正解。再挑戦が可能です。';
+    }
+    els.kitacoreQuizResult.classList.remove('hidden');
+  }
+
+  function closeQuiz() {
+    activeQuiz = null;
+    if (els.kitacoreQuiz) els.kitacoreQuiz.classList.add('hidden');
   }
 
   // ダブルタップ／ダブルクリックを要素に仕込む。
@@ -1010,6 +1105,11 @@
 
     kitacoreSystem: document.getElementById('kitacore-system'),
     kitacoreSystemText: document.getElementById('kitacore-system-text'),
+    kitacoreQuiz: document.getElementById('kitacore-quiz'),
+    kitacoreQuizQ: document.getElementById('kitacore-quiz-q'),
+    kitacoreQuizChoices: document.getElementById('kitacore-quiz-choices'),
+    kitacoreQuizResult: document.getElementById('kitacore-quiz-result'),
+    kitacoreQuizClose: document.getElementById('kitacore-quiz-close'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -1551,6 +1651,11 @@
       // 未読のみ表示中の行消し / グレーアウト / しおり移動を一括で正しく反映。
       renderArticles();
       updateReadStatsHeader();
+      // キタコレ覚醒前：「読んだ」にした瞬間、その記事にクイズがあれば出題。
+      if (nowRead && isKitacoreTarget(creatorId) && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
+        var quiz = quizForArticle(article);
+        if (quiz) openQuiz(creatorId, article, quiz);
+      }
     });
     meta.appendChild(chip);
 
@@ -1677,18 +1782,24 @@
     );
   }
 
-  // 覚醒前ヘッダー：覚醒前ランク（次ボスの rankBefore）＋鍵の数。
-  // バーは「次ボス挑戦に必要な鍵」への進捗（cost 到達で挑戦可能）。
+  // 覚醒前ヘッダー：覚醒前ランク（次ボスの rankBefore）。
+  // 進捗バーは覚醒後と同じワイ累計（N／2000）。覚醒前でも最新記事を読めばワイは貯まる。
+  // 鍵の数はバーには出さず、ボスUI側で見せる。
   function renderKitacorePreHeader(creatorId) {
     var boss = nextPreBoss(creatorId); // モードON＆未覚醒なら必ず非null
-    var keys = keysOf(creatorId);
+    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
     paintKitacoreHeader(
       'ワイ語ハンターランク ' + boss.rankBefore,
       boss.rankBeforeKey,
-      keys,
-      boss.cost,
-      '鍵 ' + keys + '／' + boss.cost
+      totalWai,
+      KITACORE_GOAL,
+      totalWai + '／' + KITACORE_GOAL
     );
+    // ランクバッジの右横に鍵数（覚醒前のみ）。
+    var keyEl = document.createElement('span');
+    keyEl.className = 'kitacore-keys';
+    keyEl.textContent = '終焉の鍵 × ' + keysOf(creatorId);
+    els.kitacoreStats.appendChild(keyEl);
   }
 
   function emptyArticlesEl(text) {
@@ -2181,6 +2292,7 @@
           delete state.kitacore.collected[a.id];
         }
         delete state.kitacore.counts[a.id];
+        delete state.kitacore.quizCleared[a.id];
       });
       delete state.kitacore.mode[id];
       delete state.kitacore.keys[id];
@@ -2678,10 +2790,14 @@
     if (els.kitacoreSystem) {
       els.kitacoreSystem.addEventListener('click', onSystemMessageTap);
     }
+    if (els.kitacoreQuizClose) {
+      els.kitacoreQuizClose.addEventListener('click', closeQuiz);
+    }
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
     checkVersionUpdate();
     registerServiceWorker();
+    loadKitacoreQuizzes();
   }
 
   init();

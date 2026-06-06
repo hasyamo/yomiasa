@@ -1183,6 +1183,19 @@ select.field {
     0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
+/* ランクバッジ右横の鍵数（覚醒前のみ）。バッジに効く margin-right:auto を
+   打ち消し、鍵側に auto を移して「バッジ 鍵」を左に寄せ、右に空白を作る。 */
+#kitacore-stats > .kitacore-rank-text:first-child {
+  margin-right: 0;
+}
+.kitacore-keys {
+  margin-right: auto;
+  font-size: 13px;
+  font-weight: 700;
+  color: #7f1d1d; /* 終焉の鍵：深紅（暗） */
+  font-variant-numeric: tabular-nums;
+}
+
 /* ランク進捗バー右端の「現在値／目標値」ラベル。最大 2000／2000＝9桁ぶんの幅を確保。 */
 .progress-pct.kitacore-wai-count {
   min-width: 78px;
@@ -1270,6 +1283,121 @@ select.field {
   color: #8a6d1a;
   border-color: rgba(212, 175, 55, 0.4);
   background: rgba(212, 175, 55, 0.1);
+}
+
+/* 覚醒前クイズ：システムメッセージ風（黒背景＋青発光の無機質ウィンドウ）。 */
+.kitacore-quiz {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.kitacore-quiz.hidden {
+  display: none;
+}
+
+.kitacore-quiz-window {
+  width: 100%;
+  max-width: 420px;
+  padding: 22px 20px 18px;
+  border: 1px solid #38bdf8;
+  border-radius: 10px;
+  background: rgba(8, 17, 38, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.35),
+    0 0 22px 2px rgba(56, 189, 248, 0.35);
+  font-family: 'Courier New', ui-monospace, monospace;
+  color: #e0f2fe;
+}
+
+.kitacore-quiz-label {
+  margin: 0 0 12px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(186, 230, 253, 0.8);
+}
+
+.kitacore-quiz-q {
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.8;
+  letter-spacing: 0.03em;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.55);
+}
+
+.kitacore-quiz-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kitacore-quiz-choice {
+  appearance: none;
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  padding: 11px 13px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.08);
+  color: #e0f2fe;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  min-height: 44px;
+}
+
+.kitacore-quiz-choice:hover {
+  background: rgba(56, 189, 248, 0.18);
+}
+
+.kitacore-quiz-choice.is-correct {
+  border-color: #4ade80;
+  background: rgba(74, 222, 128, 0.2);
+  color: #bbf7d0;
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+}
+
+.kitacore-quiz-choice.is-wrong {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.18);
+  color: #fecaca;
+}
+
+.kitacore-quiz-result {
+  margin: 14px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.04em;
+  color: #bae6fd;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.5);
+}
+
+.kitacore-quiz-close {
+  appearance: none;
+  margin-top: 16px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  padding: 10px;
+  border: 1px solid rgba(186, 230, 253, 0.4);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(186, 230, 253, 0.85);
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.kitacore-quiz-close:hover {
+  background: rgba(56, 189, 248, 0.12);
 }
 
 /* システムメッセージ：俺レベ「システム」風の無機質ウィンドウ。 */
