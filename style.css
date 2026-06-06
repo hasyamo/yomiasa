@@ -522,6 +522,52 @@ select.field {
   cursor: pointer;
 }
 
+.filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sort-toggle {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.sort-toggle:hover,
+.sort-toggle:active {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+/* 「続きから」: 統計行（記事/読了/未読）の右端に置く栞ジャンプ。
+   栞の色（ティール）で差し色。新着バッジと並ぶ小さめチップ。 */
+.resume-btn {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--progress);
+  border: 1px solid var(--progress);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.resume-btn:hover,
+.resume-btn:active {
+  filter: brightness(0.95);
+}
+
 /* --- Status message --- */
 
 .status-msg {
@@ -619,6 +665,7 @@ select.field {
 }
 
 .article {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -627,6 +674,24 @@ select.field {
   border-radius: var(--radius);
   background: var(--surface);
   margin-bottom: 10px;
+}
+
+/* しおり: 次に読む記事に挟む目印（下が三角に切れた矩形＝リボン型） */
+.article.is-bookmark {
+  border-color: var(--progress);
+}
+
+.bookmark-mark {
+  position: absolute;
+  top: -2px;
+  right: 16px;
+  width: 18px;
+  height: 26px;
+  background: var(--progress);
+  /* 下辺の中央を三角に切り取る */
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  border-radius: 2px 2px 0 0;
+  pointer-events: none;
 }
 
 .article.is-read {

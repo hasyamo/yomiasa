@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.4" />
+    <link rel="stylesheet" href="style.css?v=0.1.5" />
   </head>
   <body>
     <div id="app">
@@ -124,10 +124,15 @@
               <select id="month-filter" class="field"></select>
             </label>
           </div>
-          <label class="toggle">
-            <input id="unread-only" type="checkbox" />
-            <span>未読のみ</span>
-          </label>
+          <div class="filter-actions">
+            <label class="toggle">
+              <input id="unread-only" type="checkbox" />
+              <span>未読のみ</span>
+            </label>
+            <button id="sort-toggle" type="button" class="sort-toggle">
+              古い順
+            </button>
+          </div>
         </div>
 
         <p id="status-msg" class="status-msg hidden"></p>
@@ -285,6 +290,6 @@
     </div>
 
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="app.js?v=0.1.4"></script>
+    <script src="app.js?v=0.1.5"></script>
   </body>
 </html>

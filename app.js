@@ -19,7 +19,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.4';
+  var APP_VERSION = '0.1.5';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -41,8 +41,39 @@
         year: 'all',
         month: 'all',
         showUnreadOnly: false,
-        sortOrder: 'desc',
+        sortOrder: 'asc',
       },
+      // year / month / showUnreadOnly / sortOrder はクリエイターごとに記憶する。
+      // keyword は一時的な絞り込みなのでグローバル(uiState)のまま覚えない。
+      uiByCreator: {},
+    };
+  }
+
+  // クリエイター別に覚える UI 項目のデフォルト。
+  function defaultCreatorUi() {
+    return { year: 'all', month: 'all', showUnreadOnly: false, sortOrder: 'asc' };
+  }
+
+  // 指定クリエイターの保存済み UI 設定を返す（無ければ作って返す）。
+  function creatorUi(creatorId) {
+    if (!state.uiByCreator) state.uiByCreator = {};
+    if (!creatorId) return defaultCreatorUi();
+    if (!state.uiByCreator[creatorId]) {
+      state.uiByCreator[creatorId] = defaultCreatorUi();
+    }
+    return state.uiByCreator[creatorId];
+  }
+
+  // 「いま表示中のクリエイター」の実効 UI 設定。
+  // keyword はグローバル、それ以外はクリエイター別。読み取りは常にこれを使う。
+  function activeUi() {
+    var cu = creatorUi(state.selectedCreatorId);
+    return {
+      keyword: state.uiState.keyword || '',
+      year: cu.year,
+      month: cu.month,
+      showUnreadOnly: cu.showUnreadOnly,
+      sortOrder: cu.sortOrder,
     };
   }
 
@@ -89,6 +120,10 @@
         articlesByCreator: parsed.articlesByCreator || base.articlesByCreator,
         readArticles: migrateReadArticles(parsed.readArticles),
         uiState: Object.assign({}, base.uiState, parsed.uiState || {}),
+        uiByCreator:
+          parsed.uiByCreator && typeof parsed.uiByCreator === 'object'
+            ? parsed.uiByCreator
+            : base.uiByCreator,
       };
     } catch (e) {
       return defaultState();
@@ -138,6 +173,10 @@
           : base.articlesByCreator,
       readArticles: migrateReadArticles(incoming.readArticles),
       uiState: Object.assign({}, base.uiState, incoming.uiState || {}),
+      uiByCreator:
+        incoming.uiByCreator && typeof incoming.uiByCreator === 'object'
+          ? incoming.uiByCreator
+          : base.uiByCreator,
     };
     state = next;
     var saved = saveState();
@@ -523,7 +562,7 @@
   // ---------------------------------------------------------------------------
 
   function applyFilters(articles, creatorId) {
-    var ui = state.uiState;
+    var ui = activeUi();
     var keyword = (ui.keyword || '').trim().toLowerCase();
     return articles.filter(function (a) {
       if (keyword && a.title.toLowerCase().indexOf(keyword) === -1) return false;
@@ -535,7 +574,7 @@
   }
 
   function groupByYearMonth(articles) {
-    var desc = state.uiState.sortOrder !== 'asc';
+    var desc = activeUi().sortOrder !== 'asc';
     var sorted = articles.slice().sort(function (a, b) {
       var ta = (parseDate(a.publishedAt) || new Date(0)).getTime();
       var tb = (parseDate(b.publishedAt) || new Date(0)).getTime();
@@ -588,6 +627,7 @@
     yearFilter: document.getElementById('year-filter'),
     monthFilter: document.getElementById('month-filter'),
     unreadOnly: document.getElementById('unread-only'),
+    sortToggle: document.getElementById('sort-toggle'),
     statusMsg: document.getElementById('status-msg'),
     articles: document.getElementById('articles'),
 
@@ -870,9 +910,8 @@
   function selectCreator(id) {
     if (state.selectedCreatorId !== id) {
       state.selectedCreatorId = id;
-      // 別クリエイターに切り替えたら年月フィルタはリセット
-      state.uiState.year = 'all';
-      state.uiState.month = 'all';
+      // 年月・未読のみ・ソート順はクリエイターごとに記憶しているので、
+      // 切り替え時はリセットせず前回の表示状態を復元する（renderReadView 経由）。
       saveState();
     }
     // 遷移しただけではバッジを消さない（記事一覧で取得して件数を取り込むまで残す）
@@ -893,8 +932,10 @@
     els.readId.textContent = '@' + c.id;
     renderReadHeaderStats(stats);
 
-    els.keyword.value = state.uiState.keyword || '';
-    els.unreadOnly.checked = !!state.uiState.showUnreadOnly;
+    var ui = activeUi();
+    els.keyword.value = ui.keyword;
+    els.unreadOnly.checked = !!ui.showUnreadOnly;
+    els.sortToggle.textContent = ui.sortOrder === 'asc' ? '古い順' : '新しい順';
 
     renderFilterOptions();
     renderArticles();
@@ -923,6 +964,7 @@
 
   function renderFilterOptions() {
     var arts = articlesOf(state.selectedCreatorId);
+    var ui = activeUi();
 
     var years = [];
     var seenY = {};
@@ -943,12 +985,12 @@
           return { value: String(y), label: y + '年' };
         })
       ),
-      state.uiState.year
+      ui.year
     );
 
     var monthsSet = {};
     arts.forEach(function (a) {
-      if (state.uiState.year !== 'all' && String(yearOf(a)) !== String(state.uiState.year)) {
+      if (ui.year !== 'all' && String(yearOf(a)) !== String(ui.year)) {
         return;
       }
       var m = monthOf(a);
@@ -966,7 +1008,7 @@
           return { value: String(m), label: m + '月' };
         })
       ),
-      state.uiState.month
+      ui.month
     );
   }
 
@@ -986,9 +1028,66 @@
     if (!hasSelected) selectEl.value = 'all';
   }
 
+  // しおり: 未読のうち最も古い記事の id を返す（投稿日昇順で先頭の未読）。
+  // ソート順やフィルタに関係なく「次に読む記事」は同じなので全記事から算出。
+  // 全部既読 / 記事なし のときは null。
+  function bookmarkArticleId(creatorId) {
+    var all = articlesOf(creatorId);
+    var oldest = null;
+    var oldestTime = Infinity;
+    all.forEach(function (a) {
+      if (isRead(creatorId, a.id)) return;
+      var t = (parseDate(a.publishedAt) || new Date(0)).getTime();
+      if (t < oldestTime) {
+        oldestTime = t;
+        oldest = a.id;
+      }
+    });
+    return oldest;
+  }
+
+  // 「続きから」: 栞（未読の最古）の記事へスクロール。フィルタは変えない。
+  // sticky ヘッダー（.read-sticky）の高さ分だけ手前で止めて隠れないようにする。
+  // ヘッダー高さは名前の行数や safe-area で変わるので毎回実測する。
+  function scrollToBookmark() {
+    var target = els.articles.querySelector('.article.is-bookmark');
+    if (!target) return;
+    var sticky = document.querySelector('.read-sticky');
+    var offset = (sticky ? sticky.getBoundingClientRect().height : 0) + 12;
+    var top = window.scrollY + target.getBoundingClientRect().top - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+
+  // 「続きから」を出してよいか: 栞（未読の最古）が現在のフィルタ結果に
+  // 含まれていればスクロール先があるので表示できる。
+  function resumeAvailable(creatorId) {
+    var bookmarkId = bookmarkArticleId(creatorId);
+    if (!bookmarkId) return false;
+    return applyFilters(articlesOf(creatorId), creatorId).some(function (a) {
+      return a.id === bookmarkId;
+    });
+  }
+
+  // 統計行の右端の「続きから」を現在の状態に合わせて付け外しする。
+  // フィルタ変更・既読化のたびに呼ばれ、栞がフィルタ外に出たら消える。
+  function updateResumeButton() {
+    var existing = els.readStats.querySelector('.resume-btn');
+    if (existing) existing.parentNode.removeChild(existing);
+    var c = getSelectedCreator();
+    if (!c || !resumeAvailable(c.id)) return;
+    var resume = document.createElement('button');
+    resume.type = 'button';
+    resume.className = 'resume-btn';
+    resume.textContent = '🔖 続きから';
+    resume.addEventListener('click', scrollToBookmark);
+    els.readStats.appendChild(resume);
+  }
+
   function renderArticles() {
     var c = getSelectedCreator();
     els.articles.innerHTML = '';
+    // 栞ボタンは統計行にあり記事描画と独立。現フィルタ状態に合わせて毎回付け外し。
+    updateResumeButton();
     if (!c) return;
 
     var all = articlesOf(c.id);
@@ -1004,6 +1103,8 @@
       els.articles.appendChild(emptyArticlesEl('条件に合う記事がありません。'));
       return;
     }
+
+    var bookmarkId = bookmarkArticleId(c.id);
 
     groupByYearMonth(filtered).forEach(function (yg) {
       var yearSection = document.createElement('div');
@@ -1022,7 +1123,7 @@
         mh.textContent = mg.month === '不明' ? '月不明' : mg.month + '月';
         monthSection.appendChild(mh);
         mg.articles.forEach(function (a) {
-          monthSection.appendChild(articleEl(a, c.id));
+          monthSection.appendChild(articleEl(a, c.id, a.id === bookmarkId));
         });
         yearSection.appendChild(monthSection);
       });
@@ -1034,11 +1135,21 @@
   // 通常の記事一覧ではチェックボックスは出さない。
   // 既読は見た目（グレーアウト＋「読了」ラベル）で区別するのみ。
   // 既読状態の設定は「初期既読セットアップ」で行う。
-  function articleEl(article, creatorId) {
+  function articleEl(article, creatorId, isBookmark) {
     var read = isRead(creatorId, article.id);
 
     var wrap = document.createElement('div');
-    wrap.className = 'article' + (read ? ' is-read' : '');
+    wrap.className =
+      'article' + (read ? ' is-read' : '') + (isBookmark ? ' is-bookmark' : '');
+
+    // しおり: 次に読む記事（未読の最古）に挟む目印
+    if (isBookmark) {
+      var mark = document.createElement('span');
+      mark.className = 'bookmark-mark';
+      mark.setAttribute('aria-label', 'しおり: ここから読む');
+      mark.title = 'しおり: ここから読む';
+      wrap.appendChild(mark);
+    }
 
     // サムネイル（eyecatch があるときだけ。タップで記事を開ける）
     if (article.thumbnailUrl) {
@@ -1102,14 +1213,9 @@
       var nowRead = !isRead(creatorId, article.id);
       setRead(creatorId, article.id, nowRead, SOURCE.MANUAL);
       saveState();
-      // 未読のみ表示中に既読化したら、その行は消えるので作り直す
-      if (state.uiState.showUnreadOnly && nowRead) {
-        renderArticles();
-      } else {
-        wrap.classList.toggle('is-read', nowRead);
-        chip.classList.toggle('is-read', nowRead);
-        chip.textContent = nowRead ? '読了 ✓' : '読んだ';
-      }
+      // 既読状態が変わるとしおり（未読の最古）も動くので、一覧ごと作り直す。
+      // 未読のみ表示中の行消し / グレーアウト / しおり移動を一括で正しく反映。
+      renderArticles();
       updateReadStatsHeader();
     });
     meta.appendChild(chip);
@@ -1145,6 +1251,8 @@
       els.readStats.appendChild(badge);
     }
     els.fetchDot.classList.toggle('hidden', nc <= 0);
+
+    updateResumeButton();
 
     els.readProgress.innerHTML = '';
     if (stats.total > 0) {
@@ -1628,6 +1736,7 @@
     Object.keys(state.readArticles).forEach(function (k) {
       if (k.indexOf(id + ':') === 0) delete state.readArticles[k];
     });
+    if (state.uiByCreator) delete state.uiByCreator[id];
     if (state.selectedCreatorId === id) {
       state.selectedCreatorId = state.creators[0] ? state.creators[0].id : '';
     }
@@ -1861,19 +1970,27 @@
       renderArticles();
     });
     els.yearFilter.addEventListener('change', function () {
-      state.uiState.year = els.yearFilter.value;
-      state.uiState.month = 'all';
+      var cu = creatorUi(state.selectedCreatorId);
+      cu.year = els.yearFilter.value;
+      cu.month = 'all';
       saveState();
       renderFilterOptions();
       renderArticles();
     });
     els.monthFilter.addEventListener('change', function () {
-      state.uiState.month = els.monthFilter.value;
+      creatorUi(state.selectedCreatorId).month = els.monthFilter.value;
       saveState();
       renderArticles();
     });
     els.unreadOnly.addEventListener('change', function () {
-      state.uiState.showUnreadOnly = els.unreadOnly.checked;
+      creatorUi(state.selectedCreatorId).showUnreadOnly = els.unreadOnly.checked;
+      saveState();
+      renderArticles();
+    });
+    els.sortToggle.addEventListener('click', function () {
+      var cu = creatorUi(state.selectedCreatorId);
+      cu.sortOrder = cu.sortOrder === 'asc' ? 'desc' : 'asc';
+      els.sortToggle.textContent = cu.sortOrder === 'asc' ? '古い順' : '新しい順';
       saveState();
       renderArticles();
     });
