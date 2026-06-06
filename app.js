@@ -46,24 +46,26 @@
       // year / month / showUnreadOnly / sortOrder はクリエイターごとに記憶する。
       // keyword は一時的な絞り込みなのでグローバル(uiState)のまま覚えない。
       uiByCreator: {},
-      // キタコレモード。counts は記事ごとのワイ/関西度カウント（article.id 単位）。
-      // awakened は覚醒済みクリエイター（note ID 単位）。
-      kitacore: { counts: {}, awakened: {} },
+      // キタコレモード。
+      //   counts[id]    : 記事ごとのワイ数カウント（収集結果。article.id 単位）
+      //   collected[id] : ワイ語チップを回収済み（ポイント加算済み。二重取り防止）
+      //   totalWai      : 回収した累計ワイ数（＝ランクの燃料）
+      //   awakened      : 覚醒済みクリエイター（note ID 単位）
+      kitacore: { counts: {}, collected: {}, totalWai: 0, awakened: {} },
     };
   }
 
-  // state.kitacore / .counts / .awakened の遅延初期化。読み書き前に必ず通す。
+  // state.kitacore とその各キーの遅延初期化。読み書き前に必ず通す。
   function ensureKitacore() {
     if (!state.kitacore || typeof state.kitacore !== 'object') {
-      state.kitacore = { counts: {}, awakened: {} };
+      state.kitacore = { counts: {}, collected: {}, totalWai: 0, awakened: {} };
     }
-    if (!state.kitacore.counts || typeof state.kitacore.counts !== 'object') {
-      state.kitacore.counts = {};
-    }
-    if (!state.kitacore.awakened || typeof state.kitacore.awakened !== 'object') {
-      state.kitacore.awakened = {};
-    }
-    return state.kitacore;
+    var k = state.kitacore;
+    if (!k.counts || typeof k.counts !== 'object') k.counts = {};
+    if (!k.collected || typeof k.collected !== 'object') k.collected = {};
+    if (typeof k.totalWai !== 'number') k.totalWai = 0;
+    if (!k.awakened || typeof k.awakened !== 'object') k.awakened = {};
+    return k;
   }
 
   // キタコレモードが発動できる唯一の note ID（KITAさん専用。汎用化しない）。
@@ -594,6 +596,97 @@
   }
 
   // ---------------------------------------------------------------------------
+  // キタコレ：ワイ語の収集とポイント回収
+  //   収集 = 記事タップ時に本文を取り「ワイ」を数えて counts に保存（点はまだ）。
+  //   回収 = 記事行のチップをタップして counts[id].wai を totalWai に加算。
+  //   本文HTMLは保存せず数だけ残す。記事ごと1回きり（collected で二重取り防止）。
+  // ---------------------------------------------------------------------------
+
+  var WAI_RE = /ワイ/g;
+  // 収集中の article.id（多重発火防止）。
+  var kitacoreInFlight = {};
+
+  // HTML からタグを除去し最低限の実体参照をデコードして素テキストにする。
+  function stripHtml(html) {
+    return String(html)
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+
+  // テキスト中の「ワイ」出現数。
+  function countWai(text) {
+    return (String(text).match(WAI_RE) || []).length;
+  }
+
+  // 記事 URL からスラッグ（note key）を抜く。失敗時 null。
+  function articleKeyFromUrl(url) {
+    var m = String(url || '').match(/\/n\/([A-Za-z0-9]+)/);
+    return m ? m[1] : null;
+  }
+
+  function isCounted(articleId) {
+    return !!(state.kitacore && state.kitacore.counts && state.kitacore.counts[articleId]);
+  }
+
+  function isCollected(articleId) {
+    return !!(state.kitacore && state.kitacore.collected && state.kitacore.collected[articleId]);
+  }
+
+  // 記事 1 本の本文を取り、ワイ数を数えて counts に保存する（＝収集）。
+  // 計測済み/計測中/key抽出失敗/body不正 はスキップ。await されない想定で呼ぶ。
+  function fetchAndCountArticle(article, creatorId) {
+    if (!article || !article.id) return;
+    if (isCounted(article.id) || kitacoreInFlight[article.id]) return;
+    var key = articleKeyFromUrl(article.url);
+    if (!key) return; // スラッグ抽出失敗はスキップ
+    ensureKitacore();
+    kitacoreInFlight[article.id] = true;
+    var url = PROXY_URL + '?path=' + encodeURIComponent('/api/v3/notes/' + key);
+    fetch(url)
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (json) {
+        var body = json && json.data ? json.data.body : null;
+        if (typeof body !== 'string') return; // 形式不正は未計測のまま握りつぶす
+        ensureKitacore();
+        state.kitacore.counts[article.id] = {
+          wai: countWai(stripHtml(body)),
+          countedAt: new Date().toISOString(),
+        };
+        saveState();
+        // 表示中なら該当クリエイターの一覧を作り直してチップを出す
+        if (currentRoute() === 'read' && state.selectedCreatorId === creatorId) {
+          renderArticles();
+        }
+      })
+      .catch(function () {
+        /* ネットワーク失敗等は未計測のまま（次タップで再試行） */
+      })
+      .then(function () {
+        delete kitacoreInFlight[article.id];
+      });
+  }
+
+  // ワイ語チップを回収する（＝ポイント加算）。
+  // 収集済み・未回収・ワイ>0 のときだけ totalWai に加算し collected を立てる。
+  function collectWai(articleId) {
+    ensureKitacore();
+    var entry = state.kitacore.counts[articleId];
+    if (!entry) return; // 未収集
+    if (isCollected(articleId)) return; // 二重取り防止
+    if (entry.wai <= 0) return; // ワイ0は回収対象外（チップ非活性）
+    state.kitacore.totalWai += entry.wai;
+    state.kitacore.collected[articleId] = true;
+    saveState();
+  }
+
+  // ---------------------------------------------------------------------------
   // 日付ユーティリティ
   // ---------------------------------------------------------------------------
 
@@ -791,6 +884,8 @@
     readId: document.getElementById('read-id'),
     readStats: document.getElementById('read-stats'),
     readProgress: document.getElementById('read-progress'),
+    kitacoreStats: document.getElementById('kitacore-stats'),
+    kitacoreProgress: document.getElementById('kitacore-progress'),
     fetchBtn: document.getElementById('fetch-btn'),
     fetchDot: document.getElementById('fetch-dot'),
     keyword: document.getElementById('keyword'),
@@ -1402,6 +1497,30 @@
     });
     meta.appendChild(chip);
 
+    // キタコレ：覚醒済みクリエイターで「収集済み」の記事だけワイ語チップを出す。
+    //   未収集（タップ前）はチップ無し。ワイ>0未回収=タップ可。
+    //   ワイ0 / 回収済み=非活性。
+    if (isKitacoreTarget(creatorId) && isCounted(article.id)) {
+      var entry = state.kitacore.counts[article.id];
+      var collected = isCollected(article.id);
+      var claimable = entry.wai > 0 && !collected;
+      var wai = document.createElement('button');
+      wai.type = 'button';
+      wai.className =
+        'article-wai' +
+        (collected ? ' is-collected' : '') +
+        (claimable ? ' is-claimable' : ' is-locked');
+      wai.textContent = collected ? '✓ ワイ ' + entry.wai : 'ワイ ' + entry.wai;
+      wai.disabled = !claimable;
+      if (claimable) {
+        wai.addEventListener('click', function () {
+          collectWai(article.id);
+          renderArticles();
+        });
+      }
+      meta.appendChild(wai);
+    }
+
     body.appendChild(meta);
 
     wrap.appendChild(body);
@@ -1440,6 +1559,51 @@
     if (stats.total > 0) {
       els.readProgress.appendChild(progressBarEl(stats));
     }
+
+    renderKitacoreHeader();
+  }
+
+  // キタコレ：記事数行＋進捗バーと同じ作りで、ワイ数・ランクを出す。
+  // 覚醒済みクリエイターのときだけ表示。※レイアウト確認用にダミー値。
+  function renderKitacoreHeader() {
+    var c = getSelectedCreator();
+    var on = c && isKitacoreTarget(c.id) && isAwakened(c.id);
+    els.kitacoreStats.classList.toggle('hidden', !on);
+    els.kitacoreProgress.classList.toggle('hidden', !on);
+    if (!on) return;
+
+    // --- ダミー値（ランク判定ロジックは未実装。ランク名・色キーは仮で E級） ---
+    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
+    var rankName = 'E級';
+    var rankKey = 'e'; // rank-<key> で文字色が変わる。実装時に判定で差し替え。
+    var KITACORE_GOAL = 2000; // 君主到達ライン＝進捗バーの最大
+    var pct = Math.min(100, (totalWai / KITACORE_GOAL) * 100);
+
+    // ランクバッジに「ワイ語ハンターランク E級」を丸ごと入れ、右端に寄せる
+    // （#kitacore-stats は justify-content:flex-end。新着チップと縦が揃う）。
+    els.kitacoreStats.innerHTML = '';
+    var rank = document.createElement('span');
+    rank.className = 'kitacore-rank-text rank-' + rankKey;
+    rank.textContent = 'ワイ語ハンターランク ' + rankName;
+    els.kitacoreStats.appendChild(rank);
+
+    // 進捗バーと同じ構造（track + fill + label）。
+    // 最大=君主2000。右端ラベルは「現在値／目標値」。
+    els.kitacoreProgress.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'progress';
+    var track = document.createElement('div');
+    track.className = 'progress-track';
+    var fill = document.createElement('div');
+    fill.className = 'progress-fill';
+    fill.style.width = pct + '%';
+    track.appendChild(fill);
+    var barLabel = document.createElement('span');
+    barLabel.className = 'progress-pct kitacore-wai-count';
+    barLabel.textContent = totalWai + '／' + KITACORE_GOAL;
+    wrap.appendChild(track);
+    wrap.appendChild(barLabel);
+    els.kitacoreProgress.appendChild(wrap);
   }
 
   function emptyArticlesEl(text) {
@@ -1850,6 +2014,11 @@
     } catch (e) {
       /* sessionStorage 不可なら確認は出ないだけ */
     }
+    // キタコレ：覚醒済みクリエイターの記事なら、遷移前に裏でワイ数を収集する。
+    // （ポイント加算は後で記事行のチップをタップして回収＝ここでは点を入れない）
+    if (isKitacoreTarget(creatorId) && isAwakened(creatorId)) {
+      fetchAndCountArticle(article, creatorId);
+    }
   }
 
   function takePendingArticle() {
@@ -1913,13 +2082,23 @@
     state.creators = state.creators.filter(function (x) {
       return x.id !== id;
     });
-    // この creator のキタコレ計測も掃除（counts は article.id 単位なので削除前に拾う）。
-    if (state.kitacore && state.kitacore.counts) {
+    // この creator のキタコレ計測も掃除（counts/collected は article.id 単位なので
+    // 削除前に拾う。回収済みの累計 totalWai もそのぶん差し引く）。
+    if (state.kitacore) {
+      ensureKitacore();
       (state.articlesByCreator[id] || []).forEach(function (a) {
-        if (a && a.id) delete state.kitacore.counts[a.id];
+        if (!a || !a.id) return;
+        if (state.kitacore.collected[a.id]) {
+          var entry = state.kitacore.counts[a.id];
+          if (entry && typeof entry.wai === 'number') {
+            state.kitacore.totalWai = Math.max(0, state.kitacore.totalWai - entry.wai);
+          }
+          delete state.kitacore.collected[a.id];
+        }
+        delete state.kitacore.counts[a.id];
       });
+      delete state.kitacore.awakened[id];
     }
-    if (state.kitacore && state.kitacore.awakened) delete state.kitacore.awakened[id];
     delete state.articlesByCreator[id];
     // この creator の読了状態も掃除
     Object.keys(state.readArticles).forEach(function (k) {

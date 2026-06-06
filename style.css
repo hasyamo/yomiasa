@@ -1152,6 +1152,52 @@ select.field {
 
 /* ===================== キタコレモード ===================== */
 
+/* ランク名は矩形のグラデーションバッジで表示（下位→上位で格が上がる配色）。
+   灰→青→金→紫黒のストーリー。JS が rank-<key> クラスを付与する。 */
+.kitacore-rank-text {
+  display: inline-block;
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.kitacore-rank-text.rank-e { background: linear-gradient(145deg, #4b5563, #6b7280); }
+.kitacore-rank-text.rank-d { background: linear-gradient(145deg, #475569, #64748b); }
+.kitacore-rank-text.rank-c { background: linear-gradient(145deg, #2563eb, #60a5fa); }
+.kitacore-rank-text.rank-b { background: linear-gradient(145deg, #0891b2, #67e8f9); }
+.kitacore-rank-text.rank-a { background: linear-gradient(145deg, #059669, #34d399); }
+.kitacore-rank-text.rank-s { background: linear-gradient(145deg, #d97706, #fbbf24); }
+.kitacore-rank-text.rank-national { background: linear-gradient(145deg, #fde68a, #fb923c); }
+.kitacore-rank-text.rank-monarch {
+  background:
+    radial-gradient(circle at 70% 20%, rgba(139, 92, 246, 0.34), transparent 30%),
+    linear-gradient(145deg, #312e81, #111827);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 12px rgba(139, 92, 246, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ランク進捗バー右端の「現在値／目標値」ラベル。最大 2000／2000＝9桁ぶんの幅を確保。 */
+.progress-pct.kitacore-wai-count {
+  min-width: 78px;
+  color: #a87f12; /* ゴールド寄り（バーと揃える） */
+}
+
+/* キタコレのランク進捗バーはゴールドで光って見せる。 */
+#kitacore-progress .progress-fill {
+  background: linear-gradient(90deg, #d4af37, #f3d27a, #d4af37);
+  box-shadow: 0 0 8px 1px rgba(212, 175, 55, 0.7);
+}
+
+#kitacore-progress .progress-track {
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
 /* 覚醒したクリエイターのアバター：ゴールドの枠がゆっくり明滅する。
    枠の色は固定（金）で、明るさ・グローの強さだけを上下させる。 */
 .creator-card-avatar.is-awakened {
@@ -1179,6 +1225,50 @@ select.field {
       0 0 0 2px #d4af37,
       0 0 10px 2px rgba(212, 175, 55, 0.5);
   }
+}
+
+/* 記事行のワイ語チップ。
+   is-claimable : ワイ>0 未回収（金で光る・タップ可）
+   is-locked    : ワイ0（収集済みだが回収対象外・非活性）
+   is-collected : 回収済み（チェック付き・非活性） */
+.article-wai {
+  appearance: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--ink-subtle);
+  white-space: nowrap;
+}
+
+.article-wai.is-claimable {
+  cursor: pointer;
+  color: #8a6d1a;
+  border-color: rgba(212, 175, 55, 0.6);
+  background: rgba(212, 175, 55, 0.16);
+  box-shadow: 0 0 8px 1px rgba(212, 175, 55, 0.35);
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.article-wai.is-claimable:hover,
+.article-wai.is-claimable:active {
+  background: rgba(212, 175, 55, 0.28);
+}
+
+.article-wai.is-locked {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.article-wai.is-collected {
+  cursor: default;
+  color: #8a6d1a;
+  border-color: rgba(212, 175, 55, 0.4);
+  background: rgba(212, 175, 55, 0.1);
 }
 
 /* システムメッセージ：俺レベ「システム」風の無機質ウィンドウ。 */
