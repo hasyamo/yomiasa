@@ -1500,7 +1500,7 @@
     // キタコレ：覚醒済みクリエイターで「収集済み」の記事だけワイ語チップを出す。
     //   未収集（タップ前）はチップ無し。ワイ>0未回収=タップ可。
     //   ワイ0 / 回収済み=非活性。
-    if (isKitacoreTarget(creatorId) && isCounted(article.id)) {
+    if (isKitacoreTarget(creatorId) && isAwakened(creatorId) && isCounted(article.id)) {
       var entry = state.kitacore.counts[article.id];
       var collected = isCollected(article.id);
       var claimable = entry.wai > 0 && !collected;
