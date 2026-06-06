@@ -99,6 +99,8 @@
           <!-- キタコレ：覚醒時のみ表示。記事数行＋進捗バーと同じ作りを複製。 -->
           <p id="kitacore-stats" class="read-stats hidden"></p>
           <div id="kitacore-progress" class="read-progress hidden"></div>
+          <!-- キタコレ：覚醒前のみ。次のボスカード（挑戦ボタン）。 -->
+          <div id="kitacore-boss" class="kitacore-boss hidden"></div>
         </div>
 
         <header class="read-header">
@@ -309,6 +311,18 @@
         <div id="kitacore-quiz-choices" class="kitacore-quiz-choices"></div>
         <p id="kitacore-quiz-result" class="kitacore-quiz-result hidden"></p>
         <button id="kitacore-quiz-close" class="kitacore-quiz-close">閉じる</button>
+      </div>
+    </div>
+
+    <!-- ===================== キタコレ：ボス戦（登場→撃破の2段） ===================== -->
+    <!-- 画面タップで次へ進む。登場→撃破→閉じる。 -->
+    <div id="kitacore-battle" class="kitacore-battle hidden" role="dialog" aria-modal="true" aria-label="ボス戦">
+      <div class="kitacore-battle-stage">
+        <img id="kitacore-battle-img" class="kitacore-battle-img" alt="" />
+        <div class="kitacore-battle-text-wrap">
+          <p id="kitacore-battle-text" class="kitacore-battle-text"></p>
+          <div class="kitacore-battle-hint">画面をタップ</div>
+        </div>
       </div>
     </div>
 

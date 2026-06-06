@@ -97,11 +97,12 @@
   }
 
   // 覚醒前ボス（撃破で昇格）。order 順に挑戦。最後の wing 撃破で S級覚醒。
-  //   rankAfter = そのボスを倒した後のランク。cost = 挑戦に要る鍵数。
+  //   cost = 挑戦に要る終焉の鍵。rankBefore = そのボスに挑む時点のランク。
+  //   rankAfter = 撃破後に昇格するランク（wing は S級覚醒）。img = 同梱画像。
   var KITACORE_PRE_BOSSES = [
-    { key: 'reaper', name: 'REAPER', title: '終焉の執行者', cost: 3, rankBefore: 'E級', rankBeforeKey: 'e' },
-    { key: 'armored', name: 'ARMORED WARRIOR', title: '戦場の死', cost: 3, rankBefore: 'C級', rankBeforeKey: 'c' },
-    { key: 'wing', name: 'WING OF DEATH', title: '収穫の獣', cost: 3, rankBefore: 'A級', rankBeforeKey: 'a' },
+    { key: 'reaper', name: 'REAPER', title: '終焉の執行者', cost: 3, rankBefore: 'E級', rankBeforeKey: 'e', rankAfter: 'C級', img: 'assets/boss/REAPER.webp' },
+    { key: 'armored', name: 'ARMORED WARRIOR', title: '戦場の死', cost: 3, rankBefore: 'C級', rankBeforeKey: 'c', rankAfter: 'A級', img: 'assets/boss/ARMORED_WARRIOR.webp' },
+    { key: 'wing', name: 'WING OF DEATH', title: '収穫の獣', cost: 3, rankBefore: 'A級', rankBeforeKey: 'a', rankAfter: 'S級覚醒', img: 'assets/boss/WING_OF_DEATH.webp' },
   ];
 
   // このクリエイターがキタコレ発動対象か（ktcrs1107 限定）。
@@ -138,6 +139,94 @@
       if (done.indexOf(KITACORE_PRE_BOSSES[i].key) === -1) return KITACORE_PRE_BOSSES[i];
     }
     return null;
+  }
+
+  // ボスに挑戦する。鍵が足りれば消費して撃破＝昇格を確定し、戦闘演出を開始。
+  // 戻り値: 挑戦できたら true。鍵不足なら false。
+  function challengeBoss(creatorId, boss) {
+    ensureKitacore();
+    if (keysOf(creatorId) < boss.cost) return false;
+    // 挑戦ボタンで確定：鍵を消費し撃破を記録（演出は結果の見せ方）。
+    state.kitacore.keys[creatorId] = keysOf(creatorId) - boss.cost;
+    if (!Array.isArray(state.kitacore.defeatedBosses[creatorId])) {
+      state.kitacore.defeatedBosses[creatorId] = [];
+    }
+    state.kitacore.defeatedBosses[creatorId].push(boss.key);
+    saveState();
+    startBossBattle(boss, creatorId);
+    return true;
+  }
+
+  // 登場煽り（撃破の前段）。
+  function kitacoreBossEnterLines(boss) {
+    return [
+      '［ システム ］',
+      '〈' + boss.name + '〉— ' + boss.title + ' —が立ちはだかる。',
+    ];
+  }
+
+  // 通常ボス撃破メッセージ。
+  function kitacoreBossDownLines(boss) {
+    return [
+      '［ システム ］',
+      '〈' + boss.name + '〉を撃破しました。',
+      'プレイヤー〈' + KITACORE_PLAYER + '〉は ' + boss.rankAfter + ' に昇格しました。',
+    ];
+  }
+
+  // A級ボス(wing)撃破＝S級覚醒の山場メッセージ。
+  // ※「収集開始」は覚醒前から動いているので出さない（称号獲得で締める）。
+  function kitacoreAwakenLines() {
+    return [
+      '［ システム ］',
+      '最後の門番〈WING OF DEATH〉が沈黙しました。',
+      'プレイヤー〈' + KITACORE_PLAYER + '〉が覚醒します。',
+      '称号『S級覚醒』を獲得しました。',
+    ];
+  }
+
+  // 戦闘演出（登場→崩れ）。画面タップで撃破。崩れ切ったらバトル画面を閉じ、
+  // 撃破/昇格は通常のシステムメッセージ（青ウィンドウ＋タイプライター）で出す。
+  //   stage 'enter'   = 登場煽り（画像＋立ちはだかる）。タップで崩れへ。
+  //   stage 'shatter' = ボス画像が砕けて消えるアニメ（1.5s。タップ無効）。完了で閉じて
+  //                     状態反映＋システムメッセージへ。
+  var activeBattle = null; // { boss, creatorId, stage }
+  var KITACORE_SHATTER_MS = 1500;
+  function startBossBattle(boss, creatorId) {
+    activeBattle = { boss: boss, creatorId: creatorId, stage: 'enter' };
+    if (els.kitacoreBattleImg) {
+      els.kitacoreBattleImg.src = boss.img;
+      els.kitacoreBattleImg.classList.remove('is-shatter');
+    }
+    if (els.kitacoreBattleText) {
+      els.kitacoreBattleText.textContent = kitacoreBossEnterLines(boss).join('\n');
+    }
+    if (els.kitacoreBattle) els.kitacoreBattle.classList.remove('hidden');
+  }
+
+  function onBossBattleTap() {
+    if (!activeBattle || activeBattle.stage !== 'enter') return; // 崩れ中は無効
+    var boss = activeBattle.boss;
+    var creatorId = activeBattle.creatorId;
+    activeBattle.stage = 'shatter';
+    // テキストを消し、画像を砕くアニメへ。
+    if (els.kitacoreBattleText) els.kitacoreBattleText.textContent = '';
+    if (els.kitacoreBattleImg) els.kitacoreBattleImg.classList.add('is-shatter');
+    setTimeout(function () {
+      closeBossBattle();
+      // 状態を反映（ヘッダー・記事・カード）。
+      renderArticles();
+      updateReadStatsHeader();
+      renderCreatorCards();
+      // 撃破/昇格を通常のシステムメッセージで（モード進入・覚醒と同じUI）。
+      showSystemMessage(boss.key === 'wing' ? kitacoreAwakenLines() : kitacoreBossDownLines(boss));
+    }, KITACORE_SHATTER_MS);
+  }
+
+  function closeBossBattle() {
+    activeBattle = null;
+    if (els.kitacoreBattle) els.kitacoreBattle.classList.add('hidden');
+    if (els.kitacoreBattleImg) els.kitacoreBattleImg.classList.remove('is-shatter');
   }
 
   // キタコレモードのトグル。ON→E級スタート（修行開始）/ OFF→終了。発動対象のみ反応。
@@ -1038,6 +1127,7 @@
     readProgress: document.getElementById('read-progress'),
     kitacoreStats: document.getElementById('kitacore-stats'),
     kitacoreProgress: document.getElementById('kitacore-progress'),
+    kitacoreBoss: document.getElementById('kitacore-boss'),
     fetchBtn: document.getElementById('fetch-btn'),
     fetchDot: document.getElementById('fetch-dot'),
     keyword: document.getElementById('keyword'),
@@ -1110,6 +1200,9 @@
     kitacoreQuizChoices: document.getElementById('kitacore-quiz-choices'),
     kitacoreQuizResult: document.getElementById('kitacore-quiz-result'),
     kitacoreQuizClose: document.getElementById('kitacore-quiz-close'),
+    kitacoreBattle: document.getElementById('kitacore-battle'),
+    kitacoreBattleImg: document.getElementById('kitacore-battle-img'),
+    kitacoreBattleText: document.getElementById('kitacore-battle-text'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -1734,13 +1827,77 @@
     var on = c && isKitacoreTarget(c.id) && isModeOn(c.id);
     els.kitacoreStats.classList.toggle('hidden', !on);
     els.kitacoreProgress.classList.toggle('hidden', !on);
-    if (!on) return;
+    if (!on) {
+      if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
+      return;
+    }
 
     if (isPostAwakening(c.id)) {
       renderKitacorePostHeader(c.id);
+      if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden'); // 覚醒後はボスカード無し
     } else {
       renderKitacorePreHeader(c.id);
+      renderKitacoreBoss(c.id);
     }
+  }
+
+  // 覚醒前：次のボスカード（画像＋名前＋挑戦ボタン）。鍵が足りれば挑戦可。
+  function renderKitacoreBoss(creatorId) {
+    if (!els.kitacoreBoss) return;
+    var boss = nextPreBoss(creatorId);
+    if (!boss) {
+      els.kitacoreBoss.classList.add('hidden');
+      return;
+    }
+    var keys = keysOf(creatorId);
+    var canChallenge = keys >= boss.cost;
+    // 鍵が足りない間はパネルを出さない（一覧を圧迫しない）。
+    // 挑戦可能になって初めて表示＝「鍵が貯まった、挑める」導線。
+    if (!canChallenge) {
+      els.kitacoreBoss.classList.add('hidden');
+      return;
+    }
+    els.kitacoreBoss.innerHTML = '';
+    els.kitacoreBoss.classList.remove('hidden');
+
+    var thumb = document.createElement('div');
+    thumb.className = 'kitacore-boss-thumb';
+    var img = document.createElement('img');
+    img.src = boss.img;
+    img.alt = boss.name;
+    img.loading = 'lazy';
+    thumb.appendChild(img);
+
+    var info = document.createElement('div');
+    info.className = 'kitacore-boss-info';
+    var label = document.createElement('div');
+    label.className = 'kitacore-boss-label';
+    label.textContent = '次なる試練';
+    var name = document.createElement('div');
+    name.className = 'kitacore-boss-name';
+    name.textContent = boss.name;
+    var title = document.createElement('div');
+    title.className = 'kitacore-boss-title';
+    title.textContent = boss.title;
+    info.appendChild(label);
+    info.appendChild(name);
+    info.appendChild(title);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'kitacore-boss-btn';
+    btn.textContent = '挑戦（終焉の鍵 × ' + boss.cost + '）';
+    btn.disabled = !canChallenge;
+    if (canChallenge) {
+      btn.addEventListener('click', function () {
+        // 鍵消費＆撃破確定→戦闘演出開始。状態の反映は演出を閉じた時に行う。
+        challengeBoss(creatorId, boss);
+      });
+    }
+    info.appendChild(btn);
+
+    els.kitacoreBoss.appendChild(thumb);
+    els.kitacoreBoss.appendChild(info);
   }
 
   // バッジ＋進捗バーを共通レイアウトで描く。
@@ -2792,6 +2949,9 @@
     }
     if (els.kitacoreQuizClose) {
       els.kitacoreQuizClose.addEventListener('click', closeQuiz);
+    }
+    if (els.kitacoreBattle) {
+      els.kitacoreBattle.addEventListener('click', onBossBattleTap);
     }
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
