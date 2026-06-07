@@ -412,6 +412,13 @@
       els.kitacoreQuizResult.classList.remove('hidden');
     }
     els.kitacoreQuiz.classList.remove('hidden');
+    // システムが反応したようなグリッチ起動アニメ（毎回付け直す）。
+    var win = els.kitacoreQuiz.querySelector('.kitacore-quiz-window');
+    if (win) {
+      win.classList.remove('is-glitch');
+      void win.offsetWidth; // リフローでアニメをリスタート
+      win.classList.add('is-glitch');
+    }
   }
 
   function answerQuiz(idx) {
@@ -427,6 +434,7 @@
       awardKey(activeQuiz.creatorId, activeQuiz.articleId);
       els.kitacoreQuizResult.textContent = '正解。終焉の鍵を 1 獲得しました。';
       updateReadStatsHeader(); // 鍵の数→ヘッダーへ反映
+      renderArticles(); // 光ボタンを「入手済」に更新（モーダルは別レイヤーで残る）
     } else if (correct) {
       els.kitacoreQuizResult.textContent = '正解。この試練の終焉の鍵は取得済みです。';
     } else {
@@ -1846,17 +1854,31 @@
       var nowRead = !isRead(creatorId, article.id);
       setRead(creatorId, article.id, nowRead, SOURCE.MANUAL);
       saveState();
-      // 既読状態が変わるとしおり（未読の最古）も動くので、一覧ごと作り直す。
-      // 未読のみ表示中の行消し / グレーアウト / しおり移動を一括で正しく反映。
       renderArticles();
       updateReadStatsHeader();
-      // キタコレ覚醒前：「読んだ」にした瞬間、その記事にクイズがあれば出題。
-      if (nowRead && isKitacoreTarget(creatorId) && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
-        var quiz = quizForArticle(article);
-        if (quiz) openQuiz(creatorId, article, quiz);
-      }
     });
     meta.appendChild(chip);
+
+    // キタコレ覚醒前：クイズがある記事に「光ボタン」を出す（タップでクイズ）。
+    //   未正解＝光る（タップ可）/ 正解済み＝光を消し「入手済」表示（タップ不可）。
+    if (isKitacoreTarget(creatorId) && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
+      var quiz = quizForArticle(article);
+      if (quiz) {
+        var quizCleared = isQuizCleared(creatorId, article.id);
+        var glow = document.createElement('button');
+        glow.type = 'button';
+        glow.className = 'kitacore-glow' + (quizCleared ? ' is-cleared' : '');
+        glow.textContent = quizCleared ? '鍵 入手済' : '✨';
+        glow.setAttribute('aria-label', quizCleared ? 'クイズ正解済み' : 'クイズに挑戦');
+        glow.disabled = quizCleared;
+        if (!quizCleared) {
+          glow.addEventListener('click', function () {
+            openQuiz(creatorId, article, quiz);
+          });
+        }
+        meta.appendChild(glow);
+      }
+    }
 
     // キタコレ：覚醒済みクリエイターで「収集済み」の記事だけワイ語チップを出す。
     //   未収集（タップ前）はチップ無し。ワイ>0未回収=タップ可。
