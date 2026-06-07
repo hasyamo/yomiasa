@@ -1490,6 +1490,67 @@ select.field {
   background: rgba(56, 189, 248, 0.12);
 }
 
+/* プレイヤーID入力モーダル（クイズ窓のトーンを流用）。 */
+.kitacore-player-input {
+  appearance: none;
+  width: 100%;
+  margin: 4px 0 0;
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  padding: 12px 14px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.5);
+  color: #e0f2fe;
+}
+
+.kitacore-player-input::placeholder {
+  color: rgba(186, 230, 253, 0.4);
+}
+
+.kitacore-player-input:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.45);
+}
+
+.kitacore-player-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.kitacore-player-actions .kitacore-quiz-close {
+  margin-top: 0;
+  flex: 1;
+}
+
+.kitacore-player-auth {
+  appearance: none;
+  flex: 1;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 10px;
+  border: 1px solid #38bdf8;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.18);
+  color: #e0f2fe;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.kitacore-player-auth:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.3);
+}
+
+.kitacore-player-auth:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ボス戦（登場→撃破の2段）。全画面・大きなボス画像＋システム風テキスト。 */
 .kitacore-battle {
   position: fixed;

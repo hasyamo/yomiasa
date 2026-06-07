@@ -314,6 +314,19 @@
       </div>
     </div>
 
+    <!-- ===================== キタコレ：プレイヤーID入力（システム風） ===================== -->
+    <div id="kitacore-player" class="kitacore-quiz hidden" role="dialog" aria-modal="true" aria-labelledby="kitacore-player-label">
+      <div class="kitacore-quiz-window">
+        <p id="kitacore-player-label" class="kitacore-quiz-label">［ システム ］プレイヤー名を入力せよ。</p>
+        <input id="kitacore-player-input" class="kitacore-player-input" type="text" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="あなたの note ID" />
+        <p id="kitacore-player-error" class="kitacore-quiz-result hidden"></p>
+        <div class="kitacore-player-actions">
+          <button id="kitacore-player-cancel" class="kitacore-quiz-close">キャンセル</button>
+          <button id="kitacore-player-auth" class="kitacore-player-auth">認証</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===================== キタコレ：ボス戦（登場→撃破の2段） ===================== -->
     <!-- 画面タップで次へ進む。登場→撃破→閉じる。 -->
     <div id="kitacore-battle" class="kitacore-battle hidden" role="dialog" aria-modal="true" aria-label="ボス戦">

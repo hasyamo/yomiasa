@@ -53,7 +53,9 @@
       //   totalWai        : 回収した累計ワイ数（＝覚醒後ランクの燃料）
       //   keys[id]        : 鍵の数（覚醒前。クイズ正解で +1）
       //   defeatedBosses[id] : 撃破済みボス key の配列（覚醒前ランク・覚醒の導出元）
-      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {} },
+      //   player          : プレイヤー自身の note 情報 {id, displayName, iconUrl}（発動時に入力）
+      //   quizTaps        : クイズ選択肢を押した累計回数（ランクカードの指標）
+      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0 },
     };
   }
 
@@ -68,13 +70,20 @@
     if (!k.keys || typeof k.keys !== 'object') k.keys = {};
     if (!k.defeatedBosses || typeof k.defeatedBosses !== 'object') k.defeatedBosses = {};
     if (!k.quizCleared || typeof k.quizCleared !== 'object') k.quizCleared = {};
+    if (k.player !== null && typeof k.player !== 'object') k.player = null;
+    if (typeof k.quizTaps !== 'number') k.quizTaps = 0;
     return k;
   }
 
-  // キタコレモードが発動できる唯一の note ID（KITAさん専用。汎用化しない）。
+  // キタコレモードが発動できる唯一の note ID（KITAさん＝推される側。汎用化しない）。
   var KITACORE_ID = 'ktcrs1107';
-  // プレイヤー名（システムメッセージ内で固定表示）。
-  var KITACORE_PLAYER = 'ktcrs1107';
+
+  // プレイヤー名（＝ユーザー自身の note ID。発動時に入力・保存したものを使う）。
+  // 未登録時のフォールバックは 'プレイヤー'（通常は登録後しか表示されない）。
+  function playerName() {
+    var p = state.kitacore && state.kitacore.player;
+    return p && p.id ? p.id : 'プレイヤー';
+  }
 
   // 覚醒後ランク（確定閾値・実データ検算済み）。覚醒＝S級スタートで、
   // 回収した累計ワイ(totalWai)が min 以上の最上位ランクを採用する。
@@ -170,7 +179,7 @@
     return [
       '［ システム ］',
       '〈' + boss.name + '〉を撃破しました。',
-      'プレイヤー〈' + KITACORE_PLAYER + '〉は ' + boss.rankAfter + ' に昇格しました。',
+      'プレイヤー〈' + playerName() + '〉は ' + boss.rankAfter + ' に昇格しました。',
     ];
   }
 
@@ -180,7 +189,7 @@
     return [
       '［ システム ］',
       '最後の門番〈WING OF DEATH〉が沈黙しました。',
-      'プレイヤー〈' + KITACORE_PLAYER + '〉が覚醒します。',
+      'プレイヤー〈' + playerName() + '〉が覚醒します。',
       '称号『S級覚醒』を獲得しました。',
     ];
   }
@@ -231,18 +240,87 @@
 
   // キタコレモードのトグル。ON→E級スタート（修行開始）/ OFF→終了。発動対象のみ反応。
   // ※覚醒(S級)は A級ボス撃破で起きる。ここでは覚醒しない。
+  // ON 時、プレイヤー未登録なら ID 入力モーダルを挟む（認証成功で発動）。
   function toggleMode(creatorId) {
     if (!isKitacoreTarget(creatorId)) return;
     ensureKitacore();
-    var now = isModeOn(creatorId);
-    if (now) {
+    if (isModeOn(creatorId)) {
+      // OFF
       delete state.kitacore.mode[creatorId];
-    } else {
-      state.kitacore.mode[creatorId] = { at: new Date().toISOString() };
+      saveState();
+      renderCreatorCards();
+      showSystemMessage(kitacoreSleepLines());
+      return;
     }
+    // ON：プレイヤー未登録なら入力モーダル → 認証成功で activateMode。
+    if (!state.kitacore.player || !state.kitacore.player.id) {
+      openPlayerInput(creatorId);
+      return;
+    }
+    activateMode(creatorId);
+  }
+
+  // モードを実際にONにして覚醒メッセージを出す（プレイヤー登録済み前提）。
+  function activateMode(creatorId) {
+    ensureKitacore();
+    state.kitacore.mode[creatorId] = { at: new Date().toISOString() };
     saveState();
     renderCreatorCards();
-    showSystemMessage(now ? kitacoreSleepLines() : kitacoreWakeLines());
+    showSystemMessage(kitacoreWakeLines());
+  }
+
+  // プレイヤーID入力モーダル。認証成功で player を保存し activateMode。
+  var pendingModeCreatorId = null;
+  function openPlayerInput(creatorId) {
+    pendingModeCreatorId = creatorId;
+    if (!els.kitacorePlayer) return;
+    els.kitacorePlayerInput.value = '';
+    els.kitacorePlayerError.classList.add('hidden');
+    els.kitacorePlayerError.textContent = '';
+    els.kitacorePlayerAuth.disabled = false;
+    els.kitacorePlayer.classList.remove('hidden');
+    setTimeout(function () {
+      els.kitacorePlayerInput.focus();
+    }, 0);
+  }
+
+  function closePlayerInput() {
+    pendingModeCreatorId = null;
+    if (els.kitacorePlayer) els.kitacorePlayer.classList.add('hidden');
+  }
+
+  // 認証：入力 ID を note で実在確認。OK→player 保存→モード発動。NG→エラー表示。
+  function authPlayer() {
+    var id = (els.kitacorePlayerInput.value || '').trim().replace(/^@/, '');
+    if (!id) {
+      showPlayerError('IDを入力せよ。');
+      return;
+    }
+    var creatorId = pendingModeCreatorId;
+    els.kitacorePlayerAuth.disabled = true;
+    els.kitacorePlayerError.classList.add('hidden');
+    fetchCreatorProfile(id).then(function (profile) {
+      if (!profile) {
+        showPlayerError('そのプレイヤーは存在しない。');
+        els.kitacorePlayerAuth.disabled = false;
+        return;
+      }
+      ensureKitacore();
+      state.kitacore.player = {
+        id: id,
+        displayName: profile.displayName || id,
+        iconUrl: profile.iconUrl || null,
+      };
+      saveState();
+      closePlayerInput();
+      activateMode(creatorId);
+    });
+  }
+
+  function showPlayerError(msg) {
+    if (!els.kitacorePlayerError) return;
+    els.kitacorePlayerError.textContent = msg;
+    els.kitacorePlayerError.classList.remove('hidden');
   }
 
   // クイズデータ（覚醒前）。起動時に一度だけ読み、メモリに保持する。
@@ -389,7 +467,7 @@
   function kitacoreWakeLines() {
     return [
       '［ システム ］',
-      'プレイヤー〈' + KITACORE_PLAYER + '〉の覚醒を確認しました。',
+      'プレイヤー〈' + playerName() + '〉の覚醒を確認しました。',
       '隠しモード『キタコレモード』が解放されました。',
       'ワイ語の収集を開始します。',
     ];
@@ -400,7 +478,7 @@
     return [
       '［ システム ］',
       '『キタコレモード』を終了します。',
-      'プレイヤー〈' + KITACORE_PLAYER + '〉、また会いましょう。',
+      'プレイヤー〈' + playerName() + '〉、また会いましょう。',
     ];
   }
 
@@ -1200,6 +1278,11 @@
     kitacoreQuizChoices: document.getElementById('kitacore-quiz-choices'),
     kitacoreQuizResult: document.getElementById('kitacore-quiz-result'),
     kitacoreQuizClose: document.getElementById('kitacore-quiz-close'),
+    kitacorePlayer: document.getElementById('kitacore-player'),
+    kitacorePlayerInput: document.getElementById('kitacore-player-input'),
+    kitacorePlayerError: document.getElementById('kitacore-player-error'),
+    kitacorePlayerAuth: document.getElementById('kitacore-player-auth'),
+    kitacorePlayerCancel: document.getElementById('kitacore-player-cancel'),
     kitacoreBattle: document.getElementById('kitacore-battle'),
     kitacoreBattleImg: document.getElementById('kitacore-battle-img'),
     kitacoreBattleText: document.getElementById('kitacore-battle-text'),
@@ -2952,6 +3035,17 @@
     }
     if (els.kitacoreBattle) {
       els.kitacoreBattle.addEventListener('click', onBossBattleTap);
+    }
+    if (els.kitacorePlayerAuth) {
+      els.kitacorePlayerAuth.addEventListener('click', authPlayer);
+    }
+    if (els.kitacorePlayerCancel) {
+      els.kitacorePlayerCancel.addEventListener('click', closePlayerInput);
+    }
+    if (els.kitacorePlayerInput) {
+      els.kitacorePlayerInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') authPlayer();
+      });
     }
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
