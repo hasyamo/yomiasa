@@ -2201,7 +2201,7 @@
         var glow = document.createElement('button');
         glow.type = 'button';
         glow.className = 'kitacore-glow' + (quizCleared ? ' is-cleared' : '');
-        glow.textContent = quizCleared ? '鍵 入手済' : '✨';
+        glow.textContent = quizCleared ? '鍵 入手済' : '✨ 試練';
         glow.setAttribute('aria-label', quizCleared ? 'クイズ正解済み' : 'クイズに挑戦');
         glow.disabled = quizCleared;
         if (!quizCleared) {

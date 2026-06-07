@@ -236,13 +236,13 @@ body {
 
 .badge-new {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.4;
   color: var(--on-accent);
   background: var(--progress);
   border-radius: 999px;
-  padding: 3px 8px;
+  padding: 5px 8px;
   white-space: nowrap;
 }
 
@@ -559,7 +559,7 @@ select.field {
   background: var(--progress);
   border: 1px solid var(--progress);
   border-radius: 999px;
-  padding: 3px 10px;
+  padding: 4px 8px;
   cursor: pointer;
 }
 
@@ -1385,11 +1385,16 @@ select.field {
    ボタンの装飾は持たず、絵文字自体を明滅・微拡大させる。 */
 .kitacore-glow {
   appearance: none;
-  border: none;
-  background: transparent;
-  padding: 2px 4px;
-  font-size: 16px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   line-height: 1;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  background: rgba(212, 175, 55, 0.12);
+  color: #a07820;
   cursor: pointer;
   animation: kitacore-glow-pulse 1.4s ease-in-out infinite;
 }
