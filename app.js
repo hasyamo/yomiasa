@@ -365,19 +365,42 @@
   // 進行中クイズの文脈。
   var activeQuiz = null; // { creatorId, articleId, quiz }
 
+  // 配列をシャッフルした新配列を返す（Fisher–Yates）。元配列は壊さない。
+  function shuffled(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i];
+      a[i] = a[j];
+      a[j] = t;
+    }
+    return a;
+  }
+
   // クイズモーダルを開く（覚醒前・モードON・未覚醒・クイズ有りのときだけ）。
+  // 選択肢は毎回シャッフルする（位置記憶でのズルを防ぐ）。
   function openQuiz(creatorId, article, quiz) {
-    activeQuiz = { creatorId: creatorId, articleId: article.id, quiz: quiz };
+    // {text, correct} にしてシャッフルし、シャッフル後の正解位置を持つ。
+    var items = shuffled(
+      quiz.choices.map(function (text, i) {
+        return { text: text, correct: i === quiz.answer };
+      })
+    );
+    var correctIndex = items.findIndex(function (it) {
+      return it.correct;
+    });
+    activeQuiz = { creatorId: creatorId, articleId: article.id, correctIndex: correctIndex };
+
     els.kitacoreQuizQ.textContent = quiz.q;
     els.kitacoreQuizResult.classList.add('hidden');
     els.kitacoreQuizResult.textContent = '';
     els.kitacoreQuizChoices.innerHTML = '';
     var cleared = isQuizCleared(creatorId, article.id);
-    quiz.choices.forEach(function (choice, idx) {
+    items.forEach(function (it, idx) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'kitacore-quiz-choice';
-      btn.textContent = choice;
+      btn.textContent = it.text;
       btn.addEventListener('click', function () {
         answerQuiz(idx);
       });
@@ -393,11 +416,11 @@
 
   function answerQuiz(idx) {
     if (!activeQuiz) return;
-    var correct = idx === activeQuiz.quiz.answer;
+    var correct = idx === activeQuiz.correctIndex;
     var btns = els.kitacoreQuizChoices.querySelectorAll('.kitacore-quiz-choice');
     btns[idx].classList.add(correct ? 'is-correct' : 'is-wrong');
     if (correct) {
-      btns[activeQuiz.quiz.answer].classList.add('is-correct');
+      btns[activeQuiz.correctIndex].classList.add('is-correct');
     }
     var alreadyHad = isQuizCleared(activeQuiz.creatorId, activeQuiz.articleId);
     if (correct && !alreadyHad) {
