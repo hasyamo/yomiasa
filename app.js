@@ -210,7 +210,20 @@
     if (els.kitacoreBattleText) {
       els.kitacoreBattleText.textContent = kitacoreBossEnterLines(boss).join('\n');
     }
-    if (els.kitacoreBattle) els.kitacoreBattle.classList.remove('hidden');
+    if (els.kitacoreBattle) {
+      els.kitacoreBattle.classList.remove('hidden');
+      // 砂嵐→ボス登場演出。BOSS_ENTER_STYLE で A/B 切り替え。
+      var stage = els.kitacoreBattle.querySelector('.kitacore-battle-stage');
+      els.kitacoreBattle.classList.remove('is-glitch');
+      if (stage) {
+        stage.classList.remove('is-glitch', 'is-enter-flip');
+        void stage.offsetWidth;
+        stage.classList.add(randomBossEnterStyle());
+      }
+      void els.kitacoreBattle.offsetWidth;
+      els.kitacoreBattle.classList.add('is-glitch');
+      playPixelGlitch();
+    }
   }
 
   function onBossBattleTap() {
@@ -336,6 +349,11 @@
       })
       .catch(function () {
         kitacoreQuizzes = {}; // 読めなくてもクイズ無しで動く
+      })
+      .then(function () {
+        // ロード完了で初めて光ボタンの判定ができる。初回描画はロード前に走るので、
+        // ここで現在のルートを描き直して✨ボタンを反映する（レース対策）。
+        renderRoute();
       });
   }
 
@@ -377,6 +395,75 @@
     return a;
   }
 
+  // ボス登場スタイル：毎回ランダムで3パターンから選ぶ。
+  // ボス登場スタイル：揺れ / 裏表回転をランダムで切り替え。
+  var BOSS_ENTER_STYLES = ['is-glitch', 'is-enter-flip'];
+  function randomBossEnterStyle() {
+    return BOSS_ENTER_STYLES[Math.floor(Math.random() * BOSS_ENTER_STYLES.length)];
+  }
+
+  // Canvas でピクセルモザイクを全画面に描画し、フェードアウトさせる起動演出。
+  // ブロックサイズ大きめ（20px）でデジタルノイズらしいカクカクした四角を出す。
+  function playPixelGlitch() {
+    // prefers-reduced-motion 対応
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var BLOCK = 8;           // ブロックサイズ（px）
+    var FRAMES = 8;          // ざわつくフレーム数
+    var FRAME_MS = 60;       // 1フレームの時間
+    var FADE_MS = 250;       // フェードアウトにかける時間
+
+    // canvas を生成（既存があれば再利用）
+    var canvas = document.getElementById('kitacore-glitch-canvas');
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.id = 'kitacore-glitch-canvas';
+      document.body.appendChild(canvas);
+    }
+    canvas.style.opacity = '1';
+    canvas.style.transition = 'none';
+
+    var W = window.innerWidth;
+    var H = window.innerHeight;
+    canvas.width  = W;
+    canvas.height = H;
+
+    var ctx = canvas.getContext('2d');
+    var cols = Math.ceil(W / BLOCK);
+    var rows = Math.ceil(H / BLOCK);
+
+    // グレースケール6値。黒・白は少なめにしてグレー中心のノイズ感に。
+    var COLORS = ['#111111', '#333333', '#555555', '#888888', '#bbbbbb', '#dddddd', '#dddddd', '#888888', '#555555', '#333333'];
+
+    function drawFrame() {
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          ctx.fillStyle = COLORS[Math.floor(Math.random() * COLORS.length)];
+          ctx.fillRect(c * BLOCK, r * BLOCK, BLOCK, BLOCK);
+        }
+      }
+    }
+
+    // FRAMES 回ざわつかせてからフェードアウト
+    var frame = 0;
+    drawFrame();
+    var interval = setInterval(function () {
+      frame++;
+      if (frame >= FRAMES) {
+        clearInterval(interval);
+        // フェードアウト開始
+        canvas.style.transition = 'opacity ' + FADE_MS + 'ms ease-out';
+        canvas.style.opacity = '0';
+        setTimeout(function () {
+          canvas.style.transition = 'none';
+          ctx.clearRect(0, 0, W, H);
+        }, FADE_MS + 50);
+        return;
+      }
+      drawFrame();
+    }, FRAME_MS);
+  }
+
   // クイズモーダルを開く（覚醒前・モードON・未覚醒・クイズ有りのときだけ）。
   // 選択肢は毎回シャッフルする（位置記憶でのズルを防ぐ）。
   function openQuiz(creatorId, article, quiz) {
@@ -412,22 +499,27 @@
       els.kitacoreQuizResult.classList.remove('hidden');
     }
     els.kitacoreQuiz.classList.remove('hidden');
-    // システムが反応したようなグリッチ起動アニメ（毎回付け直す）。
+    // Canvas ピクセルモザイク起動演出 + ウィンドウ揺れ
     var win = els.kitacoreQuiz.querySelector('.kitacore-quiz-window');
-    if (win) {
-      win.classList.remove('is-glitch');
-      void win.offsetWidth; // リフローでアニメをリスタート
-      win.classList.add('is-glitch');
-    }
+    els.kitacoreQuiz.classList.remove('is-glitch');
+    if (win) win.classList.remove('is-glitch');
+    void els.kitacoreQuiz.offsetWidth;
+    els.kitacoreQuiz.classList.add('is-glitch');
+    if (win) win.classList.add('is-glitch');
   }
 
   function answerQuiz(idx) {
     if (!activeQuiz) return;
+    // 正解済み（選択肢が disabled）なら何もしない
+    if (activeQuiz.answered) return;
     var correct = idx === activeQuiz.correctIndex;
     var btns = els.kitacoreQuizChoices.querySelectorAll('.kitacore-quiz-choice');
     btns[idx].classList.add(correct ? 'is-correct' : 'is-wrong');
     if (correct) {
+      activeQuiz.answered = true; // 正解フラグ
       btns[activeQuiz.correctIndex].classList.add('is-correct');
+      // 全選択肢を無効化
+      btns.forEach(function (b) { b.disabled = true; });
     }
     var alreadyHad = isQuizCleared(activeQuiz.creatorId, activeQuiz.articleId);
     if (correct && !alreadyHad) {
@@ -1236,6 +1328,9 @@
     readProgress: document.getElementById('read-progress'),
     kitacoreStats: document.getElementById('kitacore-stats'),
     kitacoreProgress: document.getElementById('kitacore-progress'),
+    debugBtns: document.getElementById('debug-btns'),
+    debugAddKeys: document.getElementById('debug-add-keys'),
+    debugClear: document.getElementById('debug-clear'),
     kitacoreBoss: document.getElementById('kitacore-boss'),
     fetchBtn: document.getElementById('fetch-btn'),
     fetchDot: document.getElementById('fetch-dot'),
@@ -1957,6 +2052,7 @@
     els.kitacoreProgress.classList.toggle('hidden', !on);
     if (!on) {
       if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
+      if (els.debugBtns) els.debugBtns.classList.add('hidden');
       return;
     }
 
@@ -1967,6 +2063,8 @@
       renderKitacorePreHeader(c.id);
       renderKitacoreBoss(c.id);
     }
+    // デバッグボタンはモードON中は常に表示
+    if (els.debugBtns) els.debugBtns.classList.remove('hidden');
   }
 
   // 覚醒前：次のボスカード（画像＋名前＋挑戦ボタン）。鍵が足りれば挑戦可。
@@ -3086,6 +3184,34 @@
     }
     if (els.kitacorePlayerCancel) {
       els.kitacorePlayerCancel.addEventListener('click', closePlayerInput);
+    }
+    if (els.debugAddKeys) {
+      els.debugAddKeys.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || !isKitacoreTarget(c.id)) return;
+        ensureKitacore();
+        state.kitacore.keys[c.id] = keysOf(c.id) + 3;
+        saveState();
+        renderKitacoreHeader();
+      });
+    }
+    if (els.debugClear) {
+      els.debugClear.addEventListener('click', function () {
+        if (!window.confirm('キタコレの進行データ（鍵・クイズ・ボス撃破・ワイ）をすべてクリアします。よろしいですか？')) return;
+        var c = getSelectedCreator();
+        if (!c) return;
+        ensureKitacore();
+        state.kitacore.keys = {};
+        state.kitacore.quizCleared = {};
+        state.kitacore.defeatedBosses = {};
+        state.kitacore.totalWai = 0;
+        state.kitacore.counts = {};
+        state.kitacore.collected = {};
+        state.kitacore.quizTaps = 0;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
     }
     if (els.kitacorePlayerInput) {
       els.kitacorePlayerInput.addEventListener('keydown', function (e) {

@@ -1185,6 +1185,28 @@ select.field {
 
 /* 覚醒前：次のボスカード（画像＋名前＋挑戦ボタン）。
    パネルの高さを抑え、画像はその高さに収める。 */
+/* デバッグ用ボタン群 */
+.debug-btns {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+.debug-btns.hidden { display: none; }
+.debug-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: rgba(255, 80, 80, 0.15);
+  border: 1px dashed rgba(255, 80, 80, 0.5);
+  color: rgba(255, 120, 120, 0.9);
+}
+.debug-btn-danger {
+  background: rgba(180, 40, 40, 0.2);
+  border-color: rgba(220, 60, 60, 0.6);
+  color: rgba(255, 100, 100, 1);
+}
+
 .kitacore-boss {
   display: flex;
   gap: 14px;
@@ -1450,17 +1472,61 @@ select.field {
   color: #e0f2fe;
 }
 
-/* B案：ウィンドウがノイズの塊から像を結ぶ（砂嵐→受信されてクリアに）。 */
-.kitacore-quiz-window.is-glitch {
-  animation: kitacore-quiz-glitch 0.6s steps(4, end) 1;
+/* 起動演出：画面全体を砂嵐で覆ってからウィンドウを表示する。クイズ・ボス共通。 */
+.kitacore-quiz.is-glitch::before,
+.kitacore-battle.is-glitch::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='turbulence' baseFrequency='0.65' numOctaves='1' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 250px 250px;
+  animation: kitacore-quiz-static 1.2s steps(10, end) 1 forwards;
 }
 
-@keyframes kitacore-quiz-glitch {
-  0% { opacity: 0; filter: blur(8px) contrast(2); transform: translateX(-8px) skewX(8deg); }
-  25% { opacity: 0.6; filter: blur(5px) hue-rotate(40deg); transform: translateX(7px) skewX(-6deg); }
-  50% { opacity: 0.85; filter: blur(2px) hue-rotate(-30deg); transform: translateX(-3px); }
-  75% { opacity: 1; filter: blur(1px); transform: translateX(2px); }
-  100% { opacity: 1; filter: none; transform: none; }
+/* クイズウィンドウ：砂嵐が晴れるにつれ揺れながら像を結ぶ。 */
+.kitacore-quiz-window.is-glitch {
+  animation: kitacore-quiz-settle 1.2s ease-out 1;
+}
+
+/* ボス登場 揺れ版：クイズと同じ settle アニメを適用。 */
+.kitacore-battle-stage.is-glitch {
+  animation: kitacore-quiz-settle 1.2s ease-out 1;
+}
+
+/* ボス登場：裏表でひっくり返りながら出現（rotateY）。 */
+.kitacore-battle-stage.is-enter-flip {
+  animation: kitacore-boss-flip 0.8s cubic-bezier(0.22, 1, 0.36, 1) 1;
+  transform-style: preserve-3d;
+  perspective: 800px;
+}
+@keyframes kitacore-boss-flip {
+  0%   { opacity: 0; transform: rotateY(-720deg) scale(0.8); }
+  70%  { opacity: 1; transform: rotateY(15deg) scale(1.03); }
+  100% { opacity: 1; transform: rotateY(0deg) scale(1); }
+}
+
+@keyframes kitacore-quiz-static {
+  0%   { opacity: 1;    background-position: 0 0; }
+  20%  { opacity: 0.9;  background-position: 50px -40px; }
+  40%  { opacity: 0.75; background-position: -30px 60px; }
+  60%  { opacity: 0.5;  background-position: 70px 25px; }
+  80%  { opacity: 0.25; background-position: -50px -55px; }
+  100% { opacity: 0;    background-position: 15px 15px; }
+}
+
+@keyframes kitacore-quiz-settle {
+  0%   { opacity: 0;   transform: translateX(-10px) skewX(6deg) scale(0.96); filter: blur(4px); }
+  25%  { opacity: 0.4; transform: translateX(8px)  skewX(-5deg) scale(0.98); filter: blur(3px); }
+  50%  { opacity: 0.7; transform: translateX(-5px) skewX(3deg);              filter: blur(2px); }
+  75%  { opacity: 0.9; transform: translateX(3px)  skewX(-1deg);             filter: blur(1px); }
+  100% { opacity: 1;   transform: none;                                       filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kitacore-quiz.is-glitch::before { display: none; }
+  .kitacore-quiz-window.is-glitch { animation: none; }
 }
 
 .kitacore-quiz-label {
