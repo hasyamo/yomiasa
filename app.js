@@ -9,6 +9,8 @@
 (function () {
   'use strict';
 
+  var DEBUG_MODE = location.search.indexOf('debug=1') !== -1;
+
   // note.com API は CORS を許可していないため、CORS 対応の中継プロキシ経由で取得する。
   // ?id= でクリエイタープロフィール、?path= で任意の note API パスを中継できる。
   var PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/';
@@ -19,7 +21,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.5';
+  var APP_VERSION = '0.1.6';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -55,7 +57,7 @@
       //   defeatedBosses[id] : 撃破済みボス key の配列（覚醒前ランク・覚醒の導出元）
       //   player          : プレイヤー自身の note 情報 {id, displayName, iconUrl}（発動時に入力）
       //   quizTaps        : クイズ選択肢を押した累計回数（ランクカードの指標）
-      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0 },
+      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {} },
     };
   }
 
@@ -72,6 +74,7 @@
     if (!k.quizCleared || typeof k.quizCleared !== 'object') k.quizCleared = {};
     if (k.player !== null && typeof k.player !== 'object') k.player = null;
     if (typeof k.quizTaps !== 'number') k.quizTaps = 0;
+    if (!k.pendingPostBoss || typeof k.pendingPostBoss !== 'object') k.pendingPostBoss = {};
     return k;
   }
 
@@ -90,14 +93,35 @@
   // key は CSS の rank-<key> と対応（バッジ色）。
   var KITACORE_GOAL = 2000; // 君主到達ライン＝進捗バーの最大
   var KITACORE_RANKS = [
-    { rank: 'S級覚醒', key: 's', min: 0 },
-    { rank: '国家級', key: 'national', min: 600 },
-    { rank: '君主前', key: 'lord-prev', min: 1200 },
-    { rank: '君主', key: 'monarch', min: 2000 },
+    { rank: 'S級覚醒', key: 's',         min: 0,    bossKey: null },
+    { rank: '国家級',  key: 'national',   min: 600,  bossKey: 'requiem' },
+    { rank: '君主前',  key: 'lord-prev',  min: 1200, bossKey: 'cael' },
+    { rank: '君主',    key: 'monarch',    min: 2000, bossKey: 'ashen' },
   ];
 
-  // 累計ワイ数 → 現在ランク（min 以上の最上位）。
-  function kitacoreRankOf(totalWai) {
+  // 覚醒後ボス（ワイ閾値到達で出現。鍵不要）。
+  var KITACORE_POST_BOSSES = [
+    { key: 'requiem', name: 'REQUIEM OF SHADOWS', title: '鎮魂の司祭',       rankAfter: '国家級', img: 'assets/boss/REQUIEM_OF_SHADOWS.webp' },
+    { key: 'cael',    name: 'CAEL NOX',            title: '記憶する堕天使', rankAfter: '君主前', img: 'assets/boss/CAEL_NOX.webp' },
+    { key: 'ashen',   name: 'ASHEN REAPER',        title: '灰の審判者',     rankAfter: '君主',   img: 'assets/boss/ASHEN_REAPER.webp' },
+  ];
+
+  // 覚醒後ランク = 撃破済みの覚醒後ボスから導出。
+  // ワイ数が閾値を超えてもボスを倒すまでランクは上がらない。
+  function kitacoreRankOf(creatorId) {
+    var defeated = defeatedBossesOf(creatorId);
+    var cur = KITACORE_RANKS[0]; // S級覚醒がデフォルト
+    KITACORE_POST_BOSSES.forEach(function (boss) {
+      if (defeated.indexOf(boss.key) !== -1) {
+        var rank = KITACORE_RANKS.find(function (r) { return r.rank === boss.rankAfter; });
+        if (rank && KITACORE_RANKS.indexOf(rank) > KITACORE_RANKS.indexOf(cur)) cur = rank;
+      }
+    });
+    return cur;
+  }
+
+  // ワイ数がどのランク閾値に達しているか（ボス出現トリガー判定用）。
+  function kitacoreWaiRankOf(totalWai) {
     var cur = KITACORE_RANKS[0];
     for (var i = 0; i < KITACORE_RANKS.length; i++) {
       if (totalWai >= KITACORE_RANKS[i].min) cur = KITACORE_RANKS[i];
@@ -288,9 +312,13 @@
     pendingModeCreatorId = creatorId;
     if (!els.kitacorePlayer) return;
     els.kitacorePlayerInput.value = '';
+    els.kitacorePlayerInput.classList.remove('hidden');
     els.kitacorePlayerError.classList.add('hidden');
     els.kitacorePlayerError.textContent = '';
+    els.kitacorePlayerAuth.textContent = '認証';
     els.kitacorePlayerAuth.disabled = false;
+    pendingPlayerProfile = null;
+    resetPlayerPreview();
     els.kitacorePlayer.classList.remove('hidden');
     setTimeout(function () {
       els.kitacorePlayerInput.focus();
@@ -299,11 +327,69 @@
 
   function closePlayerInput() {
     pendingModeCreatorId = null;
+    pendingPlayerProfile = null;
     if (els.kitacorePlayer) els.kitacorePlayer.classList.add('hidden');
   }
 
-  // 認証：入力 ID を note で実在確認。OK→player 保存→モード発動。NG→エラー表示。
+  function resetPlayerPreview() {
+    if (!els.kitacorePlayerPreview) return;
+    els.kitacorePlayerPreview.innerHTML = '';
+    els.kitacorePlayerPreview.classList.add('hidden');
+  }
+
+  function showPlayerPreview(profile) {
+    if (!els.kitacorePlayerPreview) return;
+    els.kitacorePlayerPreview.innerHTML = '';
+    els.kitacorePlayerPreview.classList.remove('hidden');
+
+    var avatar = document.createElement('div');
+    avatar.className = 'add-preview-avatar';
+    if (profile.iconUrl) {
+      var img = document.createElement('img');
+      img.src = profile.iconUrl;
+      img.alt = '';
+      img.addEventListener('error', function () {
+        avatar.removeChild(img);
+        avatar.textContent = (profile.displayName || profile.id).charAt(0);
+      });
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = (profile.displayName || profile.id).charAt(0);
+    }
+
+    var info = document.createElement('div');
+    var nameEl = document.createElement('div');
+    nameEl.className = 'add-preview-name';
+    nameEl.textContent = profile.displayName || profile.id;
+    var idEl = document.createElement('div');
+    idEl.className = 'add-preview-id';
+    idEl.textContent = '@' + profile.id;
+    info.appendChild(nameEl);
+    info.appendChild(idEl);
+
+    els.kitacorePlayerPreview.appendChild(avatar);
+    els.kitacorePlayerPreview.appendChild(info);
+  }
+
+  // 認証：2段階。1回目→プロフィール取得＋プレビュー表示。2回目（決定）→モード発動。
+  var pendingPlayerProfile = null;
   function authPlayer() {
+    // 2回目：プレビュー確認済み → 決定
+    if (pendingPlayerProfile) {
+      var creatorId = pendingModeCreatorId;
+      ensureKitacore();
+      state.kitacore.player = {
+        id: pendingPlayerProfile.id,
+        displayName: pendingPlayerProfile.displayName,
+        iconUrl: pendingPlayerProfile.iconUrl,
+      };
+      saveState();
+      pendingPlayerProfile = null;
+      closePlayerInput();
+      activateMode(creatorId);
+      return;
+    }
+    // 1回目：ID入力 → プロフィール取得
     var id = (els.kitacorePlayerInput.value || '').trim().replace(/^@/, '');
     if (!id) {
       showPlayerError('IDを入力せよ。');
@@ -312,21 +398,19 @@
     var creatorId = pendingModeCreatorId;
     els.kitacorePlayerAuth.disabled = true;
     els.kitacorePlayerError.classList.add('hidden');
+    resetPlayerPreview();
     fetchCreatorProfile(id).then(function (profile) {
       if (!profile) {
         showPlayerError('そのプレイヤーは存在しない。');
         els.kitacorePlayerAuth.disabled = false;
         return;
       }
-      ensureKitacore();
-      state.kitacore.player = {
-        id: id,
-        displayName: profile.displayName || id,
-        iconUrl: profile.iconUrl || null,
-      };
-      saveState();
-      closePlayerInput();
-      activateMode(creatorId);
+      pendingPlayerProfile = { id: id, displayName: profile.displayName || id, iconUrl: profile.iconUrl || null };
+      showPlayerPreview(pendingPlayerProfile);
+      // 入力欄を隠してボタンを「決定」に変更
+      els.kitacorePlayerInput.classList.add('hidden');
+      els.kitacorePlayerAuth.textContent = '決定';
+      els.kitacorePlayerAuth.disabled = false;
     });
   }
 
@@ -334,6 +418,119 @@
     if (!els.kitacorePlayerError) return;
     els.kitacorePlayerError.textContent = msg;
     els.kitacorePlayerError.classList.remove('hidden');
+  }
+
+  // ランクカード表示
+  function openRankCard() {
+    if (!els.kitacoreRankCard || !els.kitacoreRankCardContent) return;
+    var player = state.kitacore && state.kitacore.player;
+    if (!player) return;
+    var creatorId = KITACORE_ID;
+    var rankInfo = isPostAwakening(creatorId) ? kitacoreRankOf(creatorId) : null;
+    var rankLabel = rankInfo
+      ? 'ワイ語ハンターランク ' + rankInfo.rank
+      : (nextPreBoss(creatorId) ? 'ワイ語ハンターランク ' + nextPreBoss(creatorId).rankBefore : '---');
+    var totalWai = (state.kitacore && state.kitacore.totalWai) || 0;
+    var quizTaps = (state.kitacore && state.kitacore.quizTaps) || 0;
+    var quizCleared = state.kitacore && state.kitacore.quizCleared ? Object.keys(state.kitacore.quizCleared).length : 0;
+    var keysCount = keysOf(creatorId);
+
+    var el = els.kitacoreRankCardContent;
+    el.innerHTML = '';
+
+    // アイコン + 表示名 + ID
+    var playerRow = document.createElement('div');
+    playerRow.className = 'rank-card-player';
+    var avatar = document.createElement('div');
+    avatar.className = 'add-preview-avatar rank-card-avatar';
+    if (player.iconUrl) {
+      var img = document.createElement('img');
+      img.src = player.iconUrl;
+      img.alt = '';
+      img.addEventListener('error', function () {
+        avatar.removeChild(img);
+        avatar.textContent = (player.displayName || player.id).charAt(0);
+      });
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = (player.displayName || player.id).charAt(0);
+    }
+    var playerInfo = document.createElement('div');
+    var playerName = document.createElement('div');
+    playerName.className = 'add-preview-name';
+    playerName.textContent = player.displayName || player.id;
+    var playerId = document.createElement('div');
+    playerId.className = 'add-preview-id';
+    playerId.textContent = '@' + player.id;
+    playerInfo.appendChild(playerName);
+    playerInfo.appendChild(playerId);
+    playerRow.appendChild(avatar);
+    playerRow.appendChild(playerInfo);
+    el.appendChild(playerRow);
+
+    // ランク
+    var rankRow = document.createElement('div');
+    rankRow.className = 'rank-card-row';
+    var rankKey = rankInfo ? rankInfo.key : (nextPreBoss(creatorId) ? nextPreBoss(creatorId).rankBeforeKey : 'e');
+    rankRow.innerHTML = '<span class="rank-card-label">ランク</span><span class="kitacore-rank-text rank-' + rankKey + '">' + rankLabel + '</span>';
+    el.appendChild(rankRow);
+
+    // ワイ累計
+    var waiRow = document.createElement('div');
+    waiRow.className = 'rank-card-row';
+    waiRow.innerHTML = '<span class="rank-card-label">ワイ語収集数</span><span class="rank-card-value">' + totalWai + '</span>';
+    el.appendChild(waiRow);
+
+    // 鍵（覚醒前のみ）
+    if (!isPostAwakening(creatorId)) {
+      var keyRow = document.createElement('div');
+      keyRow.className = 'rank-card-row';
+      keyRow.innerHTML = '<span class="rank-card-label">終焉の鍵</span><span class="rank-card-value">' + keysCount + '</span>';
+      el.appendChild(keyRow);
+    }
+
+    // 試練の記録
+    var tapRow = document.createElement('div');
+    tapRow.className = 'rank-card-row';
+    tapRow.innerHTML = '<span class="rank-card-label">試練の記録</span><span class="rank-card-value">' + quizCleared + '問正解 / ' + quizTaps + 'タップ</span>';
+    el.appendChild(tapRow);
+
+    // 討伐ボス一覧（覚醒前3体 → 覚醒後3体）
+    var defeated = defeatedBossesOf(creatorId);
+    var allBosses = KITACORE_PRE_BOSSES.concat(KITACORE_POST_BOSSES);
+    var bossRow = document.createElement('div');
+    bossRow.className = 'rank-card-bosses';
+    allBosses.forEach(function (boss) {
+      var isDefeated = defeated.indexOf(boss.key) !== -1;
+      var card = document.createElement('div');
+      card.className = 'rank-card-boss' + (isDefeated ? ' is-defeated' : ' is-locked');
+      if (isDefeated) {
+        var img = document.createElement('img');
+        img.src = boss.img;
+        img.alt = boss.name;
+        img.addEventListener('error', function () {
+          card.removeChild(img);
+          var fallback = document.createElement('span');
+          fallback.className = 'rank-card-boss-fallback';
+          fallback.textContent = '?';
+          card.appendChild(fallback);
+        });
+        card.appendChild(img);
+      } else {
+        var unknown = document.createElement('span');
+        unknown.className = 'rank-card-boss-fallback';
+        unknown.textContent = '？';
+        card.appendChild(unknown);
+      }
+      bossRow.appendChild(card);
+    });
+    el.appendChild(bossRow);
+
+    els.kitacoreRankCard.classList.remove('hidden');
+  }
+
+  function closeRankCard() {
+    if (els.kitacoreRankCard) els.kitacoreRankCard.classList.add('hidden');
   }
 
   // クイズデータ（覚醒前）。起動時に一度だけ読み、メモリに保持する。
@@ -1123,9 +1320,44 @@
     if (!entry) return; // 未収集
     if (isCollected(articleId)) return; // 二重取り防止
     if (entry.wai <= 0) return; // ワイ0は回収対象外（チップ非活性）
+    var waiRankBefore = kitacoreWaiRankOf(state.kitacore.totalWai);
     state.kitacore.totalWai += entry.wai;
     state.kitacore.collected[articleId] = true;
     saveState();
+    // ワイ閾値を超えたら覚醒後ボスを出現させる（ランク表示はボス撃破まで据え置き）
+    var waiRankAfter = kitacoreWaiRankOf(state.kitacore.totalWai);
+    if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
+      var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
+      if (boss) showPostBoss(boss);
+    }
+  }
+
+  // 覚醒後ボスカードを表示する（挑戦待ち状態にセット）。
+  function showPostBoss(boss) {
+    ensureKitacore();
+    if (!state.kitacore.pendingPostBoss) state.kitacore.pendingPostBoss = {};
+    var defeated = defeatedBossesOf(KITACORE_ID);
+    // 撃破済みなら無視
+    if (defeated.indexOf(boss.key) !== -1) return;
+    // 既に挑戦待ちボスがいる場合は上書きしない
+    if (state.kitacore.pendingPostBoss[KITACORE_ID]) return;
+    // このボスより前の覚醒後ボスが全員撃破済みでなければ出現しない
+    var idx = KITACORE_POST_BOSSES.findIndex(function (b) { return b.key === boss.key; });
+    for (var i = 0; i < idx; i++) {
+      if (defeated.indexOf(KITACORE_POST_BOSSES[i].key) === -1) return;
+    }
+    state.kitacore.pendingPostBoss[KITACORE_ID] = boss.key;
+    saveState();
+    renderKitacoreHeader();
+  }
+
+  // 覚醒後の挑戦待ちボスを取得（pendingPostBoss から）。
+  function pendingPostBossOf(creatorId) {
+    var k = state.kitacore && state.kitacore.pendingPostBoss ? state.kitacore.pendingPostBoss[creatorId] : null;
+    if (!k) return null;
+    var defeated = defeatedBossesOf(creatorId);
+    if (defeated.indexOf(k) !== -1) return null; // 撃破済みなら消す
+    return KITACORE_POST_BOSSES.find(function (b) { return b.key === k; }) || null;
   }
 
   // ---------------------------------------------------------------------------
@@ -1326,10 +1558,15 @@
     readId: document.getElementById('read-id'),
     readStats: document.getElementById('read-stats'),
     readProgress: document.getElementById('read-progress'),
+    kitacoreRankArea: document.getElementById('kitacore-rank-area'),
     kitacoreStats: document.getElementById('kitacore-stats'),
     kitacoreProgress: document.getElementById('kitacore-progress'),
+    kitacoreRankCard: document.getElementById('kitacore-rank-card'),
+    kitacoreRankCardContent: document.getElementById('kitacore-rank-card-content'),
+    kitacoreRankCardClose: document.getElementById('kitacore-rank-card-close'),
     debugBtns: document.getElementById('debug-btns'),
     debugAddKeys: document.getElementById('debug-add-keys'),
+    debugAddWai: document.getElementById('debug-add-wai'),
     debugClear: document.getElementById('debug-clear'),
     kitacoreBoss: document.getElementById('kitacore-boss'),
     fetchBtn: document.getElementById('fetch-btn'),
@@ -1406,6 +1643,7 @@
     kitacoreQuizClose: document.getElementById('kitacore-quiz-close'),
     kitacorePlayer: document.getElementById('kitacore-player'),
     kitacorePlayerInput: document.getElementById('kitacore-player-input'),
+    kitacorePlayerPreview: document.getElementById('kitacore-player-preview'),
     kitacorePlayerError: document.getElementById('kitacore-player-error'),
     kitacorePlayerAuth: document.getElementById('kitacore-player-auth'),
     kitacorePlayerCancel: document.getElementById('kitacore-player-cancel'),
@@ -1968,6 +2206,9 @@
         glow.disabled = quizCleared;
         if (!quizCleared) {
           glow.addEventListener('click', function () {
+            ensureKitacore();
+            state.kitacore.quizTaps = (state.kitacore.quizTaps || 0) + 1;
+            saveState();
             openQuiz(creatorId, article, quiz);
           });
         }
@@ -2048,8 +2289,7 @@
   function renderKitacoreHeader() {
     var c = getSelectedCreator();
     var on = c && isKitacoreTarget(c.id) && isModeOn(c.id);
-    els.kitacoreStats.classList.toggle('hidden', !on);
-    els.kitacoreProgress.classList.toggle('hidden', !on);
+    if (els.kitacoreRankArea) els.kitacoreRankArea.classList.toggle('hidden', !on);
     if (!on) {
       if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
       if (els.debugBtns) els.debugBtns.classList.add('hidden');
@@ -2058,13 +2298,14 @@
 
     if (isPostAwakening(c.id)) {
       renderKitacorePostHeader(c.id);
-      if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden'); // 覚醒後はボスカード無し
+      renderKitacorePostBoss(c.id); // 覚醒後ボスカード（出現時のみ表示）
     } else {
       renderKitacorePreHeader(c.id);
       renderKitacoreBoss(c.id);
     }
-    // デバッグボタンはモードON中は常に表示
-    if (els.debugBtns) els.debugBtns.classList.remove('hidden');
+    // デバッグボタンは ?debug=1 かつ記事取得済みのときのみ表示
+    var hasArticles = c && (state.articlesByCreator[c.id] || []).length > 0;
+    if (els.debugBtns) els.debugBtns.classList.toggle('hidden', !(DEBUG_MODE && hasArticles));
   }
 
   // 覚醒前：次のボスカード（画像＋名前＋挑戦ボタン）。鍵が足りれば挑戦可。
@@ -2126,6 +2367,71 @@
     els.kitacoreBoss.appendChild(info);
   }
 
+  // 覚醒後：挑戦待ちボスカード（鍵不要。ワイ閾値到達で出現）。
+  function renderKitacorePostBoss(creatorId) {
+    if (!els.kitacoreBoss) return;
+    var boss = pendingPostBossOf(creatorId);
+    if (!boss) {
+      els.kitacoreBoss.classList.add('hidden');
+      return;
+    }
+    els.kitacoreBoss.innerHTML = '';
+    els.kitacoreBoss.classList.remove('hidden');
+
+    var thumb = document.createElement('div');
+    thumb.className = 'kitacore-boss-thumb';
+    var img = document.createElement('img');
+    img.src = boss.img;
+    img.alt = boss.name;
+    img.loading = 'lazy';
+    thumb.appendChild(img);
+
+    var info = document.createElement('div');
+    info.className = 'kitacore-boss-info';
+    var label = document.createElement('div');
+    label.className = 'kitacore-boss-label';
+    label.textContent = '次なる試練';
+    var name = document.createElement('div');
+    name.className = 'kitacore-boss-name';
+    name.textContent = boss.name;
+    var title = document.createElement('div');
+    title.className = 'kitacore-boss-title';
+    title.textContent = boss.title;
+    info.appendChild(label);
+    info.appendChild(name);
+    info.appendChild(title);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'kitacore-boss-btn';
+    btn.textContent = '挑戦';
+    btn.addEventListener('click', function () {
+      challengePostBoss(creatorId, boss);
+    });
+    info.appendChild(btn);
+
+    els.kitacoreBoss.appendChild(thumb);
+    els.kitacoreBoss.appendChild(info);
+  }
+
+  // 覚醒後ボスに挑戦（鍵不要）。撃破確定＆演出開始。
+  function challengePostBoss(creatorId, boss) {
+    ensureKitacore();
+    if (!state.kitacore.defeatedBosses[creatorId]) state.kitacore.defeatedBosses[creatorId] = [];
+    state.kitacore.defeatedBosses[creatorId].push(boss.key);
+    if (state.kitacore.pendingPostBoss) delete state.kitacore.pendingPostBoss[creatorId];
+    saveState();
+    // 撃破後、既にワイ閾値を超えている次のボスがあれば出現させる
+    var totalWai = state.kitacore.totalWai || 0;
+    var defeated = state.kitacore.defeatedBosses[creatorId];
+    KITACORE_POST_BOSSES.forEach(function (nextBoss) {
+      if (defeated.indexOf(nextBoss.key) !== -1) return; // 既に撃破済み
+      var rank = KITACORE_RANKS.find(function (r) { return r.bossKey === nextBoss.key; });
+      if (rank && totalWai >= rank.min) showPostBoss(nextBoss);
+    });
+    startBossBattle(boss, creatorId);
+  }
+
   // バッジ＋進捗バーを共通レイアウトで描く。
   //   badgeText/badgeKey = ランクバッジ。barCur/barMax/barText = 進捗バー。
   function paintKitacoreHeader(badgeText, badgeKey, barCur, barMax, barText) {
@@ -2155,7 +2461,7 @@
   // 覚醒後ヘッダー：ワイ累計→ランク、バーは N／2000。
   function renderKitacorePostHeader(creatorId) {
     var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
-    var rankInfo = kitacoreRankOf(totalWai);
+    var rankInfo = kitacoreRankOf(creatorId);
     paintKitacoreHeader(
       'ワイ語ハンターランク ' + rankInfo.rank,
       rankInfo.key,
@@ -2680,6 +2986,12 @@
       delete state.kitacore.mode[id];
       delete state.kitacore.keys[id];
       delete state.kitacore.defeatedBosses[id];
+      if (state.kitacore.pendingPostBoss) delete state.kitacore.pendingPostBoss[id];
+      // KITAcoreクリエーター本体を削除した場合はプレイヤー情報もリセット
+      if (id === KITACORE_ID) {
+        state.kitacore.player = null;
+        state.kitacore.quizTaps = 0;
+      }
     }
     delete state.articlesByCreator[id];
     // この creator の読了状態も掃除
@@ -3185,6 +3497,16 @@
     if (els.kitacorePlayerCancel) {
       els.kitacorePlayerCancel.addEventListener('click', closePlayerInput);
     }
+    if (els.kitacoreRankArea) {
+      els.kitacoreRankArea.addEventListener('click', function (e) {
+        // デバッグボタンのクリックは除外
+        if (e.target.closest('#debug-btns')) return;
+        openRankCard();
+      });
+    }
+    if (els.kitacoreRankCardClose) {
+      els.kitacoreRankCardClose.addEventListener('click', closeRankCard);
+    }
     if (els.debugAddKeys) {
       els.debugAddKeys.addEventListener('click', function () {
         var c = getSelectedCreator();
@@ -3192,6 +3514,22 @@
         ensureKitacore();
         state.kitacore.keys[c.id] = keysOf(c.id) + 3;
         saveState();
+        renderKitacoreHeader();
+      });
+    }
+    if (els.debugAddWai) {
+      els.debugAddWai.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || !isKitacoreTarget(c.id)) return;
+        ensureKitacore();
+        var waiRankBefore = kitacoreWaiRankOf(state.kitacore.totalWai);
+        state.kitacore.totalWai += 100;
+        saveState();
+        var waiRankAfter = kitacoreWaiRankOf(state.kitacore.totalWai);
+        if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
+          var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
+          if (boss) showPostBoss(boss);
+        }
         renderKitacoreHeader();
       });
     }
@@ -3208,6 +3546,7 @@
         state.kitacore.counts = {};
         state.kitacore.collected = {};
         state.kitacore.quizTaps = 0;
+        state.kitacore.pendingPostBoss = {};
         saveState();
         renderRoute();
         updateReadStatsHeader();

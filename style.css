@@ -1157,6 +1157,7 @@ select.field {
 .kitacore-rank-text {
   display: inline-block;
   color: #fff;
+  font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif;
   font-weight: 800;
   font-size: 12px;
   padding: 3px 10px;
@@ -1192,6 +1193,15 @@ select.field {
   margin: 4px 0 2px;
 }
 .debug-btns.hidden { display: none; }
+.debug-label {
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 120, 120, 0.6);
+  padding-right: 2px;
+}
 .debug-btn {
   padding: 2px 8px;
   font-size: 11px;
@@ -1401,7 +1411,8 @@ select.field {
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 700;
-  border-color: rgba(212, 175, 55, 0.4);
+  border: 1px solid #d4af37;
+  border-radius: 0;
   background: rgba(212, 175, 55, 0.1);
   color: #8a6d1a;
   cursor: default;
@@ -1674,6 +1685,17 @@ select.field {
   cursor: default;
 }
 
+.kitacore-player-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.4);
+}
+
 /* ボス戦（登場→撃破の2段）。全画面・大きなボス画像＋システム風テキスト。 */
 .kitacore-battle {
   position: fixed;
@@ -1844,4 +1866,106 @@ select.field {
   50% {
     opacity: 0.25;
   }
+}
+
+/* ランクエリア（タップ可能） */
+.kitacore-rank-area {
+  cursor: pointer;
+}
+
+/* ランクカードモーダル */
+.kitacore-rank-card-window {
+  min-width: 280px;
+}
+
+.kitacore-rank-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.rank-card-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.rank-card-avatar {
+  width: 52px;
+  height: 52px;
+  font-size: 22px;
+}
+
+.rank-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.rank-card-label {
+  color: rgba(186, 230, 253, 0.6);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.rank-card-value {
+  color: #e0f2fe;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 討伐ボスカード一覧 */
+.rank-card-bosses {
+  display: flex;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.rank-card-boss {
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 600 / 1067;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  background: rgba(2, 6, 23, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rank-card-boss img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rank-card-boss.is-locked {
+  background: rgba(2, 6, 23, 0.95);
+  border-color: rgba(56, 189, 248, 0.1);
+}
+
+.rank-card-boss.is-defeated {
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.3);
+}
+
+.rank-card-boss-fallback {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(186, 230, 253, 0.3);
 }

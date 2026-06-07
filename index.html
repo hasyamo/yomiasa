@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.5" />
+    <link rel="stylesheet" href="style.css?v=0.1.6" />
   </head>
   <body>
     <div id="app">
@@ -97,13 +97,17 @@
           <p id="read-stats" class="read-stats"></p>
           <div id="read-progress" class="read-progress"></div>
           <!-- キタコレ：覚醒時のみ表示。記事数行＋進捗バーと同じ作りを複製。 -->
-          <p id="kitacore-stats" class="read-stats hidden"></p>
-          <!-- デバッグ用：鍵+3取得・データクリアボタン（開発中のみ） -->
-          <div id="debug-btns" class="debug-btns hidden">
-            <button id="debug-add-keys" class="debug-btn" type="button">🗝 鍵+3</button>
-            <button id="debug-clear" class="debug-btn debug-btn-danger" type="button">🗑 データクリア</button>
+          <div id="kitacore-rank-area" class="kitacore-rank-area hidden">
+            <p id="kitacore-stats" class="read-stats"></p>
+            <!-- デバッグ用：鍵+3取得・データクリアボタン（開発中のみ） -->
+            <div id="debug-btns" class="debug-btns hidden">
+              <span class="debug-label">DEBUG</span>
+              <button id="debug-add-keys" class="debug-btn" type="button">🗝 鍵+3</button>
+              <button id="debug-add-wai" class="debug-btn" type="button">💬 ワイ+100</button>
+              <button id="debug-clear" class="debug-btn debug-btn-danger" type="button">🗑 データクリア</button>
+            </div>
+            <div id="kitacore-progress" class="read-progress"></div>
           </div>
-          <div id="kitacore-progress" class="read-progress hidden"></div>
           <!-- キタコレ：覚醒前のみ。次のボスカード（挑戦ボタン）。 -->
           <div id="kitacore-boss" class="kitacore-boss hidden"></div>
         </div>
@@ -324,11 +328,20 @@
       <div class="kitacore-quiz-window">
         <p id="kitacore-player-label" class="kitacore-quiz-label">［ システム ］プレイヤー名を入力せよ。</p>
         <input id="kitacore-player-input" class="kitacore-player-input" type="text" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="あなたの note ID" />
+        <div id="kitacore-player-preview" class="kitacore-player-preview hidden"></div>
         <p id="kitacore-player-error" class="kitacore-quiz-result hidden"></p>
         <div class="kitacore-player-actions">
           <button id="kitacore-player-cancel" class="kitacore-quiz-close">キャンセル</button>
           <button id="kitacore-player-auth" class="kitacore-player-auth">認証</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ===================== キタコレ：ランクカード ===================== -->
+    <div id="kitacore-rank-card" class="kitacore-quiz hidden" role="dialog" aria-modal="true">
+      <div class="kitacore-quiz-window kitacore-rank-card-window">
+        <div id="kitacore-rank-card-content" class="kitacore-rank-card-content"></div>
+        <button id="kitacore-rank-card-close" class="kitacore-quiz-close">閉じる</button>
       </div>
     </div>
 
@@ -345,6 +358,6 @@
     </div>
 
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="app.js?v=0.1.5"></script>
+    <script src="app.js?v=0.1.6"></script>
   </body>
 </html>
