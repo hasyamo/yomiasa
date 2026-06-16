@@ -12,6 +12,8 @@
   --progress: #0ea5a5; /* 青寄りティール：進捗バーのみのアクセント */
   --danger: #b91c1c;
   --danger-bg: #fef2f2;
+  --star: #d4a017; /* お気に入り（⭐）のアクセント：落ち着いた金 */
+  --star-bg: #fdf6e3;
   --radius: 12px;
   --radius-sm: 8px;
 }
@@ -163,6 +165,27 @@ body {
 .add-btn-top {
   width: 100%;
   margin-bottom: 24px;
+}
+
+/* お気に入り横断ビューの入口（クリエイター一覧トップ） */
+.favorites-entry {
+  width: 100%;
+  margin-top: -8px;
+  margin-bottom: 24px;
+  background: var(--star-bg);
+  color: var(--star);
+  border: 1px solid var(--star);
+  font-weight: 600;
+}
+
+.favorites-entry:hover,
+.favorites-entry:active {
+  background: #fbeecb;
+}
+
+.favorites-entry-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 
 .section-label {
@@ -722,6 +745,8 @@ select.field {
 .article-body {
   flex: 1 1 auto;
   min-width: 0;
+  /* 右上のお気に入り⭐に潜り込まないよう余白を確保 */
+  padding-right: 32px;
 }
 
 .article-title {
@@ -745,9 +770,13 @@ select.field {
 .article-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin-top: 8px;
   flex-wrap: wrap;
+  /* タイトルは右上の⭐アイコンを避けて padding-right:32px しているが、
+     メタ行はアイコンより下にあるので、その余白ぶん右へ広げて使う。
+     これでサムネ付き＋キタコレの「ワイ」チップまで1行に収まる。 */
+  margin-right: -32px;
 }
 
 .article-date {
@@ -762,7 +791,7 @@ select.field {
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--surface);
@@ -780,6 +809,110 @@ select.field {
   background: var(--accent);
   color: var(--on-accent);
   border-color: var(--accent);
+}
+
+/* お気に入り（⭐）：カード右上のアイコンボタン。一覧の場所を取らない補助操作。 */
+.article-fav {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  appearance: none;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 見た目は小さく、押せる範囲は広く（指で押しやすい44px相当） */
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-subtle);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.article-fav:hover,
+.article-fav:active {
+  background: var(--surface-alt);
+}
+
+.article-fav.is-favorite {
+  color: var(--star);
+}
+
+.article-fav-star {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ラベルはデフォルト非表示（アイコンのみ）。広い画面でだけ出す。 */
+.article-fav-label {
+  display: none;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+/* しおりリボンがある記事は、リボン(right:16px)を避けて少し左へ寄せる */
+.article.is-bookmark .article-fav {
+  right: 40px;
+}
+
+/* しおり付きはアイコンが左へ寄る(right:40px)ぶん、タイトルが潜り込まないよう余白を増やす */
+.article.is-bookmark .article-body {
+  padding-right: 76px;
+}
+
+/* メタ行はアイコンより下なので、しおり付きでも本文の右余白(76px)ぶん右へ広げて使う。
+   そうしないとキタコレの「ワイ」チップが入りきらず折り返す。 */
+.article.is-bookmark .article-meta {
+  margin-right: -76px;
+}
+
+/* 広い画面では、絶対配置をやめてメタ行（読んだの隣）にラベル付きチップとして並べる。
+   横幅があるPCなら読了チップの隣に置けてよい、というジュリの指針。 */
+@media (min-width: 720px) {
+  .article-fav {
+    position: static;
+    top: auto;
+    right: auto;
+    /* 読んだチップと同じ見た目・高さに揃える */
+    min-width: 0;
+    height: auto;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-muted);
+  }
+  /* メタ行に並ぶので、絶対配置用に確保していた右余白は不要（しおり付きも含む） */
+  .article-body,
+  .article.is-bookmark .article-body {
+    padding-right: 0;
+  }
+  /* PCはfavが行内に並ぶので、本文の右余白を食う負マージンは不要（しおり付きも含む） */
+  .article-meta,
+  .article.is-bookmark .article-meta {
+    margin-right: 0;
+  }
+  /* しおり用の左寄せ(right:40px)も絶対配置前提なので解除 */
+  .article.is-bookmark .article-fav {
+    right: auto;
+  }
+  .article-fav.is-favorite {
+    background: var(--star-bg);
+    border-color: var(--star);
+    color: var(--star);
+  }
+  .article-fav-star {
+    font-size: 14px;
+  }
+  .article-fav-label {
+    display: inline;
+  }
 }
 
 .empty-articles {
@@ -832,6 +965,129 @@ select.field {
   background: var(--surface);
   border-radius: var(--radius);
   padding: 24px;
+}
+
+/* お気に入りモーダルは一覧が縦に伸びるので少し広め＋内部スクロール */
+.modal-favorites {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 640px);
+}
+
+.favorites-empty {
+  font-size: 13px;
+  color: var(--ink-subtle);
+  line-height: 1.7;
+  text-align: center;
+  padding: 24px 8px;
+}
+
+.favorites-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 4px -4px 12px;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.favorite-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.favorite-row.is-read {
+  background: var(--surface-alt);
+}
+
+.favorite-thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-alt);
+}
+
+.favorite-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.favorite-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.favorite-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.favorite-title:hover {
+  text-decoration: underline;
+}
+
+.favorite-row.is-read .favorite-title {
+  color: var(--ink-muted);
+}
+
+.favorite-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.favorite-creator {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.favorite-date {
+  font-size: 12px;
+  color: var(--ink-subtle);
+}
+
+.favorite-read-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--progress);
+}
+
+.favorite-remove {
+  appearance: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--star);
+  background: var(--star-bg);
+  color: var(--star);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.favorite-remove:hover,
+.favorite-remove:active {
+  background: #fbeecb;
 }
 
 .modal-title {
@@ -1373,7 +1629,7 @@ select.field {
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-alt);
