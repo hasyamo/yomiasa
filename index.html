@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.7" />
+    <link rel="stylesheet" href="style.css?v=0.1.8" />
   </head>
   <body>
     <div id="app">
@@ -80,6 +80,9 @@
         <!-- 一覧 -->
         <div id="list-body" class="hidden">
           <button id="add-btn" class="btn add-btn-top">＋ クリエイターを追加</button>
+          <button id="favorites-entry" class="btn favorites-entry hidden" type="button">
+            ⭐ お気に入り<span id="favorites-entry-count" class="favorites-entry-count"></span>
+          </button>
           <h2 class="section-label">クリエイター一覧</h2>
           <div id="creator-list" class="creator-cards"></div>
         </div>
@@ -142,6 +145,10 @@
             <label class="toggle">
               <input id="unread-only" type="checkbox" />
               <span>未読のみ</span>
+            </label>
+            <label class="toggle">
+              <input id="favorites-only" type="checkbox" />
+              <span>⭐お気に入りのみ</span>
             </label>
             <button id="sort-toggle" type="button" class="sort-toggle">
               古い順
@@ -237,6 +244,20 @@
         <div class="modal-actions">
           <button id="readback-no" class="btn">まだ</button>
           <button id="readback-yes" class="btn btn-primary">読んだ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== お気に入り（横断一覧）モーダル ===================== -->
+    <div id="favorites-modal" class="modal-overlay hidden">
+      <div class="modal modal-favorites" role="dialog" aria-modal="true" aria-labelledby="favorites-title">
+        <h2 id="favorites-title" class="modal-title">⭐ お気に入り</h2>
+        <p id="favorites-empty" class="favorites-empty hidden">
+          まだお気に入りはありません。<br />記事カードの☆を押すと、ここに集まります。
+        </p>
+        <div id="favorites-list" class="favorites-list"></div>
+        <div class="modal-actions">
+          <button id="favorites-close" class="btn btn-primary">閉じる</button>
         </div>
       </div>
     </div>
@@ -358,6 +379,7 @@
     </div>
 
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="app.js?v=0.1.7"></script>
+    <script src="logic.js?v=0.1.8"></script>
+    <script src="app.js?v=0.1.8"></script>
   </body>
 </html>

@@ -1,0 +1,9 @@
+{
+  "name": "yomiasa",
+  "version": "0.1.8",
+  "private": true,
+  "description": "好きなnoteクリエイターの記事を年月でたどる小さなPWA。純ロジックは logic.js に切り出し node --test で守る。",
+  "scripts": {
+    "test": "node --test"
+  }
+}

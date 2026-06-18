@@ -9,6 +9,13 @@
 (function () {
   'use strict';
 
+  // 純粋ロジックは logic.js（window.YomiasaLogic）に切り出してテスト可能にしている。
+  // index.html で app.js より前に読み込む前提。万一未ロードでも気付けるよう存在を確認する。
+  var L = window.YomiasaLogic;
+  if (!L) {
+    throw new Error('logic.js (YomiasaLogic) が読み込まれていません。index.html の読み込み順を確認してください。');
+  }
+
   var DEBUG_MODE = location.search.indexOf('debug=1') !== -1;
 
   // note.com API は CORS を許可していないため、CORS 対応の中継プロキシ経由で取得する。
@@ -21,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.7';
+  var APP_VERSION = '0.1.8';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -38,6 +45,10 @@
       selectedCreatorId: '',
       articlesByCreator: {},
       readArticles: {},
+      // お気に入り（⭐）。"creatorId:articleId" → スナップショット。
+      //   保存機能ではなく「あとで戻る場所」を作る機能。クリエイター横断で見返す。
+      //   横断ビューで現在クリエイター未選択でも表示するため、記事の最小情報を複製して持つ。
+      favorites: {},
       uiState: {
         keyword: '',
         year: 'all',
@@ -854,7 +865,13 @@
 
   // クリエイター別に覚える UI 項目のデフォルト。
   function defaultCreatorUi() {
-    return { year: 'all', month: 'all', showUnreadOnly: false, sortOrder: 'asc' };
+    return {
+      year: 'all',
+      month: 'all',
+      showUnreadOnly: false,
+      showFavoritesOnly: false,
+      sortOrder: 'asc',
+    };
   }
 
   // 指定クリエイターの保存済み UI 設定を返す（無ければ作って返す）。
@@ -876,6 +893,7 @@
       year: cu.year,
       month: cu.month,
       showUnreadOnly: cu.showUnreadOnly,
+      showFavoritesOnly: cu.showFavoritesOnly,
       sortOrder: cu.sortOrder,
     };
   }
@@ -922,6 +940,7 @@
         selectedCreatorId: parsed.selectedCreatorId || base.selectedCreatorId,
         articlesByCreator: parsed.articlesByCreator || base.articlesByCreator,
         readArticles: migrateReadArticles(parsed.readArticles),
+        favorites: L.sanitizeFavorites(parsed.favorites),
         uiState: Object.assign({}, base.uiState, parsed.uiState || {}),
         uiByCreator:
           parsed.uiByCreator && typeof parsed.uiByCreator === 'object'
@@ -979,6 +998,7 @@
           ? incoming.articlesByCreator
           : base.articlesByCreator,
       readArticles: migrateReadArticles(incoming.readArticles),
+      favorites: L.sanitizeFavorites(incoming.favorites),
       uiState: Object.assign({}, base.uiState, incoming.uiState || {}),
       uiByCreator:
         incoming.uiByCreator && typeof incoming.uiByCreator === 'object'
@@ -1235,6 +1255,42 @@
   }
 
   // ---------------------------------------------------------------------------
+  // お気に入り（⭐）
+  //   キーは readKey と同じ "creatorId:articleId"。
+  //   値は横断ビュー用のスナップショット（クリエイター未選択でも表示できるよう複製）。
+  // ---------------------------------------------------------------------------
+
+  function ensureFavorites() {
+    if (!state.favorites || typeof state.favorites !== 'object') state.favorites = {};
+    return state.favorites;
+  }
+
+  // 以下のお気に入りロジックは logic.js（L）に委譲。app.js 側は state の橋渡しだけ。
+  function isFavorite(creatorId, articleId) {
+    return L.isFavorite(ensureFavorites(), creatorId, articleId);
+  }
+
+  // お気に入りの ON/OFF を切り替える。article は記事オブジェクト（スナップショット元）。
+  function toggleFavorite(creatorId, article) {
+    var favs = ensureFavorites();
+    var key = L.entryKey(creatorId, article.id);
+    if (favs[key]) {
+      delete favs[key];
+    } else {
+      favs[key] = L.makeFavoriteEntry(creatorId, article, new Date().toISOString());
+    }
+  }
+
+  function favoriteCount() {
+    return L.favoriteCount(ensureFavorites());
+  }
+
+  // お気に入りを「追加した新しい順」で配列に。横断ビューの初期並び。
+  function favoritesSorted() {
+    return L.favoritesSorted(ensureFavorites());
+  }
+
+  // ---------------------------------------------------------------------------
   // キタコレ：ワイ語の収集とポイント回収
   //   収集 = 記事タップ時に本文を取り「ワイ」を数えて counts に保存（点はまだ）。
   //   回収 = 記事行のチップをタップして counts[id].wai を totalWai に加算。
@@ -1364,21 +1420,17 @@
   // 日付ユーティリティ
   // ---------------------------------------------------------------------------
 
+  // 日付ユーティリティは logic.js に一元化（二重実装を避ける）。呼び出し側は無変更。
   function parseDate(publishedAt) {
-    if (!publishedAt) return null;
-    var d = new Date(publishedAt);
-    if (isNaN(d.getTime())) return null;
-    return d;
+    return L.parseDate(publishedAt);
   }
 
   function yearOf(a) {
-    var d = parseDate(a.publishedAt);
-    return d ? d.getFullYear() : null;
+    return L.yearOf(a);
   }
 
   function monthOf(a) {
-    var d = parseDate(a.publishedAt);
-    return d ? d.getMonth() + 1 : null;
+    return L.monthOf(a);
   }
 
   function formatDateDot(a) {
@@ -1500,13 +1552,11 @@
 
   function applyFilters(articles, creatorId) {
     var ui = activeUi();
-    var keyword = (ui.keyword || '').trim().toLowerCase();
     return articles.filter(function (a) {
-      if (keyword && a.title.toLowerCase().indexOf(keyword) === -1) return false;
-      if (ui.year !== 'all' && String(yearOf(a)) !== String(ui.year)) return false;
-      if (ui.month !== 'all' && String(monthOf(a)) !== String(ui.month)) return false;
-      if (ui.showUnreadOnly && isRead(creatorId, a.id)) return false;
-      return true;
+      return L.matchesFilters(a, ui, {
+        read: isRead(creatorId, a.id),
+        favorite: isFavorite(creatorId, a.id),
+      });
     });
   }
 
@@ -1575,9 +1625,16 @@
     yearFilter: document.getElementById('year-filter'),
     monthFilter: document.getElementById('month-filter'),
     unreadOnly: document.getElementById('unread-only'),
+    favoritesOnly: document.getElementById('favorites-only'),
     sortToggle: document.getElementById('sort-toggle'),
     statusMsg: document.getElementById('status-msg'),
     articles: document.getElementById('articles'),
+    favoritesEntry: document.getElementById('favorites-entry'),
+    favoritesEntryCount: document.getElementById('favorites-entry-count'),
+    favoritesModal: document.getElementById('favorites-modal'),
+    favoritesList: document.getElementById('favorites-list'),
+    favoritesEmpty: document.getElementById('favorites-empty'),
+    favoritesClose: document.getElementById('favorites-close'),
 
     addModal: document.getElementById('add-modal'),
     addInput: document.getElementById('add-input'),
@@ -1699,10 +1756,151 @@
     var has = state.creators.length > 0;
     els.emptyState.classList.toggle('hidden', has);
     els.listBody.classList.toggle('hidden', !has);
+    updateFavoritesEntry();
     if (!has) return;
     renderCreatorCards();
     // 各クリエイターの最新状態を取得して新着バッジを更新する
     refreshLatestCounts();
+  }
+
+  // ---------------------------------------------------------------------------
+  // お気に入り：横断ビュー（クリエイターをまたいで「あとで戻る」ための一覧）
+  // ---------------------------------------------------------------------------
+
+  // トップの「⭐ お気に入り」入口の表示と件数を更新する。0件なら隠す。
+  function updateFavoritesEntry() {
+    if (!els.favoritesEntry) return;
+    var n = favoriteCount();
+    els.favoritesEntry.classList.toggle('hidden', n === 0);
+    if (els.favoritesEntryCount) {
+      els.favoritesEntryCount.textContent = n > 0 ? ' ' + n : '';
+    }
+  }
+
+  // お気に入り一覧の1行を作る。クリエイター横断なので「誰の記事か」を必ず出す。
+  function favoriteRowEl(fav) {
+    var creator = getCreator(fav.creatorId);
+    var creatorName = creator ? creator.displayName || creator.id : fav.creatorId;
+    var read = isRead(fav.creatorId, fav.articleId);
+
+    var row = document.createElement('div');
+    row.className = 'favorite-row' + (read ? ' is-read' : '');
+
+    // サムネ（あれば。タップで記事を開ける）
+    if (fav.thumbnailUrl) {
+      var thumb = document.createElement('a');
+      thumb.className = 'favorite-thumb';
+      thumb.href = fav.url;
+      thumb.target = '_blank';
+      thumb.rel = 'noopener';
+      thumb.tabIndex = -1;
+      thumb.setAttribute('aria-hidden', 'true');
+      var img = document.createElement('img');
+      img.src = fav.thumbnailUrl;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('error', function () {
+        if (thumb.parentNode) thumb.parentNode.removeChild(thumb);
+      });
+      thumb.appendChild(img);
+      thumb.addEventListener('click', function () {
+        rememberPendingArticle(fav.creatorId, favToArticle(fav));
+      });
+      row.appendChild(thumb);
+    }
+
+    var body = document.createElement('div');
+    body.className = 'favorite-body';
+
+    var link = document.createElement('a');
+    link.className = 'favorite-title';
+    link.href = fav.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = fav.title || '(無題)';
+    link.addEventListener('click', function () {
+      rememberPendingArticle(fav.creatorId, favToArticle(fav));
+    });
+    body.appendChild(link);
+
+    var meta = document.createElement('div');
+    meta.className = 'favorite-meta';
+
+    var who = document.createElement('span');
+    who.className = 'favorite-creator';
+    who.textContent = creatorName;
+    meta.appendChild(who);
+
+    var dot = formatDateDot(fav);
+    if (dot) {
+      var date = document.createElement('span');
+      date.className = 'favorite-date';
+      date.textContent = dot;
+      meta.appendChild(date);
+    }
+
+    if (read) {
+      var readBadge = document.createElement('span');
+      readBadge.className = 'favorite-read-badge';
+      readBadge.textContent = '読了 ✓';
+      meta.appendChild(readBadge);
+    }
+
+    body.appendChild(meta);
+
+    // お気に入りから外す
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'favorite-remove';
+    removeBtn.textContent = '⭐ 外す';
+    removeBtn.setAttribute('aria-label', 'お気に入りから外す');
+    removeBtn.addEventListener('click', function () {
+      toggleFavorite(fav.creatorId, favToArticle(fav));
+      saveState();
+      renderFavoritesModal();
+      updateFavoritesEntry();
+      // 記事画面を開いていれば、そのチップ表示も更新
+      if (!els.viewRead || !els.viewRead.classList.contains('hidden')) {
+        renderArticles();
+      }
+    });
+    body.appendChild(removeBtn);
+
+    row.appendChild(body);
+    return row;
+  }
+
+  // スナップショット(fav)を、既存ヘルパーが受け取る article 形に戻す。
+  function favToArticle(fav) {
+    return {
+      id: fav.articleId,
+      title: fav.title,
+      url: fav.url,
+      thumbnailUrl: fav.thumbnailUrl,
+      publishedAt: fav.publishedAt,
+    };
+  }
+
+  // モーダル内の一覧を描き直す。
+  function renderFavoritesModal() {
+    var list = favoritesSorted();
+    if (els.favoritesEmpty) {
+      els.favoritesEmpty.classList.toggle('hidden', list.length > 0);
+    }
+    if (!els.favoritesList) return;
+    els.favoritesList.innerHTML = '';
+    list.forEach(function (fav) {
+      els.favoritesList.appendChild(favoriteRowEl(fav));
+    });
+  }
+
+  function openFavoritesModal() {
+    renderFavoritesModal();
+    if (els.favoritesModal) els.favoritesModal.classList.remove('hidden');
+  }
+
+  function closeFavoritesModal() {
+    if (els.favoritesModal) els.favoritesModal.classList.add('hidden');
   }
 
   // 一覧の全クリエイターの最新状態(件数+最新公開日)をAPIで取得し、新着バッジを更新する。
@@ -1909,6 +2107,7 @@
     var ui = activeUi();
     els.keyword.value = ui.keyword;
     els.unreadOnly.checked = !!ui.showUnreadOnly;
+    els.favoritesOnly.checked = !!ui.showFavoritesOnly;
     els.sortToggle.textContent = ui.sortOrder === 'asc' ? '古い順' : '新しい順';
 
     renderFilterOptions();
@@ -2191,6 +2390,33 @@
       updateReadStatsHeader();
     });
     meta.appendChild(chip);
+
+    // お気に入り（⭐）: メタ行（読んだの隣）に置くチップ。タップで ☆⇄⭐。
+    //   一覧の主役は「読む/読んだ」。お気に入りは補助操作。
+    //   PC＝読んだの隣にラベル付きチップ／スマホ＝カード右上にアイコンだけ（CSSで切替）。
+    var fav = isFavorite(creatorId, article.id);
+    var favBtn = document.createElement('button');
+    favBtn.type = 'button';
+    favBtn.className = 'article-fav' + (fav ? ' is-favorite' : '');
+    favBtn.setAttribute('aria-label', fav ? 'お気に入りから外す' : 'お気に入りに追加');
+    favBtn.setAttribute('aria-pressed', fav ? 'true' : 'false');
+    favBtn.title = fav ? 'お気に入りから外す' : 'お気に入りに追加';
+    var favStar = document.createElement('span');
+    favStar.className = 'article-fav-star';
+    favStar.textContent = fav ? '⭐' : '☆';
+    favStar.setAttribute('aria-hidden', 'true');
+    favBtn.appendChild(favStar);
+    var favLabel = document.createElement('span');
+    favLabel.className = 'article-fav-label';
+    favLabel.textContent = 'お気に入り';
+    favBtn.appendChild(favLabel);
+    favBtn.addEventListener('click', function () {
+      toggleFavorite(creatorId, article);
+      saveState();
+      renderArticles();
+      updateFavoritesEntry();
+    });
+    meta.appendChild(favBtn);
 
     // キタコレ覚醒前：クイズがある記事に「光ボタン」を出す（タップでクイズ）。
     //   未正解＝光る（タップ可）/ 正解済み＝光を消し「入手済」表示（タップ不可）。
@@ -3142,6 +3368,19 @@
     els.addBtn.addEventListener('click', openAddModal);
     els.fab.addEventListener('click', openAddModal);
 
+    // お気に入り（横断一覧）モーダル
+    if (els.favoritesEntry) {
+      els.favoritesEntry.addEventListener('click', openFavoritesModal);
+    }
+    if (els.favoritesClose) {
+      els.favoritesClose.addEventListener('click', closeFavoritesModal);
+    }
+    if (els.favoritesModal) {
+      els.favoritesModal.addEventListener('click', function (e) {
+        if (e.target === els.favoritesModal) closeFavoritesModal();
+      });
+    }
+
     els.backBtn.addEventListener('click', function () {
       goTo('list');
     });
@@ -3249,6 +3488,11 @@
       saveState();
       renderArticles();
     });
+    els.favoritesOnly.addEventListener('change', function () {
+      creatorUi(state.selectedCreatorId).showFavoritesOnly = els.favoritesOnly.checked;
+      saveState();
+      renderArticles();
+    });
     els.sortToggle.addEventListener('click', function () {
       var cu = creatorUi(state.selectedCreatorId);
       cu.sortOrder = cu.sortOrder === 'asc' ? 'desc' : 'asc';
@@ -3262,6 +3506,8 @@
       if (e.key === 'Escape') {
         if (!els.addModal.classList.contains('hidden')) closeAddModal();
         if (!els.editModal.classList.contains('hidden')) closeEditModal();
+        if (els.favoritesModal && !els.favoritesModal.classList.contains('hidden'))
+          closeFavoritesModal();
         if (!els.readbackModal.classList.contains('hidden')) closeReadbackModal();
         if (!els.updateModal.classList.contains('hidden')) closeUpdateModal();
         if (!els.settingsModal.classList.contains('hidden')) closeSettingsModal();
