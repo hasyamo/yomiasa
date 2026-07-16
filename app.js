@@ -68,33 +68,46 @@
       //   defeatedBosses[id] : 撃破済みボス key の配列（覚醒前ランク・覚醒の導出元）
       //   player          : プレイヤー自身の note 情報 {id, displayName, iconUrl}（発動時に入力）
       //   quizTaps        : クイズ選択肢を押した累計回数（ランクカードの指標）
-      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {} },
+      // モード state 名前空間。各モードの進行データは state.modes[modeKey] に載る。
+      //   キタコレは state.modes.kitacore（旧 state.kitacore から migrateModes で移行済み）。
+      modes: {},
     };
   }
 
-  // state.kitacore とその各キーの遅延初期化。読み書き前に必ず通す。
-  function ensureKitacore() {
-    if (!state.kitacore || typeof state.kitacore !== 'object') state.kitacore = {};
-    var k = state.kitacore;
-    if (!k.mode || typeof k.mode !== 'object') k.mode = {};
-    if (!k.counts || typeof k.counts !== 'object') k.counts = {};
-    if (!k.collected || typeof k.collected !== 'object') k.collected = {};
-    if (typeof k.totalWai !== 'number') k.totalWai = 0;
-    if (!k.keys || typeof k.keys !== 'object') k.keys = {};
-    if (!k.defeatedBosses || typeof k.defeatedBosses !== 'object') k.defeatedBosses = {};
-    if (!k.quizCleared || typeof k.quizCleared !== 'object') k.quizCleared = {};
-    if (k.player !== null && typeof k.player !== 'object') k.player = null;
-    if (typeof k.quizTaps !== 'number') k.quizTaps = 0;
-    if (!k.pendingPostBoss || typeof k.pendingPostBoss !== 'object') k.pendingPostBoss = {};
-    return k;
+  // モード1個分の空 state（defaultState の旧 kitacore リテラルと同一形）。
+  function blankModeState() {
+    return { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {} };
+  }
+
+  // state.modes 名前空間の遅延初期化。
+  function ensureModes() {
+    if (!state.modes || typeof state.modes !== 'object') state.modes = {};
+    return state.modes;
+  }
+
+  // state.modes[modeKey] とその各キーの遅延初期化。読み書き前に必ず通す。
+  //   旧 ensureKitacore と1対1で同一のサブキー型チェック（player は null 許容の特殊ガード）。
+  function ensureMode(modeKey) {
+    ensureModes();
+    var m = state.modes[modeKey];
+    if (!m || typeof m !== 'object') m = state.modes[modeKey] = blankModeState();
+    if (!m.mode || typeof m.mode !== 'object') m.mode = {};
+    if (!m.counts || typeof m.counts !== 'object') m.counts = {};
+    if (!m.collected || typeof m.collected !== 'object') m.collected = {};
+    if (typeof m.totalWai !== 'number') m.totalWai = 0;
+    if (!m.keys || typeof m.keys !== 'object') m.keys = {};
+    if (!m.defeatedBosses || typeof m.defeatedBosses !== 'object') m.defeatedBosses = {};
+    if (!m.quizCleared || typeof m.quizCleared !== 'object') m.quizCleared = {};
+    if (m.player !== null && typeof m.player !== 'object') m.player = null;
+    if (typeof m.quizTaps !== 'number') m.quizTaps = 0;
+    if (!m.pendingPostBoss || typeof m.pendingPostBoss !== 'object') m.pendingPostBoss = {};
+    return m;
   }
 
   // モード state アクセサ（固定キー限定・汎用化しない）。
-  //   現段階では state.modes への物理移行前なので、'kitacore' は旧 state.kitacore を
-  //   そのまま返す。将来 state.modes に移してもこの層より上のコードは変えない。
+  //   state.modes[modeKey] を遅延初期化して返す。
   function modeState(modeKey) {
-    if (modeKey === 'kitacore') return ensureKitacore();
-    return null;
+    return ensureMode(modeKey);
   }
   // キタコレ用の固定アクセサ（active-mode 解決には使わない）。
   function mc() {
@@ -212,7 +225,7 @@
   // ボスに挑戦する。鍵が足りれば消費して撃破＝昇格を確定し、戦闘演出を開始。
   // 戻り値: 挑戦できたら true。鍵不足なら false。
   function challengeBoss(creatorId, boss) {
-    ensureKitacore();
+    ensureMode('kitacore');
     if (keysOf(creatorId) < boss.cost) return false;
     // 挑戦ボタンで確定：鍵を消費し撃破を記録（演出は結果の見せ方）。
     mc().keys[creatorId] = keysOf(creatorId) - boss.cost;
@@ -317,7 +330,7 @@
   // ON 時、プレイヤー未登録なら ID 入力モーダルを挟む（認証成功で発動）。
   function toggleMode(creatorId) {
     if (!isKitacoreTarget(creatorId)) return;
-    ensureKitacore();
+    ensureMode('kitacore');
     if (isModeOn(creatorId)) {
       // OFF
       delete mc().mode[creatorId];
@@ -336,7 +349,7 @@
 
   // モードを実際にONにして覚醒メッセージを出す（プレイヤー登録済み前提）。
   function activateMode(creatorId) {
-    ensureKitacore();
+    ensureMode('kitacore');
     mc().mode[creatorId] = { at: new Date().toISOString() };
     saveState();
     renderCreatorCards();
@@ -414,7 +427,7 @@
     // 2回目：プレビュー確認済み → 決定
     if (pendingPlayerProfile) {
       var creatorId = pendingModeCreatorId;
-      ensureKitacore();
+      ensureMode('kitacore');
       mc().player = {
         id: pendingPlayerProfile.id,
         displayName: pendingPlayerProfile.displayName,
@@ -611,7 +624,7 @@
 
   // 鍵を1つ獲得（クイズ正解時）。記事ごと1回きり。
   function awardKey(creatorId, articleId) {
-    ensureKitacore();
+    ensureMode('kitacore');
     if (!mc().quizCleared) mc().quizCleared = {};
     if (mc().quizCleared[articleId]) return; // 既に獲得済み
     mc().quizCleared[articleId] = true;
@@ -975,10 +988,9 @@
           parsed.uiByCreator && typeof parsed.uiByCreator === 'object'
             ? parsed.uiByCreator
             : base.uiByCreator,
-        kitacore:
-          parsed.kitacore && typeof parsed.kitacore === 'object'
-            ? parsed.kitacore
-            : base.kitacore,
+        // モード state。新 parsed.modes 優先・旧 parsed.kitacore は modes.kitacore
+        //   未定義時のみ移送（migrateModes が冪等・非破壊）。この行を落とすと進行データが黙って消える。
+        modes: L.migrateModes(parsed),
       };
     } catch (e) {
       return defaultState();
@@ -1033,10 +1045,9 @@
         incoming.uiByCreator && typeof incoming.uiByCreator === 'object'
           ? incoming.uiByCreator
           : base.uiByCreator,
-      kitacore:
-        incoming.kitacore && typeof incoming.kitacore === 'object'
-          ? incoming.kitacore
-          : base.kitacore,
+      // モード state。incoming.modes 優先・旧 incoming.kitacore は modes.kitacore
+      //   未定義時のみ移送（migrateModes が冪等・非破壊）。この行を落とすと進行データが黙って消える。
+      modes: L.migrateModes(incoming),
     };
     state = next;
     var saved = saveState();
@@ -1360,7 +1371,7 @@
     if (isCounted(article.id) || kitacoreInFlight[article.id]) return;
     var key = articleKeyFromUrl(article.url);
     if (!key) return; // スラッグ抽出失敗はスキップ
-    ensureKitacore();
+    ensureMode('kitacore');
     kitacoreInFlight[article.id] = true;
     var url = PROXY_URL + '?path=' + encodeURIComponent('/api/v3/notes/' + key);
     fetch(url)
@@ -1370,7 +1381,7 @@
       .then(function (json) {
         var body = json && json.data ? json.data.body : null;
         if (typeof body !== 'string') return; // 形式不正は未計測のまま握りつぶす
-        ensureKitacore();
+        ensureMode('kitacore');
         mc().counts[article.id] = {
           wai: countWai(stripHtml(body)),
           countedAt: new Date().toISOString(),
@@ -1392,7 +1403,7 @@
   // ワイ語チップを回収する（＝ポイント加算）。
   // 収集済み・未回収・ワイ>0 のときだけ totalWai に加算し collected を立てる。
   function collectWai(articleId) {
-    ensureKitacore();
+    ensureMode('kitacore');
     var entry = mc().counts[articleId];
     if (!entry) return; // 未収集
     if (isCollected(articleId)) return; // 二重取り防止
@@ -1411,7 +1422,7 @@
 
   // 覚醒後ボスカードを表示する（挑戦待ち状態にセット）。
   function showPostBoss(boss) {
-    ensureKitacore();
+    ensureMode('kitacore');
     if (!mc().pendingPostBoss) mc().pendingPostBoss = {};
     var defeated = defeatedBossesOf(KITACORE_ID);
     // 撃破済みなら無視
@@ -2455,7 +2466,7 @@
         glow.disabled = quizCleared;
         if (!quizCleared) {
           glow.addEventListener('click', function () {
-            ensureKitacore();
+            ensureMode('kitacore');
             mc().quizTaps = (mc().quizTaps || 0) + 1;
             saveState();
             openQuiz(creatorId, article, quiz);
@@ -2665,7 +2676,7 @@
 
   // 覚醒後ボスに挑戦（鍵不要）。撃破確定＆演出開始。
   function challengePostBoss(creatorId, boss) {
-    ensureKitacore();
+    ensureMode('kitacore');
     if (!mc().defeatedBosses[creatorId]) mc().defeatedBosses[creatorId] = [];
     mc().defeatedBosses[creatorId].push(boss.key);
     if (mc().pendingPostBoss) delete mc().pendingPostBoss[creatorId];
@@ -3219,8 +3230,8 @@
     // この creator のキタコレ計測も掃除（counts/collected は article.id 単位なので
     // 削除前に拾う。回収済みの累計 totalWai もそのぶん差し引く）。
     {
-      // 物理保存先（旧 state.kitacore）を必ず初期化してから掃除する。
-      ensureKitacore();
+      // 物理保存先（state.modes.kitacore）を必ず初期化してから掃除する。
+      ensureMode('kitacore');
       (state.articlesByCreator[id] || []).forEach(function (a) {
         if (!a || !a.id) return;
         if (mc().collected[a.id]) {
@@ -3781,7 +3792,7 @@
       els.debugAddKeys.addEventListener('click', function () {
         var c = getSelectedCreator();
         if (!c || !isKitacoreTarget(c.id)) return;
-        ensureKitacore();
+        ensureMode('kitacore');
         mc().keys[c.id] = keysOf(c.id) + 3;
         saveState();
         renderKitacoreHeader();
@@ -3791,7 +3802,7 @@
       els.debugAddWai.addEventListener('click', function () {
         var c = getSelectedCreator();
         if (!c || !isKitacoreTarget(c.id)) return;
-        ensureKitacore();
+        ensureMode('kitacore');
         var waiRankBefore = kitacoreWaiRankOf(mc().totalWai);
         mc().totalWai += 100;
         saveState();
@@ -3808,7 +3819,7 @@
         if (!window.confirm('キタコレの進行データ（鍵・クイズ・ボス撃破・ワイ）をすべてクリアします。よろしいですか？')) return;
         var c = getSelectedCreator();
         if (!c) return;
-        ensureKitacore();
+        ensureMode('kitacore');
         mc().keys = {};
         mc().quizCleared = {};
         mc().defeatedBosses = {};
