@@ -89,13 +89,25 @@
     return k;
   }
 
+  // モード state アクセサ（固定キー限定・汎用化しない）。
+  //   現段階では state.modes への物理移行前なので、'kitacore' は旧 state.kitacore を
+  //   そのまま返す。将来 state.modes に移してもこの層より上のコードは変えない。
+  function modeState(modeKey) {
+    if (modeKey === 'kitacore') return ensureKitacore();
+    return null;
+  }
+  // キタコレ用の固定アクセサ（active-mode 解決には使わない）。
+  function mc() {
+    return modeState('kitacore');
+  }
+
   // キタコレモードが発動できる唯一の note ID（KITAさん＝推される側。汎用化しない）。
   var KITACORE_ID = 'ktcrs1107';
 
   // プレイヤー名（＝ユーザー自身の note ID。発動時に入力・保存したものを使う）。
   // 未登録時のフォールバックは 'プレイヤー'（通常は登録後しか表示されない）。
   function playerName() {
-    var p = state.kitacore && state.kitacore.player;
+    var p = mc().player;
     return p && p.id ? p.id : 'プレイヤー';
   }
 
@@ -119,25 +131,14 @@
 
   // 覚醒後ランク = 撃破済みの覚醒後ボスから導出。
   // ワイ数が閾値を超えてもボスを倒すまでランクは上がらない。
+  //   実体は logic.js（L.kitacoreRankOf）。app 側は state から撃破配列を取り出して渡す薄いラッパ。
   function kitacoreRankOf(creatorId) {
-    var defeated = defeatedBossesOf(creatorId);
-    var cur = KITACORE_RANKS[0]; // S級覚醒がデフォルト
-    KITACORE_POST_BOSSES.forEach(function (boss) {
-      if (defeated.indexOf(boss.key) !== -1) {
-        var rank = KITACORE_RANKS.find(function (r) { return r.rank === boss.rankAfter; });
-        if (rank && KITACORE_RANKS.indexOf(rank) > KITACORE_RANKS.indexOf(cur)) cur = rank;
-      }
-    });
-    return cur;
+    return L.kitacoreRankOf(KITACORE_RANKS, KITACORE_POST_BOSSES, defeatedBossesOf(creatorId));
   }
 
-  // ワイ数がどのランク閾値に達しているか（ボス出現トリガー判定用）。
+  // ワイ数がどのランク閾値に達しているか（ボス出現トリガー判定用）。実体は logic.js。
   function kitacoreWaiRankOf(totalWai) {
-    var cur = KITACORE_RANKS[0];
-    for (var i = 0; i < KITACORE_RANKS.length; i++) {
-      if (totalWai >= KITACORE_RANKS[i].min) cur = KITACORE_RANKS[i];
-    }
-    return cur;
+    return L.kitacoreWaiRankOf(KITACORE_RANKS, totalWai);
   }
 
   // 覚醒前ボス（撃破で昇格）。order 順に挑戦。最後の wing 撃破で S級覚醒。
@@ -149,40 +150,63 @@
     { key: 'wing', name: 'WING OF DEATH', title: '収穫の獣', cost: 3, rankBefore: 'A級', rankBeforeKey: 'a', rankAfter: 'S級覚醒', img: 'assets/boss/WING_OF_DEATH.webp' },
   ];
 
+  // ── モード定義（静的データのみ。関数参照は演出 lines のみ許容）──
+  //   MODE_DEFS はモードの静的定義だけを持つ（state ではない）。値は全て既存
+  //   KITACORE_* 定数・kitacore*Lines 関数を参照し二重定義しない（rankAfter 突き合わせズレ防止）。
+  //   lines の関数は宣言（巻き上げ済み）なので、後方に定義されていても参照できる。
+  var MODE_DEFS = {
+    kitacore: {
+      key: 'kitacore',
+      targetCreatorId: KITACORE_ID,        // modeForCreator が逆引き
+      challengeType: 'choice_judgement',   // 既存クイズ=正誤判定型
+      goal: KITACORE_GOAL,                 // 進捗バー最大
+      ranks: KITACORE_RANKS,               // 覚醒後ランク閾値テーブル
+      postBosses: KITACORE_POST_BOSSES,    // 覚醒後ボス（ワイ閾値で出現）
+      preBosses: KITACORE_PRE_BOSSES,      // 覚醒前ボス（鍵消費で挑戦）
+      awakenBossKey: 'wing',               // 覚醒を起こすボス key。null なら覚醒概念なし
+      quizUrl: 'kitacore_quiz.json',       // fetch 先。null ならクイズ無し
+      lines: {
+        wake:   kitacoreWakeLines,         // モード発動メッセージ
+        sleep:  kitacoreSleepLines,        // モード終了メッセージ
+        enter:  kitacoreBossEnterLines,    // ボス登場（boss を受ける）
+        down:   kitacoreBossDownLines,     // ボス撃破（boss を受ける）
+        awaken: kitacoreAwakenLines,       // 覚醒（awakenBossKey 撃破時）
+      },
+    },
+  };
+
   // このクリエイターがキタコレ発動対象か（ktcrs1107 限定）。
+  //   実体は L.modeForCreator（MODE_DEFS の targetCreatorId 逆引き）。現状キタコレ1個。
   function isKitacoreTarget(creatorId) {
-    return creatorId === KITACORE_ID;
+    return L.modeForCreator(MODE_DEFS, creatorId) != null;
   }
 
   // キタコレモードON か（ダブルタップで立つ。表示全般の前提条件）。
   function isModeOn(creatorId) {
-    return !!(state.kitacore && state.kitacore.mode && state.kitacore.mode[creatorId]);
+    return !!(mc().mode && mc().mode[creatorId]);
   }
 
   // 撃破済みボス key の配列。
   function defeatedBossesOf(creatorId) {
-    var d = state.kitacore && state.kitacore.defeatedBosses ? state.kitacore.defeatedBosses[creatorId] : null;
+    var d = mc().defeatedBosses ? mc().defeatedBosses[creatorId] : null;
     return Array.isArray(d) ? d : [];
   }
 
   // S級覚醒済みか＝覚醒前の最終ボス(wing)を撃破済み。
+  //   実体は logic.js（L.isPostAwakening）。覚醒ボス key は 'wing' 固定で渡す薄いラッパ。
   function isPostAwakening(creatorId) {
-    return defeatedBossesOf(creatorId).indexOf('wing') !== -1;
+    return L.isPostAwakening(defeatedBossesOf(creatorId), 'wing');
   }
 
   // 鍵の数。
   function keysOf(creatorId) {
-    var n = state.kitacore && state.kitacore.keys ? state.kitacore.keys[creatorId] : 0;
+    var n = mc().keys ? mc().keys[creatorId] : 0;
     return typeof n === 'number' ? n : 0;
   }
 
-  // 次に挑むべき覚醒前ボス（未撃破の先頭）。全撃破なら null。
+  // 次に挑むべき覚醒前ボス（未撃破の先頭）。全撃破なら null。実体は logic.js。
   function nextPreBoss(creatorId) {
-    var done = defeatedBossesOf(creatorId);
-    for (var i = 0; i < KITACORE_PRE_BOSSES.length; i++) {
-      if (done.indexOf(KITACORE_PRE_BOSSES[i].key) === -1) return KITACORE_PRE_BOSSES[i];
-    }
-    return null;
+    return L.nextPreBoss(KITACORE_PRE_BOSSES, defeatedBossesOf(creatorId));
   }
 
   // ボスに挑戦する。鍵が足りれば消費して撃破＝昇格を確定し、戦闘演出を開始。
@@ -191,11 +215,11 @@
     ensureKitacore();
     if (keysOf(creatorId) < boss.cost) return false;
     // 挑戦ボタンで確定：鍵を消費し撃破を記録（演出は結果の見せ方）。
-    state.kitacore.keys[creatorId] = keysOf(creatorId) - boss.cost;
-    if (!Array.isArray(state.kitacore.defeatedBosses[creatorId])) {
-      state.kitacore.defeatedBosses[creatorId] = [];
+    mc().keys[creatorId] = keysOf(creatorId) - boss.cost;
+    if (!Array.isArray(mc().defeatedBosses[creatorId])) {
+      mc().defeatedBosses[creatorId] = [];
     }
-    state.kitacore.defeatedBosses[creatorId].push(boss.key);
+    mc().defeatedBosses[creatorId].push(boss.key);
     saveState();
     startBossBattle(boss, creatorId);
     return true;
@@ -276,7 +300,9 @@
       updateReadStatsHeader();
       renderCreatorCards();
       // 撃破/昇格を通常のシステムメッセージで（モード進入・覚醒と同じUI）。
-      showSystemMessage(boss.key === 'wing' ? kitacoreAwakenLines() : kitacoreBossDownLines(boss));
+      //   覚醒ボス(awakenBossKey)撃破なら覚醒演出。値は 'wing' 固定なので挙動不変。
+      var def = MODE_DEFS.kitacore;
+      showSystemMessage(boss.key === def.awakenBossKey ? kitacoreAwakenLines() : kitacoreBossDownLines(boss));
     }, KITACORE_SHATTER_MS);
   }
 
@@ -294,14 +320,14 @@
     ensureKitacore();
     if (isModeOn(creatorId)) {
       // OFF
-      delete state.kitacore.mode[creatorId];
+      delete mc().mode[creatorId];
       saveState();
       renderCreatorCards();
       showSystemMessage(kitacoreSleepLines());
       return;
     }
     // ON：プレイヤー未登録なら入力モーダル → 認証成功で activateMode。
-    if (!state.kitacore.player || !state.kitacore.player.id) {
+    if (!mc().player || !mc().player.id) {
       openPlayerInput(creatorId);
       return;
     }
@@ -311,7 +337,7 @@
   // モードを実際にONにして覚醒メッセージを出す（プレイヤー登録済み前提）。
   function activateMode(creatorId) {
     ensureKitacore();
-    state.kitacore.mode[creatorId] = { at: new Date().toISOString() };
+    mc().mode[creatorId] = { at: new Date().toISOString() };
     saveState();
     renderCreatorCards();
     showSystemMessage(kitacoreWakeLines());
@@ -389,7 +415,7 @@
     if (pendingPlayerProfile) {
       var creatorId = pendingModeCreatorId;
       ensureKitacore();
-      state.kitacore.player = {
+      mc().player = {
         id: pendingPlayerProfile.id,
         displayName: pendingPlayerProfile.displayName,
         iconUrl: pendingPlayerProfile.iconUrl,
@@ -434,16 +460,20 @@
   // ランクカード表示
   function openRankCard() {
     if (!els.kitacoreRankCard || !els.kitacoreRankCardContent) return;
-    var player = state.kitacore && state.kitacore.player;
+    var player = mc().player;
     if (!player) return;
-    var creatorId = KITACORE_ID;
+    // 対象クリエイターは選択中クリエイターから modeForCreator で解決。
+    //   ランクエリアはキタコレ発動対象でのみ表示されるため、現状は常に KITACORE_ID と一致（挙動不変）。
+    var selected = getSelectedCreator();
+    var def = selected ? L.modeForCreator(MODE_DEFS, selected.id) : null;
+    var creatorId = def ? def.targetCreatorId : KITACORE_ID;
     var rankInfo = isPostAwakening(creatorId) ? kitacoreRankOf(creatorId) : null;
     var rankLabel = rankInfo
       ? 'ワイ語ハンターランク ' + rankInfo.rank
       : (nextPreBoss(creatorId) ? 'ワイ語ハンターランク ' + nextPreBoss(creatorId).rankBefore : '---');
-    var totalWai = (state.kitacore && state.kitacore.totalWai) || 0;
-    var quizTaps = (state.kitacore && state.kitacore.quizTaps) || 0;
-    var quizCleared = state.kitacore && state.kitacore.quizCleared ? Object.keys(state.kitacore.quizCleared).length : 0;
+    var totalWai = mc().totalWai || 0;
+    var quizTaps = mc().quizTaps || 0;
+    var quizCleared = mc().quizCleared ? Object.keys(mc().quizCleared).length : 0;
     var keysCount = keysOf(creatorId);
 
     var el = els.kitacoreRankCardContent;
@@ -553,7 +583,9 @@
         return r.json();
       })
       .then(function (data) {
-        kitacoreQuizzes = data && data.quizzes ? data.quizzes : {};
+        // 読込時に一度だけ正規形へ変換する（choices=[{text,result,reaction}]）。
+        // kitacore_quiz.json 自体は無改変。answer:index 形式は normalizeQuiz が内部変換。
+        kitacoreQuizzes = L.normalizeQuizMap(data && data.quizzes ? data.quizzes : {});
       })
       .catch(function () {
         kitacoreQuizzes = {}; // 読めなくてもクイズ無しで動く
@@ -565,26 +597,25 @@
       });
   }
 
-  // 記事に紐づくクイズ（無ければ null）。スラッグで引く。
+  // 記事に紐づくクイズ（無ければ null）。スラッグで引く。実体は logic.js。
+  //   app 側は現在のクイズマップ（kitacoreQuizzes）を渡す薄いラッパ。
   function quizForArticle(article) {
-    if (!kitacoreQuizzes) return null;
-    var key = articleKeyFromUrl(article && article.url);
-    return key && kitacoreQuizzes[key] ? kitacoreQuizzes[key] : null;
+    return L.quizForArticle(kitacoreQuizzes, article);
   }
 
   // クイズ正解済みか（記事ごと1回。鍵の二重獲得防止）。collected を流用せず専用に持つ。
   function isQuizCleared(creatorId, articleId) {
-    var k = state.kitacore && state.kitacore.quizCleared ? state.kitacore.quizCleared : null;
+    var k = mc().quizCleared ? mc().quizCleared : null;
     return !!(k && k[articleId]);
   }
 
   // 鍵を1つ獲得（クイズ正解時）。記事ごと1回きり。
   function awardKey(creatorId, articleId) {
     ensureKitacore();
-    if (!state.kitacore.quizCleared) state.kitacore.quizCleared = {};
-    if (state.kitacore.quizCleared[articleId]) return; // 既に獲得済み
-    state.kitacore.quizCleared[articleId] = true;
-    state.kitacore.keys[creatorId] = keysOf(creatorId) + 1;
+    if (!mc().quizCleared) mc().quizCleared = {};
+    if (mc().quizCleared[articleId]) return; // 既に獲得済み
+    mc().quizCleared[articleId] = true;
+    mc().keys[creatorId] = keysOf(creatorId) + 1;
     saveState();
   }
 
@@ -675,16 +706,12 @@
   // クイズモーダルを開く（覚醒前・モードON・未覚醒・クイズ有りのときだけ）。
   // 選択肢は毎回シャッフルする（位置記憶でのズルを防ぐ）。
   function openQuiz(creatorId, article, quiz) {
-    // {text, correct} にしてシャッフルし、シャッフル後の正解位置を持つ。
-    var items = shuffled(
-      quiz.choices.map(function (text, i) {
-        return { text: text, correct: i === quiz.answer };
-      })
-    );
-    var correctIndex = items.findIndex(function (it) {
-      return it.correct;
-    });
-    activeQuiz = { creatorId: creatorId, articleId: article.id, correctIndex: correctIndex };
+    // quiz は正規形（choices=[{text,result,reaction}]）。選択肢を毎回シャッフルして
+    // シャッフル後の並びを activeQuiz に保持する（正解位置のランダム性を温存）。
+    // 判定はシャッフル後 index に対して L.quizChoiceOutcome で行う。
+    var items = shuffled(quiz.choices.slice());
+    var shuffledQuiz = { q: quiz.q, choices: items };
+    activeQuiz = { creatorId: creatorId, articleId: article.id, quiz: shuffledQuiz };
 
     els.kitacoreQuizQ.textContent = quiz.q;
     els.kitacoreQuizResult.classList.add('hidden');
@@ -720,12 +747,14 @@
     if (!activeQuiz) return;
     // 正解済み（選択肢が disabled）なら何もしない
     if (activeQuiz.answered) return;
-    var correct = idx === activeQuiz.correctIndex;
+    // シャッフル後の並びに対して正誤判定する。'success' のみ正解扱い、
+    // 'wrong'/'wrong_funny' は不正解（再挑戦可）。
+    var outcome = L.quizChoiceOutcome(activeQuiz.quiz, idx);
+    var correct = outcome === 'success';
     var btns = els.kitacoreQuizChoices.querySelectorAll('.kitacore-quiz-choice');
     btns[idx].classList.add(correct ? 'is-correct' : 'is-wrong');
     if (correct) {
       activeQuiz.answered = true; // 正解フラグ
-      btns[activeQuiz.correctIndex].classList.add('is-correct');
       // 全選択肢を無効化
       btns.forEach(function (b) { b.disabled = true; });
     }
@@ -1297,39 +1326,31 @@
   //   本文HTMLは保存せず数だけ残す。記事ごと1回きり（collected で二重取り防止）。
   // ---------------------------------------------------------------------------
 
-  var WAI_RE = /ワイ/g;
   // 収集中の article.id（多重発火防止）。
   var kitacoreInFlight = {};
 
   // HTML からタグを除去し最低限の実体参照をデコードして素テキストにする。
+  //   実体は logic.js（L.stripHtml）。呼び出し側は無変更。
   function stripHtml(html) {
-    return String(html)
-      .replace(/<[^>]*>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+    return L.stripHtml(html);
   }
 
-  // テキスト中の「ワイ」出現数。
+  // テキスト中の「ワイ」出現数。実体は logic.js（L.countWai）。
   function countWai(text) {
-    return (String(text).match(WAI_RE) || []).length;
+    return L.countWai(text);
   }
 
-  // 記事 URL からスラッグ（note key）を抜く。失敗時 null。
+  // 記事 URL からスラッグ（note key）を抜く。失敗時 null。実体は logic.js。
   function articleKeyFromUrl(url) {
-    var m = String(url || '').match(/\/n\/([A-Za-z0-9]+)/);
-    return m ? m[1] : null;
+    return L.articleKeyFromUrl(url);
   }
 
   function isCounted(articleId) {
-    return !!(state.kitacore && state.kitacore.counts && state.kitacore.counts[articleId]);
+    return !!(mc().counts && mc().counts[articleId]);
   }
 
   function isCollected(articleId) {
-    return !!(state.kitacore && state.kitacore.collected && state.kitacore.collected[articleId]);
+    return !!(mc().collected && mc().collected[articleId]);
   }
 
   // 記事 1 本の本文を取り、ワイ数を数えて counts に保存する（＝収集）。
@@ -1350,7 +1371,7 @@
         var body = json && json.data ? json.data.body : null;
         if (typeof body !== 'string') return; // 形式不正は未計測のまま握りつぶす
         ensureKitacore();
-        state.kitacore.counts[article.id] = {
+        mc().counts[article.id] = {
           wai: countWai(stripHtml(body)),
           countedAt: new Date().toISOString(),
         };
@@ -1372,16 +1393,16 @@
   // 収集済み・未回収・ワイ>0 のときだけ totalWai に加算し collected を立てる。
   function collectWai(articleId) {
     ensureKitacore();
-    var entry = state.kitacore.counts[articleId];
+    var entry = mc().counts[articleId];
     if (!entry) return; // 未収集
     if (isCollected(articleId)) return; // 二重取り防止
     if (entry.wai <= 0) return; // ワイ0は回収対象外（チップ非活性）
-    var waiRankBefore = kitacoreWaiRankOf(state.kitacore.totalWai);
-    state.kitacore.totalWai += entry.wai;
-    state.kitacore.collected[articleId] = true;
+    var waiRankBefore = kitacoreWaiRankOf(mc().totalWai);
+    mc().totalWai += entry.wai;
+    mc().collected[articleId] = true;
     saveState();
     // ワイ閾値を超えたら覚醒後ボスを出現させる（ランク表示はボス撃破まで据え置き）
-    var waiRankAfter = kitacoreWaiRankOf(state.kitacore.totalWai);
+    var waiRankAfter = kitacoreWaiRankOf(mc().totalWai);
     if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
       var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
       if (boss) showPostBoss(boss);
@@ -1391,25 +1412,25 @@
   // 覚醒後ボスカードを表示する（挑戦待ち状態にセット）。
   function showPostBoss(boss) {
     ensureKitacore();
-    if (!state.kitacore.pendingPostBoss) state.kitacore.pendingPostBoss = {};
+    if (!mc().pendingPostBoss) mc().pendingPostBoss = {};
     var defeated = defeatedBossesOf(KITACORE_ID);
     // 撃破済みなら無視
     if (defeated.indexOf(boss.key) !== -1) return;
     // 既に挑戦待ちボスがいる場合は上書きしない
-    if (state.kitacore.pendingPostBoss[KITACORE_ID]) return;
+    if (mc().pendingPostBoss[KITACORE_ID]) return;
     // このボスより前の覚醒後ボスが全員撃破済みでなければ出現しない
     var idx = KITACORE_POST_BOSSES.findIndex(function (b) { return b.key === boss.key; });
     for (var i = 0; i < idx; i++) {
       if (defeated.indexOf(KITACORE_POST_BOSSES[i].key) === -1) return;
     }
-    state.kitacore.pendingPostBoss[KITACORE_ID] = boss.key;
+    mc().pendingPostBoss[KITACORE_ID] = boss.key;
     saveState();
     renderKitacoreHeader();
   }
 
   // 覚醒後の挑戦待ちボスを取得（pendingPostBoss から）。
   function pendingPostBossOf(creatorId) {
-    var k = state.kitacore && state.kitacore.pendingPostBoss ? state.kitacore.pendingPostBoss[creatorId] : null;
+    var k = mc().pendingPostBoss ? mc().pendingPostBoss[creatorId] : null;
     if (!k) return null;
     var defeated = defeatedBossesOf(creatorId);
     if (defeated.indexOf(k) !== -1) return null; // 撃破済みなら消す
@@ -2420,7 +2441,9 @@
 
     // キタコレ覚醒前：クイズがある記事に「光ボタン」を出す（タップでクイズ）。
     //   未正解＝光る（タップ可）/ 正解済み＝光を消し「入手済」表示（タップ不可）。
-    if (isKitacoreTarget(creatorId) && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
+    //   challengeType==='none'（挑戦なしモード）は光ボタンを出さない。キタコレは 'choice_judgement' なので挙動不変。
+    var lightDef = L.modeForCreator(MODE_DEFS, creatorId);
+    if (lightDef && lightDef.challengeType !== 'none' && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
       var quiz = quizForArticle(article);
       if (quiz) {
         var quizCleared = isQuizCleared(creatorId, article.id);
@@ -2433,7 +2456,7 @@
         if (!quizCleared) {
           glow.addEventListener('click', function () {
             ensureKitacore();
-            state.kitacore.quizTaps = (state.kitacore.quizTaps || 0) + 1;
+            mc().quizTaps = (mc().quizTaps || 0) + 1;
             saveState();
             openQuiz(creatorId, article, quiz);
           });
@@ -2446,7 +2469,7 @@
     //   未収集（タップ前）はチップ無し。ワイ>0未回収=タップ可。
     //   ワイ0 / 回収済み=非活性。
     if (isKitacoreTarget(creatorId) && isModeOn(creatorId) && isCounted(article.id)) {
-      var entry = state.kitacore.counts[article.id];
+      var entry = mc().counts[article.id];
       var collected = isCollected(article.id);
       var claimable = entry.wai > 0 && !collected;
       var wai = document.createElement('button');
@@ -2643,13 +2666,13 @@
   // 覚醒後ボスに挑戦（鍵不要）。撃破確定＆演出開始。
   function challengePostBoss(creatorId, boss) {
     ensureKitacore();
-    if (!state.kitacore.defeatedBosses[creatorId]) state.kitacore.defeatedBosses[creatorId] = [];
-    state.kitacore.defeatedBosses[creatorId].push(boss.key);
-    if (state.kitacore.pendingPostBoss) delete state.kitacore.pendingPostBoss[creatorId];
+    if (!mc().defeatedBosses[creatorId]) mc().defeatedBosses[creatorId] = [];
+    mc().defeatedBosses[creatorId].push(boss.key);
+    if (mc().pendingPostBoss) delete mc().pendingPostBoss[creatorId];
     saveState();
     // 撃破後、既にワイ閾値を超えている次のボスがあれば出現させる
-    var totalWai = state.kitacore.totalWai || 0;
-    var defeated = state.kitacore.defeatedBosses[creatorId];
+    var totalWai = mc().totalWai || 0;
+    var defeated = mc().defeatedBosses[creatorId];
     KITACORE_POST_BOSSES.forEach(function (nextBoss) {
       if (defeated.indexOf(nextBoss.key) !== -1) return; // 既に撃破済み
       var rank = KITACORE_RANKS.find(function (r) { return r.bossKey === nextBoss.key; });
@@ -2686,7 +2709,7 @@
 
   // 覚醒後ヘッダー：ワイ累計→ランク、バーは N／2000。
   function renderKitacorePostHeader(creatorId) {
-    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
+    var totalWai = mc().totalWai ? mc().totalWai : 0;
     var rankInfo = kitacoreRankOf(creatorId);
     paintKitacoreHeader(
       'ワイ語ハンターランク ' + rankInfo.rank,
@@ -2702,7 +2725,7 @@
   // 鍵の数はバーには出さず、ボスUI側で見せる。
   function renderKitacorePreHeader(creatorId) {
     var boss = nextPreBoss(creatorId); // モードON＆未覚醒なら必ず非null
-    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
+    var totalWai = mc().totalWai ? mc().totalWai : 0;
     paintKitacoreHeader(
       'ワイ語ハンターランク ' + boss.rankBefore,
       boss.rankBeforeKey,
@@ -3195,28 +3218,29 @@
     });
     // この creator のキタコレ計測も掃除（counts/collected は article.id 単位なので
     // 削除前に拾う。回収済みの累計 totalWai もそのぶん差し引く）。
-    if (state.kitacore) {
+    {
+      // 物理保存先（旧 state.kitacore）を必ず初期化してから掃除する。
       ensureKitacore();
       (state.articlesByCreator[id] || []).forEach(function (a) {
         if (!a || !a.id) return;
-        if (state.kitacore.collected[a.id]) {
-          var entry = state.kitacore.counts[a.id];
+        if (mc().collected[a.id]) {
+          var entry = mc().counts[a.id];
           if (entry && typeof entry.wai === 'number') {
-            state.kitacore.totalWai = Math.max(0, state.kitacore.totalWai - entry.wai);
+            mc().totalWai = Math.max(0, mc().totalWai - entry.wai);
           }
-          delete state.kitacore.collected[a.id];
+          delete mc().collected[a.id];
         }
-        delete state.kitacore.counts[a.id];
-        delete state.kitacore.quizCleared[a.id];
+        delete mc().counts[a.id];
+        delete mc().quizCleared[a.id];
       });
-      delete state.kitacore.mode[id];
-      delete state.kitacore.keys[id];
-      delete state.kitacore.defeatedBosses[id];
-      if (state.kitacore.pendingPostBoss) delete state.kitacore.pendingPostBoss[id];
+      delete mc().mode[id];
+      delete mc().keys[id];
+      delete mc().defeatedBosses[id];
+      if (mc().pendingPostBoss) delete mc().pendingPostBoss[id];
       // KITAcoreクリエーター本体を削除した場合はプレイヤー情報もリセット
       if (id === KITACORE_ID) {
-        state.kitacore.player = null;
-        state.kitacore.quizTaps = 0;
+        mc().player = null;
+        mc().quizTaps = 0;
       }
     }
     delete state.articlesByCreator[id];
@@ -3758,7 +3782,7 @@
         var c = getSelectedCreator();
         if (!c || !isKitacoreTarget(c.id)) return;
         ensureKitacore();
-        state.kitacore.keys[c.id] = keysOf(c.id) + 3;
+        mc().keys[c.id] = keysOf(c.id) + 3;
         saveState();
         renderKitacoreHeader();
       });
@@ -3768,10 +3792,10 @@
         var c = getSelectedCreator();
         if (!c || !isKitacoreTarget(c.id)) return;
         ensureKitacore();
-        var waiRankBefore = kitacoreWaiRankOf(state.kitacore.totalWai);
-        state.kitacore.totalWai += 100;
+        var waiRankBefore = kitacoreWaiRankOf(mc().totalWai);
+        mc().totalWai += 100;
         saveState();
-        var waiRankAfter = kitacoreWaiRankOf(state.kitacore.totalWai);
+        var waiRankAfter = kitacoreWaiRankOf(mc().totalWai);
         if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
           var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
           if (boss) showPostBoss(boss);
@@ -3785,14 +3809,14 @@
         var c = getSelectedCreator();
         if (!c) return;
         ensureKitacore();
-        state.kitacore.keys = {};
-        state.kitacore.quizCleared = {};
-        state.kitacore.defeatedBosses = {};
-        state.kitacore.totalWai = 0;
-        state.kitacore.counts = {};
-        state.kitacore.collected = {};
-        state.kitacore.quizTaps = 0;
-        state.kitacore.pendingPostBoss = {};
+        mc().keys = {};
+        mc().quizCleared = {};
+        mc().defeatedBosses = {};
+        mc().totalWai = 0;
+        mc().counts = {};
+        mc().collected = {};
+        mc().quizTaps = 0;
+        mc().pendingPostBoss = {};
         saveState();
         renderRoute();
         updateReadStatsHeader();
