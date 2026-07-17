@@ -1050,6 +1050,10 @@
     var items = shuffled(quiz.choices.slice());
     var shuffledQuiz = { q: quiz.q, choices: items };
     activeQuiz = { creatorId: creatorId, articleId: article.id, quiz: shuffledQuiz };
+    // 共有モーダルのラベルをキタコレ用に設定（ニゲキレと同じ DOM を使い回すため毎回セット）。
+    if (els.kitacoreQuizLabel) {
+      els.kitacoreQuizLabel.textContent = '［ システム ］試練：正解で終焉の鍵を1つ得る';
+    }
 
     els.kitacoreQuizQ.textContent = quiz.q;
     els.kitacoreQuizResult.classList.add('hidden');
@@ -1888,6 +1892,13 @@
       done: false,
     };
 
+    // 共有モーダルのラベルをニゲキレ用に設定（キタコレの「終焉の鍵」文言を上書き）。
+    //   語彙は §15 準拠（確認・通過・曜日担当）。鍵の概念はニゲキレに無いので使わない。
+    if (els.kitacoreQuizLabel) {
+      els.kitacoreQuizLabel.textContent =
+        '［ システム ］' + char.label + '担当〈' + char.name + '〉の確認';
+    }
+
     // 上部: 火種確認セリフ（promptLine）＋設問（question）。文言は rec から読む。
     //   promptLine を上、question を下に2段で見せる（共有 CSS が white-space:pre-line で
     //   ない場合に備え、textContent ではなく行要素を組んで確実に改行する）。
@@ -2293,6 +2304,7 @@
     kitacoreSystem: document.getElementById('kitacore-system'),
     kitacoreSystemText: document.getElementById('kitacore-system-text'),
     kitacoreQuiz: document.getElementById('kitacore-quiz'),
+    kitacoreQuizLabel: document.getElementById('kitacore-quiz-label'),
     kitacoreQuizQ: document.getElementById('kitacore-quiz-q'),
     kitacoreQuizChoices: document.getElementById('kitacore-quiz-choices'),
     kitacoreQuizResult: document.getElementById('kitacore-quiz-result'),
@@ -3197,34 +3209,49 @@
       els.kitacoreStats.appendChild(topEl);
     }
 
-    // 下段: 7人水平バー（曜日順・キャラカラー・タップ不可・分割しない・記号/数値なし）。
-    //   バー長 = 各キャラポイント / 基準値。基準値は「7人中の最大ポイント」（全0でも枠は見える）。
-    //   最大が 0 のときは全バー 0 幅（枠のみ）。
+    // 下段: 7人分の水平バーを「横一列」に並べる（正史UI §6の表示イメージ
+    //   「━━ ━ ━━━ …」＝短い横バーが左から右へ7本並ぶ）。上に曜日ラベルを横並び。
+    //   各バーの長さ（幅）= 各キャラポイント / 45pt（45pt=満タン・§6塗り仕様2026-07-17確定）。
+    //   45pt超は100%クランプ。0pt は塗りなし＝グレー枠のまま。キャラカラー・タップ不可・数値なし。
     els.kitacoreProgress.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'nigekire-progress-wrap';
+    var heading = document.createElement('div');
+    heading.className = 'nigekire-progress-heading';
+    heading.textContent = 'ニゲキレ進行';
+    wrap.appendChild(heading);
+
+    var pts = m.charPoints && typeof m.charPoints === 'object' ? m.charPoints : {};
+    var FULL_PT = 45; // §6: 45pt = 満タン（100%）
+
+    // 曜日ラベル行（月 火 水 木 金 土 日）を横一列。各セルはバーと左右位置を揃える。
+    var labels = document.createElement('div');
+    labels.className = 'nigekire-bar-labels';
+    NIGEKIRE_CHARACTERS.forEach(function (ch) {
+      var lb = document.createElement('div');
+      lb.className = 'nigekire-bar-label';
+      lb.textContent = ch.label ? ch.label.charAt(0) : '';
+      labels.appendChild(lb);
+    });
+    wrap.appendChild(labels);
+
+    // バー行：7本の横バーを横一列。各バーは自セル内で左から幅% 伸びる。
     var bars = document.createElement('div');
     bars.className = 'nigekire-bars';
-    var pts = m.charPoints && typeof m.charPoints === 'object' ? m.charPoints : {};
-    var maxPts = 0;
     NIGEKIRE_CHARACTERS.forEach(function (ch) {
       var v = typeof pts[ch.key] === 'number' ? pts[ch.key] : 0;
-      if (v > maxPts) maxPts = v;
-    });
-    NIGEKIRE_CHARACTERS.forEach(function (ch) {
-      var v = typeof pts[ch.key] === 'number' ? pts[ch.key] : 0;
-      var pct = maxPts > 0 ? (v / maxPts) * 100 : 0;
-      var row = document.createElement('div');
-      row.className = 'nigekire-bar-row';
+      var pct = Math.max(0, Math.min(100, (v / FULL_PT) * 100));
       var track = document.createElement('div');
       track.className = 'nigekire-bar-track';
       var fill = document.createElement('div');
       fill.className = 'nigekire-bar-fill';
-      fill.style.width = pct + '%';
+      fill.style.width = pct + '%'; // 横バー＝左から伸びる
       if (ch.color) fill.style.background = ch.color;
       track.appendChild(fill);
-      row.appendChild(track);
-      bars.appendChild(row);
+      bars.appendChild(track);
     });
-    els.kitacoreProgress.appendChild(bars);
+    wrap.appendChild(bars);
+    els.kitacoreProgress.appendChild(wrap);
   }
 
   // キタコレ：ヘッダーにランク行＋進捗バーを出す。モードON のときだけ表示。
