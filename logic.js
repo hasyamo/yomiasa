@@ -353,6 +353,187 @@
     return bossKey;
   }
 
+  // ===========================================================================
+  // ニゲキレモード純ロジック（フェーズ1）。
+  //   state/DOM に依存しない。ポイント表・ランク閾値・称号テーブルは
+  //   呼び出し側（app.js の MODE_DEFS）から引数で渡す。文言はコード直書きしない。
+  //   参照: nigekire-quiz-and-points-spec.md §6.4/§10.4-10.6
+  // ===========================================================================
+
+  // 曜日→キャラの機械対応。1週間の曜日番号（0=日曜..6=土曜, JST基準）→ weekday 文字列。
+  var NIGEKIRE_WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+  // published_at（記事公開日）から JST の曜日文字列（'mon'..'sun'）を求める。純関数。
+  //   note の published_at は日付/日時文字列。JST(+09:00) で曜日を判定する。
+  //   日付だけ（'2025-12-15'）の場合、UTC 深夜0時に解釈されるため +9h して JST 日付にする。
+  //   パース不能なら null。
+  function weekdayOf(publishedAt) {
+    var d = parseDate(publishedAt);
+    if (!d) return null;
+    // UTC ミリ秒に +9h して JST の暦日にそろえ、その曜日を UTC メソッドで読む。
+    var jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    return NIGEKIRE_WEEKDAY_KEYS[jst.getUTCDay()];
+  }
+
+  // weekday（'mon'..'sun'）から担当キャラを引く。characters は MODE_DEFS の
+  //   曜日順キャラ配列（各要素に .weekday を持つ）。該当なしは null。
+  function weekdayCharOf(weekday, characters) {
+    if (!Array.isArray(characters)) return null;
+    for (var i = 0; i < characters.length; i++) {
+      if (characters[i] && characters[i].weekday === weekday) return characters[i];
+    }
+    return null;
+  }
+
+  // 生活ランク（総ポイントの4段階・§10.5）。
+  //   ranks = [{ stage, name, min }, ...]（min 昇順）。total 以下で最大 min の段階を返す。
+  //   戻り値 { stage, name }。ranks 未指定/空なら { stage:0, name:'' }。
+  function nigekireLifeRank(totalPoints, ranks) {
+    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '' };
+    var t = typeof totalPoints === 'number' ? totalPoints : 0;
+    var cur = ranks[0];
+    for (var i = 0; i < ranks.length; i++) {
+      if (t >= ranks[i].min) cur = ranks[i];
+    }
+    return { stage: cur.stage, name: cur.name };
+  }
+
+  // キャラ別称号（キャラ別ポイントの4段階・§10.6）。
+  //   charPoints = キャラ別ポイントマップ、charKey = 対象キャラのキー、
+  //   titleTable = { thresholds:[0,10,25,45], names:{ [charKey]: [段階1..4名] } }。
+  //   戻り値 { stage(1..4), name }。該当キャラ名テーブル無しは name:''。
+  function nigekireCharTitle(charPoints, charKey, titleTable) {
+    var pts = charPoints && typeof charPoints === 'object' && typeof charPoints[charKey] === 'number'
+      ? charPoints[charKey] : 0;
+    var thresholds = titleTable && Array.isArray(titleTable.thresholds)
+      ? titleTable.thresholds : [0];
+    var names = titleTable && titleTable.names && titleTable.names[charKey];
+    var stage = 1;
+    for (var i = 0; i < thresholds.length; i++) {
+      if (pts >= thresholds[i]) stage = i + 1;
+    }
+    var name = Array.isArray(names) && names[stage - 1] != null ? names[stage - 1] : '';
+    return { stage: stage, name: name };
+  }
+
+  // 現在トップ（最大ポイントのキャラ）。同点は characters の並び（曜日順）で先を採る。
+  //   全0/未蓄積でも characters が非空なら先頭を返す（トップ表示は常に1人）。
+  //   characters 空/不正なら null。
+  function nigekireTopCharacter(charPoints, characters) {
+    if (!Array.isArray(characters) || characters.length === 0) return null;
+    var pts = charPoints && typeof charPoints === 'object' ? charPoints : {};
+    var top = characters[0];
+    var topPts = typeof pts[top.key] === 'number' ? pts[top.key] : 0;
+    for (var i = 1; i < characters.length; i++) {
+      var c = characters[i];
+      var p = typeof pts[c.key] === 'number' ? pts[c.key] : 0;
+      // 厳密に大きいときだけ更新 → 同点は先（曜日順で早い方）が残る。
+      if (p > topPts) {
+        top = c;
+        topPts = p;
+      }
+    }
+    return top;
+  }
+
+  // 総ポイント（全キャラ合算）。charPoints の数値を足す。
+  function nigekireTotalPoints(charPoints) {
+    if (!charPoints || typeof charPoints !== 'object') return 0;
+    return Object.keys(charPoints).reduce(function (sum, k) {
+      var v = charPoints[k];
+      return sum + (typeof v === 'number' ? v : 0);
+    }, 0);
+  }
+
+  // 試練成功時のポイント（火種ランク×通常/一発・§10.2）。
+  //   pointTable = { light:[通常,一発], medium:[...], heavy:[...] }。未定義ランクは 0。
+  function nigekireTrialPoints(fireRank, isFirstTry, pointTable) {
+    var row = pointTable && pointTable[fireRank];
+    if (!Array.isArray(row)) return 0;
+    return isFirstTry ? (row[1] || 0) : (row[0] || 0);
+  }
+
+  // 試練通過の状態遷移（非破壊）。§10.2/§10.5
+  //   passed[articleId] があれば二重取り防止で { ok:false }。
+  //   通過なら awardedPoints を担当キャラの財布に足し、成功数/一発数を更新した
+  //   次状態を返す。lifeRankBefore/After は総ポイントのランク、rankUpdated は段階が上がったか。
+  //   引数:
+  //     charPoints, totalSuccess, firstTrySuccess, passed : 現在状態
+  //     charKey    : 担当キャラのキー（付与先の財布）
+  //     articleId  : 記事キー（二重取り防止の単位）
+  //     fireRank   : 'light'|'medium'|'heavy'
+  //     isFirstTry : 一発成功か
+  //     pointTable : ポイント表、lifeRanks : 生活ランク閾値テーブル
+  function nigekireSuccessOutcome(
+    charPoints, totalSuccess, firstTrySuccess, passed,
+    charKey, articleId, fireRank, isFirstTry, pointTable, lifeRanks
+  ) {
+    passed = passed && typeof passed === 'object' ? passed : {};
+    if (passed[articleId]) return { ok: false }; // 二重取り防止
+    var pts = charPoints && typeof charPoints === 'object' ? charPoints : {};
+    var awarded = nigekireTrialPoints(fireRank, isFirstTry, pointTable);
+    var totalBefore = nigekireTotalPoints(pts);
+    var lifeBefore = nigekireLifeRank(totalBefore, lifeRanks);
+
+    var nextCharPoints = Object.assign({}, pts);
+    var cur = typeof nextCharPoints[charKey] === 'number' ? nextCharPoints[charKey] : 0;
+    nextCharPoints[charKey] = cur + awarded;
+
+    var nextPassed = Object.assign({}, passed);
+    nextPassed[articleId] = true;
+
+    var ts = typeof totalSuccess === 'number' ? totalSuccess : 0;
+    var fts = typeof firstTrySuccess === 'number' ? firstTrySuccess : 0;
+    var nextTotalSuccess = ts + 1;
+    var nextFirstTrySuccess = isFirstTry ? fts + 1 : fts;
+
+    var lifeAfter = nigekireLifeRank(totalBefore + awarded, lifeRanks);
+
+    return {
+      ok: true,
+      nextCharPoints: nextCharPoints,
+      nextTotalSuccess: nextTotalSuccess,
+      nextFirstTrySuccess: nextFirstTrySuccess,
+      nextPassed: nextPassed,
+      awardedPoints: awarded,
+      lifeRankBefore: lifeBefore,
+      lifeRankAfter: lifeAfter,
+      rankUpdated: lifeAfter.stage > lifeBefore.stage,
+    };
+  }
+
+  // 回収型のタップ回収（+1pt・§10.4）。ニゲキレ専用（キタコレの collectWaiOutcome とは別）。
+  //   collected[articleId] があれば二重取り防止で { ok:false }。
+  //   回収なら担当キャラの財布に +1 し、collected を立てた次状態を返す（非破壊）。
+  //   lifeRankBefore/After・rankUpdated も返す。
+  function nigekireCollectOutcome(charPoints, collected, charKey, articleId, lifeRanks) {
+    collected = collected && typeof collected === 'object' ? collected : {};
+    if (collected[articleId]) return { ok: false }; // 二重取り防止
+    var pts = charPoints && typeof charPoints === 'object' ? charPoints : {};
+    var awarded = 1;
+    var totalBefore = nigekireTotalPoints(pts);
+    var lifeBefore = nigekireLifeRank(totalBefore, lifeRanks);
+
+    var nextCharPoints = Object.assign({}, pts);
+    var cur = typeof nextCharPoints[charKey] === 'number' ? nextCharPoints[charKey] : 0;
+    nextCharPoints[charKey] = cur + awarded;
+
+    var nextCollected = Object.assign({}, collected);
+    nextCollected[articleId] = true;
+
+    var lifeAfter = nigekireLifeRank(totalBefore + awarded, lifeRanks);
+
+    return {
+      ok: true,
+      nextCharPoints: nextCharPoints,
+      nextCollected: nextCollected,
+      awardedPoints: awarded,
+      lifeRankBefore: lifeBefore,
+      lifeRankAfter: lifeAfter,
+      rankUpdated: lifeAfter.stage > lifeBefore.stage,
+    };
+  }
+
   return {
     entryKey: entryKey,
     parseDate: parseDate,
@@ -383,5 +564,15 @@
     challengeBossOutcome: challengeBossOutcome,
     collectWaiOutcome: collectWaiOutcome,
     canSummonPostBoss: canSummonPostBoss,
+    // ---- ニゲキレモード純ロジック（フェーズ1） ----
+    weekdayOf: weekdayOf,
+    weekdayCharOf: weekdayCharOf,
+    nigekireLifeRank: nigekireLifeRank,
+    nigekireCharTitle: nigekireCharTitle,
+    nigekireTopCharacter: nigekireTopCharacter,
+    nigekireTotalPoints: nigekireTotalPoints,
+    nigekireTrialPoints: nigekireTrialPoints,
+    nigekireSuccessOutcome: nigekireSuccessOutcome,
+    nigekireCollectOutcome: nigekireCollectOutcome,
   };
 });

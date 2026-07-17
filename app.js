@@ -101,6 +101,14 @@
     if (m.player !== null && typeof m.player !== 'object') m.player = null;
     if (typeof m.quizTaps !== 'number') m.quizTaps = 0;
     if (!m.pendingPostBoss || typeof m.pendingPostBoss !== 'object') m.pendingPostBoss = {};
+    // ── ニゲキレ固有サブキー（キタコレでは触らない）──
+    //   共通型（mode/collected/player）はそのまま流用し、7人財布・通過・成功数だけ足す。
+    if (modeKey === 'nigekire') {
+      if (!m.charPoints || typeof m.charPoints !== 'object') m.charPoints = {}; // { [charKey]: number } 7人財布
+      if (!m.passed || typeof m.passed !== 'object') m.passed = {};             // { [articleId]: true } 試練通過
+      if (typeof m.totalSuccess !== 'number') m.totalSuccess = 0;               // 総ニゲキレ成功数
+      if (typeof m.firstTrySuccess !== 'number') m.firstTrySuccess = 0;         // 一発成功数
+    }
     return m;
   }
 
@@ -114,13 +122,39 @@
     return modeState('kitacore');
   }
 
+  // ── モード横断アクセサ（発動フロー汎用化用）──
+  //   creatorId → そのクリエイターに紐づくモード key（無ければ null）。
+  //   MODE_DEFS の targetCreatorId 逆引き。mc() は 'kitacore' 固定のまま残す（R3）。
+  function activeModeKey(creatorId) {
+    var def = L.modeForCreator(MODE_DEFS, creatorId);
+    return def ? def.key : null;
+  }
+  // creatorId に紐づくモードの state（遅延初期化）。無ければ null。
+  //   ニゲキレの state 読み書きはこれ経由（キタコレ専用の mc() とは分離）。
+  function modeStateFor(creatorId) {
+    var key = activeModeKey(creatorId);
+    return key ? ensureMode(key) : null;
+  }
+  // creatorId に紐づくモードが ON か（モード横断版）。
+  function isModeOnFor(creatorId) {
+    var m = modeStateFor(creatorId);
+    return !!(m && m.mode && m.mode[creatorId]);
+  }
+
   // キタコレモードが発動できる唯一の note ID（KITAさん＝推される側。汎用化しない）。
   var KITACORE_ID = 'ktcrs1107';
 
+  // システムメッセージ生成中に参照するモード key（lines 内の playerName() 解決用）。
+  //   null のときはキタコレ（mc()）を見る＝従来挙動。発動/終了の直前にセットしてから
+  //   def.lines.*() を呼び、直後にクリアする。
+  var linesModeKey = null;
+
   // プレイヤー名（＝ユーザー自身の note ID。発動時に入力・保存したものを使う）。
   // 未登録時のフォールバックは 'プレイヤー'（通常は登録後しか表示されない）。
+  //   linesModeKey がセット済みならそのモードの player を見る（モード別 state.player 対応）。
   function playerName() {
-    var p = mc().player;
+    var m = linesModeKey ? ensureMode(linesModeKey) : mc();
+    var p = m.player;
     return p && p.id ? p.id : 'プレイヤー';
   }
 
@@ -163,6 +197,54 @@
     { key: 'wing', name: 'WING OF DEATH', title: '収穫の獣', cost: 3, rankBefore: 'A級', rankBeforeKey: 'a', rankAfter: 'S級覚醒', img: 'assets/boss/WING_OF_DEATH.webp' },
   ];
 
+  // ===========================================================================
+  // ニゲキレモード 静的定義（フェーズ1配線）。
+  //   発動対象は hasyamo（おはようカノジョも同アカウント内）。曜日→キャラは機械対応。
+  //   ポイント表・ランク閾値・称号テーブルは正史 nigekire-quiz-and-points-spec.md §10。
+  // ===========================================================================
+  var NIGEKIRE_ID = 'hasyamo';
+
+  // 7人（曜日順・月子→日和固定）。color=キャラ設定のパーソナルカラー hex、img=<name>.webp。
+  var NIGEKIRE_CHARACTERS = [
+    { key: 'tsukiko', weekday: 'mon', label: '月曜', name: '月子',   color: '#1f3a5f', img: 'tsukiko.webp' }, // ネイビー
+    { key: 'you',     weekday: 'tue', label: '火曜', name: '陽',     color: '#f28c28', img: 'you.webp' },     // オレンジ
+    { key: 'shizuku', weekday: 'wed', label: '水曜', name: 'しずく', color: '#7ec8e3', img: 'shizuku.webp' }, // ライトブルー
+    { key: 'rinka',   weekday: 'thu', label: '木曜', name: '凛華',   color: '#7b1e2b', img: 'rinka.webp' },   // ボルドー／ワインレッド
+    { key: 'runa',    weekday: 'fri', label: '金曜', name: 'るな',   color: '#2ecc71', img: 'runa.webp' },    // エメラルドグリーン
+    { key: 'mahiru',  weekday: 'sat', label: '土曜', name: 'まひる', color: '#b39ddb', img: 'mahiru.webp' },  // ラベンダー
+    { key: 'hiyori',  weekday: 'sun', label: '日曜', name: '日和',   color: '#f7b6c2', img: 'hiyori.webp' },  // ソフトピンク
+  ];
+
+  // 生活ランク（総ポイント判定・4段階・§10.5）。min 昇順。logic.js の nigekireLifeRank に渡す。
+  var NIGEKIRE_LIFE_RANKS = [
+    { stage: 1, min: 0,   name: '言い訳見習い' },
+    { stage: 2, min: 30,  name: '生活防衛中' },
+    { stage: 3, min: 70,  name: '火種処理係' },
+    { stage: 4, min: 120, name: 'おはカノ生活継続者' },
+  ];
+
+  // キャラ別称号（キャラ別ポイント判定・4段階・§10.6）。閾値 0/10/25/45pt。
+  //   names[charKey] = [段階1..4名]。logic.js の nigekireCharTitle に渡す。
+  var NIGEKIRE_CHAR_TITLE_TABLE = {
+    thresholds: [0, 10, 25, 45],
+    names: {
+      tsukiko: ['呼び止められ中', '説明準備中',   '予定確認済み', '月曜逃げ切り'],
+      you:     ['勢いで弁明中',   '笑ってごまかし中', '火曜突破中', '火曜逃げ切り'],
+      shizuku: ['そっと確認中',   '迷い回収中',   '静かに通過中', '水曜逃げ切り'],
+      rinka:   ['見られてる',     '言い訳審査中', '別に許してない', '木曜逃げ切り'],
+      runa:    ['追いかけられ中', '全力弁明中',   '勢いで突破中', '金曜逃げ切り'],
+      mahiru:  ['寝たふり中',     '見抜かれ中',   'まだ許され中', '土曜逃げ切り'],
+      hiyori:  ['やさしく確認中', '生活立て直し中', 'そっと通過中', '日曜逃げ切り'],
+    },
+  };
+
+  // 試練ポイント表（火種ランク×通常/一発・§10.2）。[通常, 一発]。回収型は別で +1固定。
+  var NIGEKIRE_POINT_TABLE = {
+    light:  [1, 2],
+    medium: [2, 3],
+    heavy:  [3, 4],
+  };
+
   // ── モード定義（静的データのみ。関数参照は演出 lines のみ許容）──
   //   MODE_DEFS はモードの静的定義だけを持つ（state ではない）。値は全て既存
   //   KITACORE_* 定数・kitacore*Lines 関数を参照し二重定義しない（rankAfter 突き合わせズレ防止）。
@@ -184,6 +266,27 @@
         enter:  kitacoreBossEnterLines,    // ボス登場（boss を受ける）
         down:   kitacoreBossDownLines,     // ボス撃破（boss を受ける）
         awaken: kitacoreAwakenLines,       // 覚醒（awakenBossKey 撃破時）
+      },
+    },
+    // ── ニゲキレモード（フェーズ1配線）──
+    //   boss/rank/覚醒 概念は無い。7人同時進行＋キャラ別ポイント蓄積。
+    //   characters/lifeRanks/charTitleTable/pointTable は上の定数を参照（二重定義しない）。
+    nigekire: {
+      key: 'nigekire',
+      targetCreatorId: NIGEKIRE_ID,        // 'hasyamo'（modeForCreator が逆引き）
+      challengeType: 'excuse_choice',      // 火種確認＋4択言い訳＋キャラ反応
+      quizUrl: 'nigekire_quiz.json',       // fetch 先（note_key → レコード）
+      characters: NIGEKIRE_CHARACTERS,     // 曜日順固定 7人
+      lifeRanks: NIGEKIRE_LIFE_RANKS,      // 生活ランク（総ポイント判定・§10.5）
+      charTitleTable: NIGEKIRE_CHAR_TITLE_TABLE, // キャラ別称号（§10.6）
+      pointTable: NIGEKIRE_POINT_TABLE,    // 試練ポイント表（§10.2）
+      lines: {
+        wake:       nigekireWakeLines,       // §16 初回解放
+        sleep:      nigekireSleepLines,      // モード終了
+        success:    nigekireSuccessLines,    // §17 成功（char を受ける）
+        firstTry:   nigekireFirstTryLines,   // §18 一発成功（char を受ける）
+        failure:    nigekireFailureLines,    // §19 失敗（char を受ける）
+        rankUpdate: nigekireRankUpdateLines, // §20 生活ランク更新（rankName を受ける）
       },
     },
   };
@@ -326,32 +429,43 @@
   // キタコレモードのトグル。ON→E級スタート（修行開始）/ OFF→終了。発動対象のみ反応。
   // ※覚醒(S級)は A級ボス撃破で起きる。ここでは覚醒しない。
   // ON 時、プレイヤー未登録なら ID 入力モーダルを挟む（認証成功で発動）。
+  //   creatorId → modeKey を解決し、そのモードの state・def.lines で発動/終了する。
+  //   キタコレは modeKey='kitacore' に解決され従来と同一経路を通る（挙動不変）。
   function toggleMode(creatorId) {
-    if (!isKitacoreTarget(creatorId)) return;
-    ensureMode('kitacore');
-    if (isModeOn(creatorId)) {
+    var def = L.modeForCreator(MODE_DEFS, creatorId);
+    if (!def) return;
+    var modeKey = def.key;
+    var m = ensureMode(modeKey);
+    if (isModeOnFor(creatorId)) {
       // OFF
-      delete mc().mode[creatorId];
+      delete m.mode[creatorId];
       saveState();
       renderCreatorCards();
-      showSystemMessage(kitacoreSleepLines());
+      linesModeKey = modeKey;
+      showSystemMessage(def.lines.sleep());
+      linesModeKey = null;
       return;
     }
     // ON：プレイヤー未登録なら入力モーダル → 認証成功で activateMode。
-    if (!mc().player || !mc().player.id) {
+    //   プレイヤー認証はモード横断で共有可だが、保存先は当該モードの state.player。
+    if (!m.player || !m.player.id) {
       openPlayerInput(creatorId);
       return;
     }
     activateMode(creatorId);
   }
 
-  // モードを実際にONにして覚醒メッセージを出す（プレイヤー登録済み前提）。
+  // モードを実際にONにして発動メッセージを出す（プレイヤー登録済み前提）。
   function activateMode(creatorId) {
-    ensureMode('kitacore');
-    mc().mode[creatorId] = { at: new Date().toISOString() };
+    var def = L.modeForCreator(MODE_DEFS, creatorId);
+    if (!def) return;
+    var m = ensureMode(def.key);
+    m.mode[creatorId] = { at: new Date().toISOString() };
     saveState();
     renderCreatorCards();
-    showSystemMessage(kitacoreWakeLines());
+    linesModeKey = def.key;
+    showSystemMessage(def.lines.wake());
+    linesModeKey = null;
   }
 
   // プレイヤーID入力モーダル。認証成功で player を保存し activateMode。
@@ -425,8 +539,9 @@
     // 2回目：プレビュー確認済み → 決定
     if (pendingPlayerProfile) {
       var creatorId = pendingModeCreatorId;
-      ensureMode('kitacore');
-      mc().player = {
+      // 保存先は当該モードの state.player（キタコレなら modeStateFor→kitacore state＝mc() と同一）。
+      var m = modeStateFor(creatorId) || ensureMode('kitacore');
+      m.player = {
         id: pendingPlayerProfile.id,
         displayName: pendingPlayerProfile.displayName,
         iconUrl: pendingPlayerProfile.iconUrl,
@@ -605,6 +720,25 @@
         // ロード完了で初めて光ボタンの判定ができる。初回描画はロード前に走るので、
         // ここで現在のルートを描き直して✨ボタンを反映する（レース対策）。
         renderRoute();
+      });
+  }
+
+  // ニゲキレのクイズデータ。起動時に一度だけ読み、メモリに保持する。
+  //   キー = 記事URLのスラッグ(note_key)。値 = レコード（weekday/targetType/fireRank/
+  //   question/choices[]/correctKey/promptLine/successLine/failureLine）。
+  //   ※文言はコードに直書きせず JSON から読む（スキーマは差し替え前提）。フェーズ2で使う。
+  var nigekireQuizzes = null;
+  function loadNigekireQuizzes() {
+    fetch('nigekire_quiz.json?v=' + APP_VERSION)
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        // note_key → レコードのマップ。スキーマ変換はせずそのまま保持（フェーズ1は配線のみ）。
+        nigekireQuizzes = data && data.quizzes && typeof data.quizzes === 'object' ? data.quizzes : {};
+      })
+      .catch(function () {
+        nigekireQuizzes = {}; // 読めなくてもモード発動は動く
       });
   }
 
@@ -852,6 +986,70 @@
       '［ システム ］',
       '『キタコレモード』を終了します。',
       'プレイヤー〈' + playerName() + '〉、また会いましょう。',
+    ];
+  }
+
+  // ── ニゲキレ用システムメッセージ（正史 nigekire-mode-ui-spec.md §16-20 準拠）──
+  //   文言はモード発動等のシステムメッセージ（クイズ文言ではない＝正史記載なので直書き可）。
+  //   playerName() はモード横断で共有（認証プレイヤー）。
+  //   showSystemMessage 側でタップ挙動を持つため「画面をタップ」フッターは付けない（キタコレと揃える）。
+
+  // §16 初回解放（モード発動時）。
+  function nigekireWakeLines() {
+    return [
+      '［ システム ］',
+      'プレイヤー〈' + playerName() + '〉の過去記事に、',
+      '複数の火種を検出しました。',
+      '隠しモード『ニゲキレモード』が解放されました。',
+      '曜日担当による確認を開始します。',
+    ];
+  }
+
+  // モード終了時（キタコレのスリープに対応。§では未指定のため語彙に沿った締め）。
+  function nigekireSleepLines() {
+    return [
+      '［ システム ］',
+      '『ニゲキレモード』を終了します。',
+      'プレイヤー〈' + playerName() + '〉、また確認しましょう。',
+    ];
+  }
+
+  // §17 成功時。char = 担当キャラ { label, name }。
+  function nigekireSuccessLines(char) {
+    return [
+      '［ システム ］',
+      char.label + '担当〈' + char.name + '〉の確認を通過しました。',
+      char.name + 'ポイントを獲得しました。',
+    ];
+  }
+
+  // §18 一発成功時。
+  function nigekireFirstTryLines(char) {
+    return [
+      '［ システム ］',
+      char.label + '担当〈' + char.name + '〉の確認を、',
+      '一度で通過しました。',
+      '一発ニゲキレ記録を更新しました。',
+    ];
+  }
+
+  // §19 失敗時。
+  function nigekireFailureLines(char) {
+    return [
+      '［ システム ］',
+      char.label + '担当〈' + char.name + '〉は、',
+      'その説明では納得しませんでした。',
+      '別の説明を選んでください。',
+    ];
+  }
+
+  // §20 生活ランク更新時。rankName = 到達した生活ランク名。
+  function nigekireRankUpdateLines(rankName) {
+    return [
+      '［ システム ］',
+      '生活ランクが更新されました。',
+      'プレイヤー〈' + playerName() + '〉は、',
+      '『' + rankName + '』に到達しました。',
     ];
   }
 
@@ -3837,6 +4035,7 @@
     checkVersionUpdate();
     registerServiceWorker();
     loadKitacoreQuizzes();
+    loadNigekireQuizzes();
   }
 
   init();

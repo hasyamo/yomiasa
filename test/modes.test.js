@@ -489,3 +489,287 @@ test('canSummonPostBoss: 前が全撃破済みなら出る', () => {
 test('canSummonPostBoss: defeated が配列でなくても落ちない', () => {
   assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, null, null, 'requiem'), 'requiem');
 });
+
+// ============================================================================
+// F群: ニゲキレモード純ロジック（フェーズ1）
+//   確定値: 生活ランク §10.5 / キャラ称号 §10.6 / ポイント §10.2,§10.4
+// ============================================================================
+
+// app.js の MODE_DEFS.nigekire に載る想定のゴールデン定数（曜日順固定）。
+const NIGEKIRE_CHARACTERS = [
+  { key: 'tsukiko', weekday: 'mon', name: '月子' },
+  { key: 'you', weekday: 'tue', name: '陽' },
+  { key: 'shizuku', weekday: 'wed', name: 'しずく' },
+  { key: 'rinka', weekday: 'thu', name: '凛華' },
+  { key: 'runa', weekday: 'fri', name: 'るな' },
+  { key: 'mahiru', weekday: 'sat', name: 'まひる' },
+  { key: 'hiyori', weekday: 'sun', name: '日和' },
+];
+// 生活ランク（総ポイント判定4段階・§10.5）
+const NIGEKIRE_LIFE_RANKS = [
+  { stage: 1, name: '言い訳見習い', min: 0 },
+  { stage: 2, name: '生活防衛中', min: 30 },
+  { stage: 3, name: '火種処理係', min: 70 },
+  { stage: 4, name: 'おはカノ生活継続者', min: 120 },
+];
+// キャラ別称号（キャラ別ポイント判定4段階・§10.6）
+const NIGEKIRE_TITLE_TABLE = {
+  thresholds: [0, 10, 25, 45],
+  names: {
+    tsukiko: ['呼び止められ中', '説明準備中', '予定確認済み', '月曜逃げ切り'],
+    you: ['勢いで弁明中', '笑ってごまかし中', '火曜突破中', '火曜逃げ切り'],
+    shizuku: ['そっと確認中', '迷い回収中', '静かに通過中', '水曜逃げ切り'],
+    rinka: ['見られてる', '言い訳審査中', '別に許してない', '木曜逃げ切り'],
+    runa: ['追いかけられ中', '全力弁明中', '勢いで突破中', '金曜逃げ切り'],
+    mahiru: ['寝たふり中', '見抜かれ中', 'まだ許され中', '土曜逃げ切り'],
+    hiyori: ['やさしく確認中', '生活立て直し中', 'そっと通過中', '日曜逃げ切り'],
+  },
+};
+// ポイント表（火種ランク×通常/一発・§10.2）
+const NIGEKIRE_POINTS = {
+  light: [1, 2],
+  medium: [2, 3],
+  heavy: [3, 4],
+};
+
+// ---- weekdayOf（published_at → JST曜日） ----
+
+test('weekdayOf: 日付文字列からJST曜日を求める（7通り）', () => {
+  // 2025-12-15(月) 起点に7日ぶん。JST の暦日で判定。
+  assert.strictEqual(L.weekdayOf('2025-12-15'), 'mon');
+  assert.strictEqual(L.weekdayOf('2025-12-16'), 'tue');
+  assert.strictEqual(L.weekdayOf('2025-12-17'), 'wed');
+  assert.strictEqual(L.weekdayOf('2025-12-18'), 'thu');
+  assert.strictEqual(L.weekdayOf('2025-12-19'), 'fri');
+  assert.strictEqual(L.weekdayOf('2025-12-20'), 'sat');
+  assert.strictEqual(L.weekdayOf('2025-12-21'), 'sun');
+});
+
+test('weekdayOf: JST境界（UTC前日夜→JST当日）でも曜日がずれない', () => {
+  // 2025-12-14T23:00:00Z は JST では 2025-12-15 08:00（月曜）。
+  assert.strictEqual(L.weekdayOf('2025-12-14T23:00:00Z'), 'mon');
+  // 2025-12-15T00:00:00+09:00（JST月曜0時）も月曜。
+  assert.strictEqual(L.weekdayOf('2025-12-15T00:00:00+09:00'), 'mon');
+});
+
+test('weekdayOf: パース不能は null', () => {
+  assert.strictEqual(L.weekdayOf(''), null);
+  assert.strictEqual(L.weekdayOf(null), null);
+  assert.strictEqual(L.weekdayOf('not-a-date'), null);
+});
+
+// ---- weekdayCharOf（曜日→キャラ7通り） ----
+
+test('weekdayCharOf: 7曜日→担当キャラ', () => {
+  assert.strictEqual(L.weekdayCharOf('mon', NIGEKIRE_CHARACTERS).name, '月子');
+  assert.strictEqual(L.weekdayCharOf('tue', NIGEKIRE_CHARACTERS).name, '陽');
+  assert.strictEqual(L.weekdayCharOf('wed', NIGEKIRE_CHARACTERS).name, 'しずく');
+  assert.strictEqual(L.weekdayCharOf('thu', NIGEKIRE_CHARACTERS).name, '凛華');
+  assert.strictEqual(L.weekdayCharOf('fri', NIGEKIRE_CHARACTERS).name, 'るな');
+  assert.strictEqual(L.weekdayCharOf('sat', NIGEKIRE_CHARACTERS).name, 'まひる');
+  assert.strictEqual(L.weekdayCharOf('sun', NIGEKIRE_CHARACTERS).name, '日和');
+});
+
+test('weekdayCharOf: 該当なし/不正は null', () => {
+  assert.strictEqual(L.weekdayCharOf('xxx', NIGEKIRE_CHARACTERS), null);
+  assert.strictEqual(L.weekdayCharOf('mon', null), null);
+  assert.strictEqual(L.weekdayCharOf(null, NIGEKIRE_CHARACTERS), null);
+});
+
+// ---- nigekireLifeRank（生活ランク境界） ----
+
+test('nigekireLifeRank: 4段階の境界（29/30/69/70/119/120）', () => {
+  assert.strictEqual(L.nigekireLifeRank(0, NIGEKIRE_LIFE_RANKS).name, '言い訳見習い');
+  assert.strictEqual(L.nigekireLifeRank(29, NIGEKIRE_LIFE_RANKS).name, '言い訳見習い');
+  assert.strictEqual(L.nigekireLifeRank(30, NIGEKIRE_LIFE_RANKS).name, '生活防衛中');
+  assert.strictEqual(L.nigekireLifeRank(30, NIGEKIRE_LIFE_RANKS).stage, 2);
+  assert.strictEqual(L.nigekireLifeRank(69, NIGEKIRE_LIFE_RANKS).name, '生活防衛中');
+  assert.strictEqual(L.nigekireLifeRank(70, NIGEKIRE_LIFE_RANKS).name, '火種処理係');
+  assert.strictEqual(L.nigekireLifeRank(119, NIGEKIRE_LIFE_RANKS).name, '火種処理係');
+  assert.strictEqual(L.nigekireLifeRank(120, NIGEKIRE_LIFE_RANKS).name, 'おはカノ生活継続者');
+  assert.strictEqual(L.nigekireLifeRank(120, NIGEKIRE_LIFE_RANKS).stage, 4);
+  assert.strictEqual(L.nigekireLifeRank(9999, NIGEKIRE_LIFE_RANKS).name, 'おはカノ生活継続者');
+});
+
+test('nigekireLifeRank: ranks 空/不正は stage0', () => {
+  assert.deepStrictEqual(L.nigekireLifeRank(100, []), { stage: 0, name: '' });
+  assert.deepStrictEqual(L.nigekireLifeRank(100, null), { stage: 0, name: '' });
+});
+
+// ---- nigekireCharTitle（称号境界 9/10/24/25/44/45） ----
+
+test('nigekireCharTitle: 段階境界（月子で 9/10/24/25/44/45）', () => {
+  const t = (p) => L.nigekireCharTitle({ tsukiko: p }, 'tsukiko', NIGEKIRE_TITLE_TABLE);
+  assert.deepStrictEqual(t(0), { stage: 1, name: '呼び止められ中' });
+  assert.deepStrictEqual(t(9), { stage: 1, name: '呼び止められ中' });
+  assert.deepStrictEqual(t(10), { stage: 2, name: '説明準備中' });
+  assert.deepStrictEqual(t(24), { stage: 2, name: '説明準備中' });
+  assert.deepStrictEqual(t(25), { stage: 3, name: '予定確認済み' });
+  assert.deepStrictEqual(t(44), { stage: 3, name: '予定確認済み' });
+  assert.deepStrictEqual(t(45), { stage: 4, name: '月曜逃げ切り' });
+  assert.deepStrictEqual(t(999), { stage: 4, name: '月曜逃げ切り' });
+});
+
+test('nigekireCharTitle: 7人ぶんの段階4（逃げ切り）名を引ける', () => {
+  const t = (k) => L.nigekireCharTitle({ [k]: 50 }, k, NIGEKIRE_TITLE_TABLE).name;
+  assert.strictEqual(t('tsukiko'), '月曜逃げ切り');
+  assert.strictEqual(t('you'), '火曜逃げ切り');
+  assert.strictEqual(t('shizuku'), '水曜逃げ切り');
+  assert.strictEqual(t('rinka'), '木曜逃げ切り');
+  assert.strictEqual(t('runa'), '金曜逃げ切り');
+  assert.strictEqual(t('mahiru'), '土曜逃げ切り');
+  assert.strictEqual(t('hiyori'), '日曜逃げ切り');
+});
+
+test('nigekireCharTitle: ポイント未登録キャラは段階1', () => {
+  assert.deepStrictEqual(
+    L.nigekireCharTitle({}, 'tsukiko', NIGEKIRE_TITLE_TABLE),
+    { stage: 1, name: '呼び止められ中' }
+  );
+});
+
+// ---- nigekireTopCharacter（同点の曜日順優先・全0） ----
+
+test('nigekireTopCharacter: 最大ポイントのキャラ', () => {
+  const pts = { tsukiko: 3, you: 10, runa: 7 };
+  assert.strictEqual(L.nigekireTopCharacter(pts, NIGEKIRE_CHARACTERS).name, '陽');
+});
+
+test('nigekireTopCharacter: 同点は曜日順で先を採る', () => {
+  // 月子(mon) と 陽(tue) が同点10 → 先（曜日順で早い月子）が残る。
+  const pts = { tsukiko: 10, you: 10 };
+  assert.strictEqual(L.nigekireTopCharacter(pts, NIGEKIRE_CHARACTERS).key, 'tsukiko');
+});
+
+test('nigekireTopCharacter: 全0なら先頭（月子）', () => {
+  assert.strictEqual(L.nigekireTopCharacter({}, NIGEKIRE_CHARACTERS).key, 'tsukiko');
+  assert.strictEqual(L.nigekireTopCharacter(null, NIGEKIRE_CHARACTERS).key, 'tsukiko');
+});
+
+test('nigekireTopCharacter: characters 空/不正は null', () => {
+  assert.strictEqual(L.nigekireTopCharacter({ tsukiko: 5 }, []), null);
+  assert.strictEqual(L.nigekireTopCharacter({ tsukiko: 5 }, null), null);
+});
+
+// ---- nigekireTotalPoints ----
+
+test('nigekireTotalPoints: 全キャラ合算', () => {
+  assert.strictEqual(L.nigekireTotalPoints({ tsukiko: 3, you: 10, runa: 7 }), 20);
+  assert.strictEqual(L.nigekireTotalPoints({}), 0);
+  assert.strictEqual(L.nigekireTotalPoints(null), 0);
+});
+
+// ---- nigekireTrialPoints（ポイント表 light/medium/heavy × 通常/一発） ----
+
+test('nigekireTrialPoints: 火種ランク×通常/一発', () => {
+  assert.strictEqual(L.nigekireTrialPoints('light', false, NIGEKIRE_POINTS), 1);
+  assert.strictEqual(L.nigekireTrialPoints('light', true, NIGEKIRE_POINTS), 2);
+  assert.strictEqual(L.nigekireTrialPoints('medium', false, NIGEKIRE_POINTS), 2);
+  assert.strictEqual(L.nigekireTrialPoints('medium', true, NIGEKIRE_POINTS), 3);
+  assert.strictEqual(L.nigekireTrialPoints('heavy', false, NIGEKIRE_POINTS), 3);
+  assert.strictEqual(L.nigekireTrialPoints('heavy', true, NIGEKIRE_POINTS), 4);
+});
+
+test('nigekireTrialPoints: 未定義ランクは0', () => {
+  assert.strictEqual(L.nigekireTrialPoints('unknown', false, NIGEKIRE_POINTS), 0);
+  assert.strictEqual(L.nigekireTrialPoints('light', false, {}), 0);
+});
+
+// ---- nigekireSuccessOutcome（試練通過） ----
+
+test('nigekireSuccessOutcome: medium一発で+3・成功数と一発数が増える', () => {
+  const out = L.nigekireSuccessOutcome(
+    { tsukiko: 5 }, 3, 1, {},
+    'tsukiko', 'a1', 'medium', true, NIGEKIRE_POINTS, NIGEKIRE_LIFE_RANKS
+  );
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.awardedPoints, 3);
+  assert.strictEqual(out.nextCharPoints.tsukiko, 8); // 5 + 3
+  assert.strictEqual(out.nextTotalSuccess, 4);
+  assert.strictEqual(out.nextFirstTrySuccess, 2);
+  assert.strictEqual(out.nextPassed['a1'], true);
+});
+
+test('nigekireSuccessOutcome: 通常成功は一発数を増やさない', () => {
+  const out = L.nigekireSuccessOutcome(
+    {}, 0, 0, {},
+    'runa', 'a2', 'light', false, NIGEKIRE_POINTS, NIGEKIRE_LIFE_RANKS
+  );
+  assert.strictEqual(out.awardedPoints, 1);
+  assert.strictEqual(out.nextCharPoints.runa, 1);
+  assert.strictEqual(out.nextTotalSuccess, 1);
+  assert.strictEqual(out.nextFirstTrySuccess, 0); // 一発でないので据え置き
+});
+
+test('nigekireSuccessOutcome: passed 済みは ok:false（二重取り防止）', () => {
+  const out = L.nigekireSuccessOutcome(
+    { tsukiko: 5 }, 1, 0, { a1: true },
+    'tsukiko', 'a1', 'heavy', true, NIGEKIRE_POINTS, NIGEKIRE_LIFE_RANKS
+  );
+  assert.deepStrictEqual(out, { ok: false });
+});
+
+test('nigekireSuccessOutcome: rankUpdated — 境界跨ぎ(29→30)でtrue', () => {
+  // 総29pt（tsukiko29）で light通常(+1) → 30到達 → 段階1→2 に上がる。
+  const out = L.nigekireSuccessOutcome(
+    { tsukiko: 29 }, 5, 0, {},
+    'you', 'a3', 'light', false, NIGEKIRE_POINTS, NIGEKIRE_LIFE_RANKS
+  );
+  assert.strictEqual(out.lifeRankBefore.name, '言い訳見習い');
+  assert.strictEqual(out.lifeRankAfter.name, '生活防衛中');
+  assert.strictEqual(out.rankUpdated, true);
+});
+
+test('nigekireSuccessOutcome: rankUpdated — 跨がなければ false', () => {
+  const out = L.nigekireSuccessOutcome(
+    { tsukiko: 10 }, 5, 0, {},
+    'you', 'a3', 'light', false, NIGEKIRE_POINTS, NIGEKIRE_LIFE_RANKS
+  );
+  assert.strictEqual(out.rankUpdated, false);
+  assert.strictEqual(out.lifeRankBefore.name, '言い訳見習い');
+  assert.strictEqual(out.lifeRankAfter.name, '言い訳見習い');
+});
+
+test('nigekireSuccessOutcome: 非破壊（入力を書き換えない）', () => {
+  const charPoints = { tsukiko: 5 };
+  const passed = {};
+  const out = L.nigekireSuccessOutcome(
+    charPoints, 0, 0, passed,
+    'tsukiko', 'a1', 'medium', true, NIGEKIRE_POINTS, NIGEKIRE_LIFE_RANKS
+  );
+  assert.deepStrictEqual(charPoints, { tsukiko: 5 }); // 入力そのまま
+  assert.deepStrictEqual(passed, {});
+  assert.notStrictEqual(out.nextCharPoints, charPoints);
+  assert.notStrictEqual(out.nextPassed, passed);
+});
+
+// ---- nigekireCollectOutcome（回収型 +1pt） ----
+
+test('nigekireCollectOutcome: タップ回収で担当キャラ +1', () => {
+  const out = L.nigekireCollectOutcome({ runa: 4 }, {}, 'runa', 'a1', NIGEKIRE_LIFE_RANKS);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.awardedPoints, 1);
+  assert.strictEqual(out.nextCharPoints.runa, 5);
+  assert.strictEqual(out.nextCollected['a1'], true);
+});
+
+test('nigekireCollectOutcome: collected 済みは ok:false（二重取り防止）', () => {
+  const out = L.nigekireCollectOutcome({ runa: 4 }, { a1: true }, 'runa', 'a1', NIGEKIRE_LIFE_RANKS);
+  assert.deepStrictEqual(out, { ok: false });
+});
+
+test('nigekireCollectOutcome: rankUpdated — 境界跨ぎ(29→30)でtrue', () => {
+  const out = L.nigekireCollectOutcome({ tsukiko: 29 }, {}, 'you', 'a1', NIGEKIRE_LIFE_RANKS);
+  assert.strictEqual(out.rankUpdated, true);
+  assert.strictEqual(out.lifeRankAfter.name, '生活防衛中');
+});
+
+test('nigekireCollectOutcome: 非破壊（入力を書き換えない）', () => {
+  const charPoints = { runa: 4 };
+  const collected = {};
+  const out = L.nigekireCollectOutcome(charPoints, collected, 'runa', 'a1', NIGEKIRE_LIFE_RANKS);
+  assert.deepStrictEqual(charPoints, { runa: 4 });
+  assert.deepStrictEqual(collected, {});
+  assert.notStrictEqual(out.nextCharPoints, charPoints);
+  assert.notStrictEqual(out.nextCollected, collected);
+});
