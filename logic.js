@@ -275,6 +275,84 @@
     return null;
   }
 
+  // ---- E群: 状態遷移（次状態の計算のみ。副作用は app.js 側） ----
+  //   いずれも入力オブジェクトを破壊せず、新オブジェクトを返す（非破壊）。
+
+  // クイズ正解で鍵を1つ獲得（記事ごと1回きり）。
+  //   既に quizCleared[articleId] なら null（no-op）。
+  //   未クリアなら { nextQuizCleared, nextKeys } を返す。
+  //     nextQuizCleared[articleId] = true / nextKeys[creatorId] = (現在値||0)+1。
+  function awardKeyOutcome(quizCleared, keys, creatorId, articleId) {
+    quizCleared = quizCleared && typeof quizCleared === 'object' ? quizCleared : {};
+    keys = keys && typeof keys === 'object' ? keys : {};
+    if (quizCleared[articleId]) return null; // 既に獲得済み → no-op
+    var nextQuizCleared = Object.assign({}, quizCleared);
+    nextQuizCleared[articleId] = true;
+    var cur = typeof keys[creatorId] === 'number' ? keys[creatorId] : 0;
+    var nextKeys = Object.assign({}, keys);
+    nextKeys[creatorId] = cur + 1;
+    return { nextQuizCleared: nextQuizCleared, nextKeys: nextKeys };
+  }
+
+  // ボス挑戦。鍵が足りなければ { ok:false }。
+  //   足りれば鍵を boss.cost 消費し、defeated[creatorId] に boss.key を追加した
+  //   { ok:true, nextKeys, nextDefeated } を返す。
+  function challengeBossOutcome(keys, defeated, creatorId, boss) {
+    keys = keys && typeof keys === 'object' ? keys : {};
+    defeated = defeated && typeof defeated === 'object' ? defeated : {};
+    var cur = typeof keys[creatorId] === 'number' ? keys[creatorId] : 0;
+    if (cur < boss.cost) return { ok: false }; // 鍵不足
+    var nextKeys = Object.assign({}, keys);
+    nextKeys[creatorId] = cur - boss.cost;
+    var curDefeated = Array.isArray(defeated[creatorId]) ? defeated[creatorId] : [];
+    var nextDefeated = Object.assign({}, defeated);
+    nextDefeated[creatorId] = curDefeated.concat([boss.key]);
+    return { ok: true, nextKeys: nextKeys, nextDefeated: nextDefeated };
+  }
+
+  // ワイ回収（＝totalWai 加算）。
+  //   counts[articleId] なし / collected[articleId] あり / wai<=0 なら { ok:false }。
+  //   回収可なら { ok:true, nextTotalWai, nextCollected, summonBossKey } を返す。
+  //     summonBossKey は kitacoreWaiRankOf(ranks, totalWai) と
+  //     kitacoreWaiRankOf(ranks, nextTotalWai) の key が変わり かつ after.bossKey が
+  //     あれば その bossKey、なければ null。
+  function collectWaiOutcome(ranks, postBosses, counts, collected, totalWai, articleId) {
+    counts = counts && typeof counts === 'object' ? counts : {};
+    collected = collected && typeof collected === 'object' ? collected : {};
+    var entry = counts[articleId];
+    if (!entry) return { ok: false }; // 未収集
+    if (collected[articleId]) return { ok: false }; // 二重取り防止
+    if (entry.wai <= 0) return { ok: false }; // ワイ0は回収対象外
+    var before = kitacoreWaiRankOf(ranks, totalWai);
+    var nextTotalWai = totalWai + entry.wai;
+    var nextCollected = Object.assign({}, collected);
+    nextCollected[articleId] = true;
+    var after = kitacoreWaiRankOf(ranks, nextTotalWai);
+    var summonBossKey = after.key !== before.key && after.bossKey ? after.bossKey : null;
+    return {
+      ok: true,
+      nextTotalWai: nextTotalWai,
+      nextCollected: nextCollected,
+      summonBossKey: summonBossKey,
+    };
+  }
+
+  // 覚醒後ボスを挑戦待ちにできるか（順序ガードの核）。
+  //   defeated に bossKey がある → null（撃破済み）。
+  //   currentPending が truthy → null（上書きしない）。
+  //   postBosses での bossKey の index より前のボスが1つでも defeated にない → null（順序未達）。
+  //   全条件クリアなら bossKey を返す。
+  function canSummonPostBoss(postBosses, defeated, currentPending, bossKey) {
+    defeated = Array.isArray(defeated) ? defeated : [];
+    if (defeated.indexOf(bossKey) !== -1) return null; // 撃破済み
+    if (currentPending) return null; // 既に挑戦待ちあり → 上書きしない
+    var idx = postBosses.findIndex(function (b) { return b.key === bossKey; });
+    for (var i = 0; i < idx; i++) {
+      if (defeated.indexOf(postBosses[i].key) === -1) return null; // 順序未達
+    }
+    return bossKey;
+  }
+
   return {
     entryKey: entryKey,
     parseDate: parseDate,
@@ -300,5 +378,10 @@
     quizChoiceOutcome: quizChoiceOutcome,
     migrateModes: migrateModes,
     modeForCreator: modeForCreator,
+    // ---- 状態遷移（次状態の計算） ----
+    awardKeyOutcome: awardKeyOutcome,
+    challengeBossOutcome: challengeBossOutcome,
+    collectWaiOutcome: collectWaiOutcome,
+    canSummonPostBoss: canSummonPostBoss,
   };
 });

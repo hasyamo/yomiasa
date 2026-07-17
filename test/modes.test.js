@@ -334,3 +334,158 @@ test('modeForCreator: null/不正でも落ちない', () => {
   assert.strictEqual(L.modeForCreator({}, 'x'), null);
   assert.strictEqual(L.modeForCreator(undefined, 'x'), null);
 });
+
+// ============================================================================
+// E群: 状態遷移（次状態の計算のみ・非破壊）
+// ============================================================================
+
+const CID = 'ktcrs1107';
+
+test('awardKeyOutcome: 未クリアで鍵+1・quizCleared 立つ', () => {
+  const out = L.awardKeyOutcome({}, {}, CID, 'a1');
+  assert.strictEqual(out.nextQuizCleared['a1'], true);
+  assert.strictEqual(out.nextKeys[CID], 1);
+});
+
+test('awardKeyOutcome: 既存鍵に +1（現在値||0 起点）', () => {
+  const out = L.awardKeyOutcome({}, { [CID]: 2 }, CID, 'a1');
+  assert.strictEqual(out.nextKeys[CID], 3);
+});
+
+test('awardKeyOutcome: クリア済みは null（no-op）', () => {
+  assert.strictEqual(L.awardKeyOutcome({ a1: true }, { [CID]: 5 }, CID, 'a1'), null);
+});
+
+test('awardKeyOutcome: 非破壊（入力を書き換えない）', () => {
+  const quizCleared = {};
+  const keys = { [CID]: 0 };
+  const out = L.awardKeyOutcome(quizCleared, keys, CID, 'a1');
+  assert.deepStrictEqual(quizCleared, {}); // 入力そのまま
+  assert.deepStrictEqual(keys, { [CID]: 0 });
+  assert.notStrictEqual(out.nextQuizCleared, quizCleared); // 新オブジェクト
+  assert.notStrictEqual(out.nextKeys, keys);
+});
+
+test('challengeBossOutcome: 鍵不足で ok:false', () => {
+  const boss = { key: 'reaper', cost: 3 };
+  assert.deepStrictEqual(L.challengeBossOutcome({ [CID]: 2 }, {}, CID, boss), { ok: false });
+});
+
+test('challengeBossOutcome: 足りれば消費・defeated 追加', () => {
+  const boss = { key: 'reaper', cost: 3 };
+  const out = L.challengeBossOutcome({ [CID]: 3 }, {}, CID, boss);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextKeys[CID], 0); // 3 - 3
+  assert.deepStrictEqual(out.nextDefeated[CID], ['reaper']);
+});
+
+test('challengeBossOutcome: 既存 defeated に追加（先勝ちを消さない）', () => {
+  const boss = { key: 'armored', cost: 3 };
+  const out = L.challengeBossOutcome({ [CID]: 5 }, { [CID]: ['reaper'] }, CID, boss);
+  assert.strictEqual(out.nextKeys[CID], 2); // 5 - 3
+  assert.deepStrictEqual(out.nextDefeated[CID], ['reaper', 'armored']);
+});
+
+test('challengeBossOutcome: 鍵ちょうど（cost と同数）は挑戦可', () => {
+  const boss = { key: 'reaper', cost: 3 };
+  const out = L.challengeBossOutcome({ [CID]: 3 }, {}, CID, boss);
+  assert.strictEqual(out.ok, true); // cur === cost は < でないので挑戦可
+  assert.strictEqual(out.nextKeys[CID], 0);
+});
+
+test('challengeBossOutcome: 非破壊（入力を書き換えない）', () => {
+  const boss = { key: 'reaper', cost: 3 };
+  const keys = { [CID]: 3 };
+  const defeated = { [CID]: [] };
+  const out = L.challengeBossOutcome(keys, defeated, CID, boss);
+  assert.deepStrictEqual(keys, { [CID]: 3 });
+  assert.deepStrictEqual(defeated, { [CID]: [] });
+  assert.notStrictEqual(out.nextKeys, keys);
+  assert.notStrictEqual(out.nextDefeated[CID], defeated[CID]);
+});
+
+test('collectWaiOutcome: counts 無しは ok:false', () => {
+  const r = L.collectWaiOutcome(RANKS, POST_BOSSES, {}, {}, 0, 'a1');
+  assert.deepStrictEqual(r, { ok: false });
+});
+
+test('collectWaiOutcome: collected 済みは ok:false', () => {
+  const r = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 10 } }, { a1: true }, 0, 'a1');
+  assert.deepStrictEqual(r, { ok: false });
+});
+
+test('collectWaiOutcome: wai<=0 は ok:false', () => {
+  const r = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 0 } }, {}, 0, 'a1');
+  assert.deepStrictEqual(r, { ok: false });
+});
+
+test('collectWaiOutcome: 回収可で totalWai 加算・collected 立つ', () => {
+  const out = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 50 } }, {}, 100, 'a1');
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextTotalWai, 150);
+  assert.strictEqual(out.nextCollected['a1'], true);
+  assert.strictEqual(out.summonBossKey, null); // 閾値跨がず
+});
+
+test('collectWaiOutcome: 閾値跨ぎ(599→600)でのみ summonBossKey', () => {
+  const out = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 1 } }, {}, 599, 'a1');
+  assert.strictEqual(out.nextTotalWai, 600);
+  assert.strictEqual(out.summonBossKey, 'requiem'); // 国家級ボス
+});
+
+test('collectWaiOutcome: 閾値を跨がなければ summonBossKey は null', () => {
+  const out = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 1 } }, {}, 597, 'a1');
+  assert.strictEqual(out.nextTotalWai, 598);
+  assert.strictEqual(out.summonBossKey, null);
+});
+
+test('collectWaiOutcome: 閾値通過後の同一ランク内(600→601)は再出現しない', () => {
+  const out = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 1 } }, {}, 600, 'a1');
+  assert.strictEqual(out.nextTotalWai, 601);
+  assert.strictEqual(out.summonBossKey, null); // 既に国家級圏内、跨がないので再召喚なし
+});
+
+test('collectWaiOutcome: 1200 跨ぎで cael、2000 跨ぎで ashen', () => {
+  const a = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 1 } }, {}, 1199, 'a1');
+  assert.strictEqual(a.summonBossKey, 'cael');
+  const b = L.collectWaiOutcome(RANKS, POST_BOSSES, { a1: { wai: 1 } }, {}, 1999, 'a1');
+  assert.strictEqual(b.summonBossKey, 'ashen');
+});
+
+test('collectWaiOutcome: 非破壊（入力を書き換えない）', () => {
+  const counts = { a1: { wai: 50 } };
+  const collected = {};
+  L.collectWaiOutcome(RANKS, POST_BOSSES, counts, collected, 100, 'a1');
+  assert.deepStrictEqual(collected, {}); // 入力そのまま
+  assert.deepStrictEqual(counts, { a1: { wai: 50 } });
+});
+
+test('canSummonPostBoss: 撃破済みは出さない（null）', () => {
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, ['requiem'], null, 'requiem'), null);
+});
+
+test('canSummonPostBoss: pending 中は上書きしない（null）', () => {
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, [], 'requiem', 'cael'), null);
+});
+
+test('canSummonPostBoss: 順序ガード — 中間ボス未撃破なら ashen は出ない', () => {
+  // 2000ワイ相当でも requiem/cael 未撃破なら ashen(index2) は出せない
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, [], null, 'ashen'), null);
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, ['requiem'], null, 'ashen'), null);
+});
+
+test('canSummonPostBoss: 先頭ボス(requiem)は前提なしで出る', () => {
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, [], null, 'requiem'), 'requiem');
+});
+
+test('canSummonPostBoss: 前が全撃破済みなら出る', () => {
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, ['requiem'], null, 'cael'), 'cael');
+  assert.strictEqual(
+    L.canSummonPostBoss(POST_BOSSES, ['requiem', 'cael'], null, 'ashen'),
+    'ashen'
+  );
+});
+
+test('canSummonPostBoss: defeated が配列でなくても落ちない', () => {
+  assert.strictEqual(L.canSummonPostBoss(POST_BOSSES, null, null, 'requiem'), 'requiem');
+});

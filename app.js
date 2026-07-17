@@ -226,13 +226,11 @@
   // 戻り値: 挑戦できたら true。鍵不足なら false。
   function challengeBoss(creatorId, boss) {
     ensureMode('kitacore');
-    if (keysOf(creatorId) < boss.cost) return false;
-    // 挑戦ボタンで確定：鍵を消費し撃破を記録（演出は結果の見せ方）。
-    mc().keys[creatorId] = keysOf(creatorId) - boss.cost;
-    if (!Array.isArray(mc().defeatedBosses[creatorId])) {
-      mc().defeatedBosses[creatorId] = [];
-    }
-    mc().defeatedBosses[creatorId].push(boss.key);
+    // 判定＋次状態の計算は純関数（logic.js）。副作用はここに残す。
+    var out = L.challengeBossOutcome(mc().keys, mc().defeatedBosses, creatorId, boss);
+    if (!out.ok) return false; // 鍵不足
+    mc().keys = out.nextKeys;
+    mc().defeatedBosses = out.nextDefeated;
     saveState();
     startBossBattle(boss, creatorId);
     return true;
@@ -626,9 +624,11 @@
   function awardKey(creatorId, articleId) {
     ensureMode('kitacore');
     if (!mc().quizCleared) mc().quizCleared = {};
-    if (mc().quizCleared[articleId]) return; // 既に獲得済み
-    mc().quizCleared[articleId] = true;
-    mc().keys[creatorId] = keysOf(creatorId) + 1;
+    // 判定＋次状態の計算は純関数（logic.js）。no-op なら何もしない。
+    var out = L.awardKeyOutcome(mc().quizCleared, mc().keys, creatorId, articleId);
+    if (!out) return; // 既に獲得済み
+    mc().quizCleared = out.nextQuizCleared;
+    mc().keys = out.nextKeys;
     saveState();
   }
 
@@ -1404,18 +1404,17 @@
   // 収集済み・未回収・ワイ>0 のときだけ totalWai に加算し collected を立てる。
   function collectWai(articleId) {
     ensureMode('kitacore');
-    var entry = mc().counts[articleId];
-    if (!entry) return; // 未収集
-    if (isCollected(articleId)) return; // 二重取り防止
-    if (entry.wai <= 0) return; // ワイ0は回収対象外（チップ非活性）
-    var waiRankBefore = kitacoreWaiRankOf(mc().totalWai);
-    mc().totalWai += entry.wai;
-    mc().collected[articleId] = true;
+    // 判定＋加算後 totalWai＋出現すべきボス key の計算は純関数（logic.js）。
+    var out = L.collectWaiOutcome(
+      KITACORE_RANKS, KITACORE_POST_BOSSES, mc().counts, mc().collected, mc().totalWai, articleId
+    );
+    if (!out.ok) return; // 未収集 / 二重取り / ワイ0
+    mc().totalWai = out.nextTotalWai;
+    mc().collected = out.nextCollected;
     saveState();
     // ワイ閾値を超えたら覚醒後ボスを出現させる（ランク表示はボス撃破まで据え置き）
-    var waiRankAfter = kitacoreWaiRankOf(mc().totalWai);
-    if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
-      var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
+    if (out.summonBossKey) {
+      var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === out.summonBossKey; });
       if (boss) showPostBoss(boss);
     }
   }
@@ -1424,17 +1423,12 @@
   function showPostBoss(boss) {
     ensureMode('kitacore');
     if (!mc().pendingPostBoss) mc().pendingPostBoss = {};
-    var defeated = defeatedBossesOf(KITACORE_ID);
-    // 撃破済みなら無視
-    if (defeated.indexOf(boss.key) !== -1) return;
-    // 既に挑戦待ちボスがいる場合は上書きしない
-    if (mc().pendingPostBoss[KITACORE_ID]) return;
-    // このボスより前の覚醒後ボスが全員撃破済みでなければ出現しない
-    var idx = KITACORE_POST_BOSSES.findIndex(function (b) { return b.key === boss.key; });
-    for (var i = 0; i < idx; i++) {
-      if (defeated.indexOf(KITACORE_POST_BOSSES[i].key) === -1) return;
-    }
-    mc().pendingPostBoss[KITACORE_ID] = boss.key;
+    // 順序ガードの判定は純関数（logic.js）。null なら出さない。
+    var summon = L.canSummonPostBoss(
+      KITACORE_POST_BOSSES, defeatedBossesOf(KITACORE_ID), mc().pendingPostBoss[KITACORE_ID], boss.key
+    );
+    if (summon == null) return;
+    mc().pendingPostBoss[KITACORE_ID] = summon;
     saveState();
     renderKitacoreHeader();
   }
