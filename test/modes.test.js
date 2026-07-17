@@ -773,3 +773,185 @@ test('nigekireCollectOutcome: 非破壊（入力を書き換えない）', () =>
   assert.notStrictEqual(out.nextCharPoints, charPoints);
   assert.notStrictEqual(out.nextCollected, collected);
 });
+
+// ============================================================================
+// G群: クリエイター削除時のモード掃除（純関数・非破壊）
+//   app.js deleteCreator の副作用ロジックを切り出したゴールデン。挙動を1バイトも変えない。
+//   本質: モードは creator に「横断」で紐づく。キタコレ本体(KITACORE_ID)だけ player リセット、
+//   ニゲキレ本体(NIGEKIRE_ID)だけ丸ごとリセット。取り違え（キタコレ固定 vs 横断）を守る。
+// ============================================================================
+
+const KITACORE_ID = 'ktcrs1107';
+const NIGEKIRE_ID = 'hasyamo';
+
+// app.js の MODE_DEFS と同一（ゴールデン基準）。逆引き対象クリエイター。
+const MODE_DEFS_REAL = {
+  kitacore: { key: 'kitacore', targetCreatorId: KITACORE_ID },
+  nigekire: { key: 'nigekire', targetCreatorId: NIGEKIRE_ID },
+};
+
+// ---- cleanupKitacoreOnDelete ----
+
+// ensureMode('kitacore') 後の物理保存先を模した完全形（各マップ既定つき）。
+function freshKitacore(overrides) {
+  return Object.assign(
+    {
+      mode: {},
+      counts: {},
+      collected: {},
+      totalWai: 0,
+      keys: {},
+      defeatedBosses: {},
+      quizCleared: {},
+      player: null,
+      quizTaps: 0,
+      pendingPostBoss: {},
+    },
+    overrides || {}
+  );
+}
+
+test('cleanupKitacoreOnDelete: 回収済み記事削除で totalWai が正しく差し引かれる（複数記事）', () => {
+  const s = freshKitacore({
+    totalWai: 100,
+    counts: { a1: { wai: 30 }, a2: { wai: 20 }, a3: { wai: 5 } },
+    collected: { a1: true, a2: true }, // a3 は未回収なので totalWai には効かない
+  });
+  const out = L.cleanupKitacoreOnDelete(s, KITACORE_ID, ['a1', 'a2', 'a3'], true);
+  assert.strictEqual(out.totalWai, 50); // 100 - 30 - 20（a3 は未回収）
+});
+
+test('cleanupKitacoreOnDelete: totalWai の下限は Math.max(0,...)（マイナスにならない）', () => {
+  const s = freshKitacore({
+    totalWai: 10,
+    counts: { a1: { wai: 30 } },
+    collected: { a1: true },
+  });
+  const out = L.cleanupKitacoreOnDelete(s, KITACORE_ID, ['a1'], true);
+  assert.strictEqual(out.totalWai, 0); // 10 - 30 = -20 → 0 で下限
+});
+
+test('cleanupKitacoreOnDelete: counts/collected/quizCleared/mode/keys/defeatedBosses が該当id分だけ消える', () => {
+  const s = freshKitacore({
+    totalWai: 100,
+    counts: { a1: { wai: 10 }, keep: { wai: 99 } },
+    collected: { a1: true, keep: true },
+    quizCleared: { a1: true, keep: true },
+    mode: { [KITACORE_ID]: 'x', other: 'y' },
+    keys: { [KITACORE_ID]: 3, other: 5 },
+    defeatedBosses: { [KITACORE_ID]: ['reaper'], other: ['wing'] },
+    pendingPostBoss: { [KITACORE_ID]: 'requiem', other: 'cael' },
+  });
+  const out = L.cleanupKitacoreOnDelete(s, KITACORE_ID, ['a1'], true);
+  // 記事単位（a1）は消え、無関係(keep)は残る。
+  assert.deepStrictEqual(out.counts, { keep: { wai: 99 } });
+  assert.deepStrictEqual(out.collected, { keep: true });
+  assert.deepStrictEqual(out.quizCleared, { keep: true });
+  // creator単位（KITACORE_ID）は消え、無関係(other)は残る。
+  assert.deepStrictEqual(out.mode, { other: 'y' });
+  assert.deepStrictEqual(out.keys, { other: 5 });
+  assert.deepStrictEqual(out.defeatedBosses, { other: ['wing'] });
+  assert.deepStrictEqual(out.pendingPostBoss, { other: 'cael' });
+});
+
+test('cleanupKitacoreOnDelete: isTargetCreator=true で player=null / quizTaps=0', () => {
+  const s = freshKitacore({ player: { id: 'me' }, quizTaps: 7 });
+  const out = L.cleanupKitacoreOnDelete(s, KITACORE_ID, [], true);
+  assert.strictEqual(out.player, null);
+  assert.strictEqual(out.quizTaps, 0);
+});
+
+test('cleanupKitacoreOnDelete: isTargetCreator=false は player/quizTaps を保持', () => {
+  const s = freshKitacore({ player: { id: 'me' }, quizTaps: 7 });
+  const out = L.cleanupKitacoreOnDelete(s, 'someOther', [], false);
+  assert.deepStrictEqual(out.player, { id: 'me' });
+  assert.strictEqual(out.quizTaps, 7);
+});
+
+test('cleanupKitacoreOnDelete: articleIds に falsy（idなし記事）が混ざっても落ちない', () => {
+  const s = freshKitacore({
+    totalWai: 10,
+    counts: { a1: { wai: 5 } },
+    collected: { a1: true },
+  });
+  const out = L.cleanupKitacoreOnDelete(s, KITACORE_ID, [null, undefined, '', 'a1'], true);
+  assert.strictEqual(out.totalWai, 5);
+  assert.deepStrictEqual(out.collected, {});
+});
+
+test('cleanupKitacoreOnDelete: 非破壊（入力 state を書き換えない）', () => {
+  const s = freshKitacore({
+    totalWai: 100,
+    counts: { a1: { wai: 30 } },
+    collected: { a1: true },
+    quizCleared: { a1: true },
+    mode: { [KITACORE_ID]: 'x' },
+    keys: { [KITACORE_ID]: 3 },
+    defeatedBosses: { [KITACORE_ID]: ['reaper'] },
+    pendingPostBoss: { [KITACORE_ID]: 'requiem' },
+    player: { id: 'me' },
+    quizTaps: 7,
+  });
+  const before = JSON.stringify(s);
+  const out = L.cleanupKitacoreOnDelete(s, KITACORE_ID, ['a1'], true);
+  assert.strictEqual(JSON.stringify(s), before); // 入力そのまま
+  assert.notStrictEqual(out, s); // 新オブジェクト
+  assert.notStrictEqual(out.counts, s.counts);
+  assert.notStrictEqual(out.collected, s.collected);
+});
+
+// ---- cleanupNigekireOnDelete ----
+
+function freshNigekire(overrides) {
+  return Object.assign(
+    {
+      mode: { a1: true },
+      charPoints: { tsukiko: 30, runa: 5 },
+      passed: { a1: true },
+      collected: { a2: true },
+      totalSuccess: 9,
+      firstTrySuccess: 4,
+      player: { id: 'me' },
+    },
+    overrides || {}
+  );
+}
+
+test('cleanupNigekireOnDelete: isTargetCreator=true で全 state がリセット', () => {
+  const out = L.cleanupNigekireOnDelete(freshNigekire(), true);
+  assert.deepStrictEqual(out.mode, {});
+  assert.deepStrictEqual(out.charPoints, {});
+  assert.deepStrictEqual(out.passed, {});
+  assert.deepStrictEqual(out.collected, {});
+  assert.strictEqual(out.totalSuccess, 0);
+  assert.strictEqual(out.firstTrySuccess, 0);
+  assert.strictEqual(out.player, null);
+});
+
+test('cleanupNigekireOnDelete: isTargetCreator=false は変更なし（将来の防御）', () => {
+  const s = freshNigekire();
+  const out = L.cleanupNigekireOnDelete(s, false);
+  assert.deepStrictEqual(out.mode, { a1: true });
+  assert.deepStrictEqual(out.charPoints, { tsukiko: 30, runa: 5 });
+  assert.deepStrictEqual(out.passed, { a1: true });
+  assert.strictEqual(out.totalSuccess, 9);
+  assert.strictEqual(out.firstTrySuccess, 4);
+  assert.deepStrictEqual(out.player, { id: 'me' });
+});
+
+test('cleanupNigekireOnDelete: 非破壊（入力 state を書き換えない）', () => {
+  const s = freshNigekire();
+  const before = JSON.stringify(s);
+  const out = L.cleanupNigekireOnDelete(s, true);
+  assert.strictEqual(JSON.stringify(s), before); // 入力そのまま
+  assert.notStrictEqual(out, s); // 新オブジェクト
+});
+
+// ---- 今回のバグの本質を守る: modeForCreator（横断の逆引き）を実 MODE_DEFS で ----
+
+test('modeForCreator[本質]: hasyamo は nigekire、ktcrs1107 は kitacore、無関係は null', () => {
+  // 「キタコレ固定 vs モード横断の取り違え」の核。creator→mode は横断で決まる。
+  assert.strictEqual(L.modeForCreator(MODE_DEFS_REAL, NIGEKIRE_ID).key, 'nigekire');
+  assert.strictEqual(L.modeForCreator(MODE_DEFS_REAL, KITACORE_ID).key, 'kitacore');
+  assert.strictEqual(L.modeForCreator(MODE_DEFS_REAL, 'unrelated'), null);
+});

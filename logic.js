@@ -534,6 +534,75 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // クリエイター削除時のモード state 掃除（純関数・非破壊）
+  //   app.js deleteCreator の副作用ロジックを切り出したもの。挙動を1バイトも変えない。
+  // ---------------------------------------------------------------------------
+
+  // キタコレ計測の掃除。creatorId 配下の記事（articleIds）ぶんの計測を落とし、
+  //   回収済みの累計 totalWai もそのぶん差し引く（Math.max(0,...) 下限あり）。
+  //   isTargetCreator（=creatorId が KITACORE_ID 本体）なら player/quizTaps もリセット。
+  //   入力 kitacoreState は書き換えず、掃除後の新オブジェクトを返す。
+  function cleanupKitacoreOnDelete(kitacoreState, creatorId, articleIds, isTargetCreator) {
+    var s = kitacoreState && typeof kitacoreState === 'object' ? kitacoreState : {};
+    var next = Object.assign({}, s);
+    // 触る各マップは浅くコピーしてから delete（入力を書き換えない）。
+    next.counts = Object.assign({}, s.counts);
+    next.collected = Object.assign({}, s.collected);
+    next.quizCleared = Object.assign({}, s.quizCleared);
+    next.mode = Object.assign({}, s.mode);
+    next.keys = Object.assign({}, s.keys);
+    next.defeatedBosses = Object.assign({}, s.defeatedBosses);
+    var totalWai = typeof s.totalWai === 'number' ? s.totalWai : 0;
+
+    var ids = Array.isArray(articleIds) ? articleIds : [];
+    ids.forEach(function (aid) {
+      if (!aid) return;
+      if (next.collected[aid]) {
+        var entry = next.counts[aid];
+        if (entry && typeof entry.wai === 'number') {
+          totalWai = Math.max(0, totalWai - entry.wai);
+        }
+        delete next.collected[aid];
+      }
+      delete next.counts[aid];
+      delete next.quizCleared[aid];
+    });
+    next.totalWai = totalWai;
+
+    delete next.mode[creatorId];
+    delete next.keys[creatorId];
+    delete next.defeatedBosses[creatorId];
+    if (s.pendingPostBoss) {
+      next.pendingPostBoss = Object.assign({}, s.pendingPostBoss);
+      delete next.pendingPostBoss[creatorId];
+    }
+    // KITAcoreクリエーター本体を削除した場合はプレイヤー情報もリセット。
+    if (isTargetCreator) {
+      next.player = null;
+      next.quizTaps = 0;
+    }
+    return next;
+  }
+
+  // ニゲキレ state の掃除。isTargetCreator（=creatorId が NIGEKIRE_ID 本体=唯一の対象）なら、
+  //   ポイント逆算が煩雑なため進行を丸ごとリセット（亡霊 state を残さない）。
+  //   対象でなければ変更なし（＝入力と同値の新オブジェクトを返す）。非破壊。
+  function cleanupNigekireOnDelete(nigekireState, isTargetCreator) {
+    var s = nigekireState && typeof nigekireState === 'object' ? nigekireState : {};
+    var next = Object.assign({}, s);
+    if (isTargetCreator) {
+      next.mode = {};
+      next.charPoints = {};
+      next.passed = {};
+      next.collected = {};
+      next.totalSuccess = 0;
+      next.firstTrySuccess = 0;
+      next.player = null;
+    }
+    return next;
+  }
+
   return {
     entryKey: entryKey,
     parseDate: parseDate,
@@ -574,5 +643,8 @@
     nigekireTrialPoints: nigekireTrialPoints,
     nigekireSuccessOutcome: nigekireSuccessOutcome,
     nigekireCollectOutcome: nigekireCollectOutcome,
+    // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
+    cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
+    cleanupNigekireOnDelete: cleanupNigekireOnDelete,
   };
 });

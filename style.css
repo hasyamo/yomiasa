@@ -2230,3 +2230,216 @@ select.field {
   font-weight: 700;
   color: rgba(186, 230, 253, 0.3);
 }
+
+/* =========================================================================
+   ニゲキレモード（.nigekire-*）。キタコレのクラスを壊さない独立命名。
+   ヘッダー（水平バー・記事チップ）はページ本体＝テーマ変数を使う。
+   詳細カードは共有の暗いランクカード窓の中＝明色テキスト固定。
+   ========================================================================= */
+
+/* ── 上部ヘッダー：生活ランク／現在トップ ── */
+.nigekire-life-rank {
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.nigekire-top-char {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ── 上部ヘッダー：7人水平バー（曜日順・キャラカラー・タップ不可） ── */
+.nigekire-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.nigekire-bar-row {
+  display: flex;
+  align-items: center;
+}
+.nigekire-bar-track {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.nigekire-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  min-width: 0;
+  transition: width 0.2s ease-out;
+  background: var(--ink-subtle); /* color 未指定キャラのフォールバック（通常は inline color） */
+}
+
+/* ── 記事カードチップ（回収／試練）。ワイチップ・光ボタンと同じ丸ピル基調 ── */
+.nigekire-chip,
+.nigekire-trial {
+  appearance: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.nigekire-chip:hover,
+.nigekire-chip:active,
+.nigekire-trial:hover,
+.nigekire-trial:active {
+  background: var(--surface-alt);
+}
+/* 試練は「確認に挑む」導線＝ほんのり強調（キタコレの✨光とは別トーン） */
+.nigekire-trial {
+  background: var(--surface-alt);
+}
+/* 通過済み／回収済み＝非活性の地味表示 */
+.nigekire-chip.is-done,
+.nigekire-trial.is-done {
+  cursor: default;
+  opacity: 0.65;
+  color: var(--ink-subtle);
+  background: var(--surface-alt);
+}
+
+/* ── 詳細カード（7人カルーセル）。共有の暗いランクカード窓内＝明色固定 ── */
+.nigekire-card-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+}
+.nigekire-card-rank {
+  color: #e0f2fe;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.nigekire-carousel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nigekire-carousel-nav {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(2, 6, 23, 0.6);
+  color: #e0f2fe;
+  font-size: 20px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, border-color 0.12s;
+}
+.nigekire-carousel-nav:hover,
+.nigekire-carousel-nav:active {
+  background: rgba(56, 189, 248, 0.18);
+}
+.nigekire-carousel-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nigekire-char-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: rgba(2, 6, 23, 0.5);
+}
+.nigekire-char-thumb {
+  width: 96px;
+  aspect-ratio: 600 / 1067;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.8);
+}
+.nigekire-char-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nigekire-char-thumb-fallback {
+  position: relative;
+  z-index: 1;
+  font-size: 34px;
+  font-weight: 700;
+  color: rgba(186, 230, 253, 0.6);
+}
+.nigekire-char-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e0f2fe;
+}
+.nigekire-char-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(186, 230, 253, 0.85);
+}
+.nigekire-char-stats {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+.nigekire-char-points {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e0f2fe;
+  font-variant-numeric: tabular-nums;
+}
+.nigekire-char-stage {
+  font-size: 12px;
+  color: rgba(186, 230, 253, 0.6);
+  letter-spacing: 0.04em;
+}
+
+.nigekire-carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.nigekire-carousel-dot {
+  appearance: none;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  background: transparent;
+  cursor: pointer;
+}
+.nigekire-carousel-dot.is-active {
+  background: #38bdf8; /* アクティブ時は inline のキャラカラーで上書きされる */
+  border-color: transparent;
+}
