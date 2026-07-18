@@ -534,6 +534,172 @@
     };
   }
 
+  // ===========================================================================
+  // ニゲキレ v2 純ロジック（一言チップ収集・1本ゲージ・生活カード）
+  //   参照: nigekire-quiz-and-points-spec.md §10.4 ランク5段階 / §10.5 称号閾値 /
+  //         §10.7 ホワイトリスト / nigekire-mode-ui-spec.md §5,§6,§10
+  //   v1（nigekireLifeRank 等・ポイント制）は非破壊で残し、v2 を別名で新規追加。
+  // ===========================================================================
+
+  // 生活ランク v2（総収集数の5段階判定・§10.4）。
+  //   ranks = [{ stage, min, name, key }, ...]（min 昇順・0/30/70/120/200）。
+  //   totalCollected 以下で最大 min の段階を返す。空/不正は { stage:0, name:'', key:'' }。
+  function nigekireLifeRankV2(totalCollected, ranks) {
+    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '', key: '' };
+    var t = typeof totalCollected === 'number' ? totalCollected : 0;
+    var cur = ranks[0];
+    for (var i = 0; i < ranks.length; i++) {
+      if (t >= ranks[i].min) cur = ranks[i];
+    }
+    return { stage: cur.stage, name: cur.name, key: cur.key };
+  }
+
+  // 1本ゲージの進行率＋オーバー値表示（§5,§6）。
+  //   cur = totalCollected。現ランクの min = curMin、次ランクの min = nextMin。
+  //   pct = 最終ランクなら 100、それ以外 (cur-curMin)/(nextMin-curMin)*100（0-100クランプ）。
+  //   over = cur > 200（上限200超）。display = cur + ' / 200'（実数/200）。
+  //   ranks 空/不正なら全ゼロ・display '0 / 200'。
+  function nigekireGaugeProgress(totalCollected, ranks) {
+    var cur = typeof totalCollected === 'number' ? totalCollected : 0;
+    if (!Array.isArray(ranks) || ranks.length === 0) {
+      return { cur: cur, curMin: 0, nextMin: 0, pct: 0, over: cur > 200, display: cur + ' / 200' };
+    }
+    // 現ランク（cur 以下で最大 min）と、その次ランクを求める。
+    var curIdx = 0;
+    for (var i = 0; i < ranks.length; i++) {
+      if (cur >= ranks[i].min) curIdx = i;
+    }
+    var curMin = typeof ranks[curIdx].min === 'number' ? ranks[curIdx].min : 0;
+    var isLast = curIdx >= ranks.length - 1;
+    var nextMin = isLast ? curMin : (typeof ranks[curIdx + 1].min === 'number' ? ranks[curIdx + 1].min : curMin);
+    var pct;
+    if (isLast) {
+      pct = 100;
+    } else {
+      var span = nextMin - curMin;
+      pct = span > 0 ? ((cur - curMin) / span) * 100 : 0;
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+    }
+    return {
+      cur: cur,
+      curMin: curMin,
+      nextMin: nextMin,
+      pct: pct,
+      over: cur > 200,
+      display: cur + ' / 200',
+    };
+  }
+
+  // 総収集数（7人のキャラ別収集数を合算）。非オブジェクトは 0。
+  function nigekireTotalCollected(charCounts) {
+    if (!charCounts || typeof charCounts !== 'object') return 0;
+    return Object.keys(charCounts).reduce(function (sum, k) {
+      var v = charCounts[k];
+      return sum + (typeof v === 'number' ? v : 0);
+    }, 0);
+  }
+
+  // 最推し（最多収集キャラ）。同数は characters の並び（曜日順）で先を採る。
+  //   characters = [{ key, ... }, ...]。全0はキャラが1人でも最多が0＝先頭が残るが、
+  //   「全0は null」仕様のため、最多収集数が0なら null を返す。characters 空/不正も null。
+  function nigekireTopChar(charCounts, characters) {
+    if (!Array.isArray(characters) || characters.length === 0) return null;
+    var cc = charCounts && typeof charCounts === 'object' ? charCounts : {};
+    var top = characters[0];
+    var topCnt = typeof cc[top.key] === 'number' ? cc[top.key] : 0;
+    for (var i = 1; i < characters.length; i++) {
+      var c = characters[i];
+      var n = typeof cc[c.key] === 'number' ? cc[c.key] : 0;
+      // 厳密に大きいときだけ更新 → 同数は先（曜日順で早い方）が残る。
+      if (n > topCnt) {
+        top = c;
+        topCnt = n;
+      }
+    }
+    if (topCnt <= 0) return null; // 全0はトップなし
+    return top;
+  }
+
+  // 本文HTMLから一言キャラを抽出（§10.7 ホワイトリスト照合・純関数）。
+  //   <h2>◯◯の一言</h2> 形式の最初の見出しの ◯◯ を取り、nameToKey で照合。
+  //   nameToKey = { '月子':'tsukiko', ... }（7人ホワイトリスト）。
+  //   完全一致すれば charKey を返す。一致しない（例「KITAさん」）/見出しなし/非文字列は null。
+  function detectHitokotoChar(bodyHtml, nameToKey) {
+    if (typeof bodyHtml !== 'string') return null;
+    var m = bodyHtml.match(/<h2[^>]*>([^<]*?)の一言<\/h2>/);
+    if (!m) return null;
+    var name = m[1];
+    var map = nameToKey && typeof nameToKey === 'object' ? nameToKey : {};
+    // ホワイトリストに完全一致するときだけ charKey を返す。
+    if (Object.prototype.hasOwnProperty.call(map, name) && map[name]) {
+      return map[name];
+    }
+    return null;
+  }
+
+  // 一言チップのタップ回収 v2（収集数 +1・§10・非破壊）。
+  //   counts[articleId].char が無い → { ok:false }（未取得）。
+  //   collected[articleId] あり → { ok:false }（二重取り防止）。
+  //   回収可: charKey = counts[articleId].char、nextCharCounts[charKey] +1、
+  //           nextCollected[articleId] = true の次状態を返す（非破壊）。
+  function nigekireCollectV2(counts, collected, charCounts, articleId) {
+    counts = counts && typeof counts === 'object' ? counts : {};
+    collected = collected && typeof collected === 'object' ? collected : {};
+    var entry = counts[articleId];
+    if (!entry || !entry.char) return { ok: false }; // 未取得（一言キャラ未判定）
+    if (collected[articleId]) return { ok: false }; // 二重取り防止
+    var charKey = entry.char;
+    var cc = charCounts && typeof charCounts === 'object' ? charCounts : {};
+
+    var nextCharCounts = Object.assign({}, cc);
+    var cur = typeof nextCharCounts[charKey] === 'number' ? nextCharCounts[charKey] : 0;
+    nextCharCounts[charKey] = cur + 1;
+
+    var nextCollected = Object.assign({}, collected);
+    nextCollected[articleId] = true;
+
+    return {
+      ok: true,
+      nextCollected: nextCollected,
+      nextCharCounts: nextCharCounts,
+      charKey: charKey,
+    };
+  }
+
+  // 試練通過 v2（逃げ切り・§10・非破壊）。ポイントは無い（収集数と別軸）。
+  //   passed[articleId] あり → { ok:false }（二重）。
+  //   通過: nextPassed[articleId]=true、nextTotalSuccess +1、
+  //         isFirstTry なら nextFirstTrySuccess +1 の次状態を返す（非破壊）。
+  function nigekireTrialV2(passed, totalSuccess, firstTrySuccess, articleId, isFirstTry) {
+    passed = passed && typeof passed === 'object' ? passed : {};
+    if (passed[articleId]) return { ok: false }; // 二重取り防止
+
+    var nextPassed = Object.assign({}, passed);
+    nextPassed[articleId] = true;
+
+    var ts = typeof totalSuccess === 'number' ? totalSuccess : 0;
+    var fts = typeof firstTrySuccess === 'number' ? firstTrySuccess : 0;
+
+    return {
+      ok: true,
+      nextPassed: nextPassed,
+      nextTotalSuccess: ts + 1,
+      nextFirstTrySuccess: isFirstTry ? fts + 1 : fts,
+    };
+  }
+
+  // 生活カード4段階（キャラ別収集数の成長・UI §10-1）。
+  //   閾値: 0=未観測(stage1) / 1〜=観測(stage2) / 5〜=定着(stage3) / 10〜=中核(stage4)。
+  //   ※称号閾値 0/5/10/15 とは別軸（カードは 0/1/5/10）。
+  function nigekireCardStage(charCount) {
+    var c = typeof charCount === 'number' ? charCount : 0;
+    if (c >= 10) return { stage: 4, name: '中核' };
+    if (c >= 5) return { stage: 3, name: '定着' };
+    if (c >= 1) return { stage: 2, name: '観測' };
+    return { stage: 1, name: '未観測' };
+  }
+
   // ---------------------------------------------------------------------------
   // クリエイター削除時のモード state 掃除（純関数・非破壊）
   //   app.js deleteCreator の副作用ロジックを切り出したもの。挙動を1バイトも変えない。
@@ -643,6 +809,15 @@
     nigekireTrialPoints: nigekireTrialPoints,
     nigekireSuccessOutcome: nigekireSuccessOutcome,
     nigekireCollectOutcome: nigekireCollectOutcome,
+    // ---- ニゲキレモード v2 純ロジック（一言収集・1本ゲージ・生活カード） ----
+    nigekireLifeRankV2: nigekireLifeRankV2,
+    nigekireGaugeProgress: nigekireGaugeProgress,
+    nigekireTotalCollected: nigekireTotalCollected,
+    nigekireTopChar: nigekireTopChar,
+    detectHitokotoChar: detectHitokotoChar,
+    nigekireCollectV2: nigekireCollectV2,
+    nigekireTrialV2: nigekireTrialV2,
+    nigekireCardStage: nigekireCardStage,
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,

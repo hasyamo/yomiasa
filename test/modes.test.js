@@ -964,3 +964,260 @@ test('modeForCreator[本質]: hasyamo は nigekire、ktcrs1107 は kitacore、�
   assert.strictEqual(L.modeForCreator(MODE_DEFS_REAL, KITACORE_ID).key, 'kitacore');
   assert.strictEqual(L.modeForCreator(MODE_DEFS_REAL, 'unrelated'), null);
 });
+
+// ============================================================================
+// H群: ニゲキレ v2 純ロジック（一言チップ収集・1本ゲージ・生活カード）
+//   確定値: 生活ランク5段階 0/30/70/120/200（§10.4）/ カード段階 0/1/5/10（§10-1）
+//           ホワイトリスト7人（§10.7）。KITAさん等は除外。
+// ============================================================================
+
+// v2 生活ランク5段階（+「おはカノ生活管理人」200・key nige5）
+const NIGEKIRE_LIFE_RANKS_V2 = [
+  { stage: 1, min: 0, name: '言い訳見習い', key: 'nige1' },
+  { stage: 2, min: 30, name: '生活防衛中', key: 'nige2' },
+  { stage: 3, min: 70, name: '火種処理係', key: 'nige3' },
+  { stage: 4, min: 120, name: 'おはカノ生活継続者', key: 'nige4' },
+  { stage: 5, min: 200, name: 'おはカノ生活管理人', key: 'nige5' },
+];
+// 名前→charKey ホワイトリスト（7人・§10.7）
+const NAME_TO_KEY = {
+  '月子': 'tsukiko', '陽': 'you', 'しずく': 'shizuku', '凛華': 'rinka',
+  'るな': 'runa', 'まひる': 'mahiru', '日和': 'hiyori',
+};
+
+// ---- H1: nigekireLifeRankV2（5段階境界） ----
+
+test('nigekireLifeRankV2: 5段階境界（29/30/69/70/119/120/199/200）', () => {
+  const R = NIGEKIRE_LIFE_RANKS_V2;
+  assert.strictEqual(L.nigekireLifeRankV2(0, R).stage, 1);
+  assert.strictEqual(L.nigekireLifeRankV2(29, R).stage, 1);
+  assert.strictEqual(L.nigekireLifeRankV2(30, R).stage, 2);
+  assert.strictEqual(L.nigekireLifeRankV2(69, R).stage, 2);
+  assert.strictEqual(L.nigekireLifeRankV2(70, R).stage, 3);
+  assert.strictEqual(L.nigekireLifeRankV2(119, R).stage, 3);
+  assert.strictEqual(L.nigekireLifeRankV2(120, R).stage, 4);
+  assert.strictEqual(L.nigekireLifeRankV2(199, R).stage, 4);
+  assert.strictEqual(L.nigekireLifeRankV2(200, R).stage, 5);
+  assert.strictEqual(L.nigekireLifeRankV2(999, R).stage, 5);
+});
+
+test('nigekireLifeRankV2: name/key も段階に対応（200→おはカノ生活管理人/nige5）', () => {
+  const out = L.nigekireLifeRankV2(200, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.name, 'おはカノ生活管理人');
+  assert.strictEqual(out.key, 'nige5');
+});
+
+test('nigekireLifeRankV2: 空/不正 ranks は stage0/name空/key空', () => {
+  assert.deepStrictEqual(L.nigekireLifeRankV2(50, []), { stage: 0, name: '', key: '' });
+  assert.deepStrictEqual(L.nigekireLifeRankV2(50, null), { stage: 0, name: '', key: '' });
+  // 非数の totalCollected は 0 扱い → 先頭段階
+  assert.strictEqual(L.nigekireLifeRankV2('x', NIGEKIRE_LIFE_RANKS_V2).stage, 1);
+});
+
+// ---- H2: nigekireGaugeProgress（進行率・オーバー） ----
+
+test('nigekireGaugeProgress: pct計算（42→30%・現min30/次min70）', () => {
+  const out = L.nigekireGaugeProgress(42, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.cur, 42);
+  assert.strictEqual(out.curMin, 30);
+  assert.strictEqual(out.nextMin, 70);
+  assert.strictEqual(out.pct, 30); // (42-30)/(70-30)*100
+  assert.strictEqual(out.over, false);
+  assert.strictEqual(out.display, '42 / 200');
+});
+
+test('nigekireGaugeProgress: 最終ランクは pct=100 固定（cur=200）', () => {
+  const out = L.nigekireGaugeProgress(200, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.pct, 100);
+  assert.strictEqual(out.over, false); // 200 は over ではない（>200 が over）
+  assert.strictEqual(out.display, '200 / 200');
+});
+
+test('nigekireGaugeProgress: over（255→over:true・display 255/200・pct100）', () => {
+  const out = L.nigekireGaugeProgress(255, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.over, true);
+  assert.strictEqual(out.display, '255 / 200');
+  assert.strictEqual(out.pct, 100); // 最終ランク帯なので満タン
+});
+
+test('nigekireGaugeProgress: 先頭ランク帯 pct（0→0%・15→50%）', () => {
+  assert.strictEqual(L.nigekireGaugeProgress(0, NIGEKIRE_LIFE_RANKS_V2).pct, 0);
+  assert.strictEqual(L.nigekireGaugeProgress(15, NIGEKIRE_LIFE_RANKS_V2).pct, 50); // (15-0)/(30-0)*100
+});
+
+test('nigekireGaugeProgress: 空 ranks はゼロ・display は cur/200・over判定は生きる', () => {
+  const a = L.nigekireGaugeProgress(50, []);
+  assert.strictEqual(a.pct, 0);
+  assert.strictEqual(a.display, '50 / 200');
+  assert.strictEqual(a.over, false);
+  const b = L.nigekireGaugeProgress(300, null);
+  assert.strictEqual(b.over, true);
+  assert.strictEqual(b.display, '300 / 200');
+});
+
+// ---- H3: nigekireTotalCollected ----
+
+test('nigekireTotalCollected: 7人合算', () => {
+  assert.strictEqual(
+    L.nigekireTotalCollected({ tsukiko: 3, you: 5, shizuku: 0, rinka: 2, runa: 1, mahiru: 4, hiyori: 6 }),
+    21
+  );
+});
+
+test('nigekireTotalCollected: 非オブジェクト/空は0・非数は無視', () => {
+  assert.strictEqual(L.nigekireTotalCollected(null), 0);
+  assert.strictEqual(L.nigekireTotalCollected(undefined), 0);
+  assert.strictEqual(L.nigekireTotalCollected('x'), 0);
+  assert.strictEqual(L.nigekireTotalCollected({}), 0);
+  assert.strictEqual(L.nigekireTotalCollected({ tsukiko: 2, bad: 'x', you: 3 }), 5);
+});
+
+// ---- H4: nigekireTopChar（最推し） ----
+
+test('nigekireTopChar: 最多収集キャラ', () => {
+  const cc = { tsukiko: 2, you: 7, shizuku: 3, rinka: 1, runa: 0, mahiru: 4, hiyori: 6 };
+  assert.strictEqual(L.nigekireTopChar(cc, NIGEKIRE_CHARACTERS).key, 'you');
+});
+
+test('nigekireTopChar: 同数は配列順（曜日順）で先', () => {
+  // tsukiko(月) と you(火) が同数5 → 曜日順で先の tsukiko
+  const cc = { tsukiko: 5, you: 5, shizuku: 1 };
+  assert.strictEqual(L.nigekireTopChar(cc, NIGEKIRE_CHARACTERS).key, 'tsukiko');
+});
+
+test('nigekireTopChar: 全0は null', () => {
+  assert.strictEqual(L.nigekireTopChar({ tsukiko: 0, you: 0 }, NIGEKIRE_CHARACTERS), null);
+  assert.strictEqual(L.nigekireTopChar({}, NIGEKIRE_CHARACTERS), null);
+});
+
+test('nigekireTopChar: characters 空/不正は null', () => {
+  assert.strictEqual(L.nigekireTopChar({ tsukiko: 5 }, []), null);
+  assert.strictEqual(L.nigekireTopChar({ tsukiko: 5 }, null), null);
+});
+
+// ---- H5: detectHitokotoChar（一言抽出＋ホワイトリスト） ----
+
+test('detectHitokotoChar: <h2 name="x">陽の一言</h2> → you', () => {
+  assert.strictEqual(L.detectHitokotoChar('<h2 name="x">陽の一言</h2>', NAME_TO_KEY), 'you');
+});
+
+test('detectHitokotoChar: 素の <h2>月子の一言</h2> → tsukiko', () => {
+  assert.strictEqual(L.detectHitokotoChar('前置き<h2>月子の一言</h2>本文', NAME_TO_KEY), 'tsukiko');
+});
+
+test('detectHitokotoChar: KITAさんはホワイトリスト外 → null', () => {
+  assert.strictEqual(L.detectHitokotoChar('<h2>KITAさんの一言</h2>', NAME_TO_KEY), null);
+});
+
+test('detectHitokotoChar: 見出しなし → null', () => {
+  assert.strictEqual(L.detectHitokotoChar('<p>一言も見出しもない</p>', NAME_TO_KEY), null);
+  assert.strictEqual(L.detectHitokotoChar('<h2>ただの見出し</h2>', NAME_TO_KEY), null);
+});
+
+test('detectHitokotoChar: 非文字列 body は null', () => {
+  assert.strictEqual(L.detectHitokotoChar(null, NAME_TO_KEY), null);
+  assert.strictEqual(L.detectHitokotoChar(undefined, NAME_TO_KEY), null);
+  assert.strictEqual(L.detectHitokotoChar(123, NAME_TO_KEY), null);
+});
+
+test('detectHitokotoChar: 最初の一言見出しを採る（複数あっても先頭）', () => {
+  const html = '<h2>しずくの一言</h2>中略<h2>凛華の一言</h2>';
+  assert.strictEqual(L.detectHitokotoChar(html, NAME_TO_KEY), 'shizuku');
+});
+
+test('detectHitokotoChar: 7人ホワイトリスト全員が引ける', () => {
+  const cases = [
+    ['月子', 'tsukiko'], ['陽', 'you'], ['しずく', 'shizuku'], ['凛華', 'rinka'],
+    ['るな', 'runa'], ['まひる', 'mahiru'], ['日和', 'hiyori'],
+  ];
+  cases.forEach(([name, key]) => {
+    assert.strictEqual(L.detectHitokotoChar('<h2>' + name + 'の一言</h2>', NAME_TO_KEY), key);
+  });
+});
+
+// ---- H6: nigekireCollectV2（一言回収・二重取り防止・非破壊） ----
+
+test('nigekireCollectV2: 回収で charCounts+1・collected 立つ・charKey 返る', () => {
+  const counts = { a1: { char: 'you' } };
+  const collected = {};
+  const charCounts = { you: 2 };
+  const out = L.nigekireCollectV2(counts, collected, charCounts, 'a1');
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.charKey, 'you');
+  assert.strictEqual(out.nextCharCounts.you, 3);
+  assert.strictEqual(out.nextCollected.a1, true);
+});
+
+test('nigekireCollectV2: 初回収集キャラは 0→1', () => {
+  const out = L.nigekireCollectV2({ a1: { char: 'runa' } }, {}, {}, 'a1');
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextCharCounts.runa, 1);
+});
+
+test('nigekireCollectV2: 未取得（counts に char なし）は {ok:false}', () => {
+  assert.deepStrictEqual(L.nigekireCollectV2({}, {}, {}, 'a1'), { ok: false });
+  assert.deepStrictEqual(L.nigekireCollectV2({ a1: {} }, {}, {}, 'a1'), { ok: false });
+});
+
+test('nigekireCollectV2: 二重取り（collected 済み）は {ok:false}', () => {
+  const out = L.nigekireCollectV2({ a1: { char: 'you' } }, { a1: true }, { you: 1 }, 'a1');
+  assert.deepStrictEqual(out, { ok: false });
+});
+
+test('nigekireCollectV2: 非破壊（入力 collected/charCounts を書き換えない）', () => {
+  const counts = { a1: { char: 'you' } };
+  const collected = {};
+  const charCounts = { you: 2 };
+  const before = JSON.stringify({ collected, charCounts });
+  const out = L.nigekireCollectV2(counts, collected, charCounts, 'a1');
+  assert.strictEqual(JSON.stringify({ collected, charCounts }), before);
+  assert.notStrictEqual(out.nextCollected, collected);
+  assert.notStrictEqual(out.nextCharCounts, charCounts);
+});
+
+// ---- H7: nigekireTrialV2（試練通過・ポイントなし・非破壊） ----
+
+test('nigekireTrialV2: 一発通過で totalSuccess+1・firstTrySuccess+1', () => {
+  const out = L.nigekireTrialV2({}, 5, 2, 'a1', true);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextPassed.a1, true);
+  assert.strictEqual(out.nextTotalSuccess, 6);
+  assert.strictEqual(out.nextFirstTrySuccess, 3);
+});
+
+test('nigekireTrialV2: 非一発は totalSuccess+1・firstTrySuccess 据え置き', () => {
+  const out = L.nigekireTrialV2({}, 5, 2, 'a1', false);
+  assert.strictEqual(out.nextTotalSuccess, 6);
+  assert.strictEqual(out.nextFirstTrySuccess, 2);
+});
+
+test('nigekireTrialV2: 二重通過は {ok:false}', () => {
+  assert.deepStrictEqual(L.nigekireTrialV2({ a1: true }, 5, 2, 'a1', true), { ok: false });
+});
+
+test('nigekireTrialV2: 非破壊（入力 passed を書き換えない）', () => {
+  const passed = {};
+  const out = L.nigekireTrialV2(passed, 0, 0, 'a1', true);
+  assert.deepStrictEqual(passed, {}); // 入力そのまま
+  assert.notStrictEqual(out.nextPassed, passed);
+});
+
+// ---- H8: nigekireCardStage（生活カード4段階 0/1/5/10） ----
+
+test('nigekireCardStage: 0→未観測 / 1→観測 / 5→定着 / 10→中核', () => {
+  assert.deepStrictEqual(L.nigekireCardStage(0), { stage: 1, name: '未観測' });
+  assert.deepStrictEqual(L.nigekireCardStage(1), { stage: 2, name: '観測' });
+  assert.deepStrictEqual(L.nigekireCardStage(5), { stage: 3, name: '定着' });
+  assert.deepStrictEqual(L.nigekireCardStage(10), { stage: 4, name: '中核' });
+});
+
+test('nigekireCardStage: 境界直下は前段階（4→観測 / 9→定着）', () => {
+  assert.strictEqual(L.nigekireCardStage(4).name, '観測');
+  assert.strictEqual(L.nigekireCardStage(9).name, '定着');
+  assert.strictEqual(L.nigekireCardStage(99).name, '中核');
+});
+
+test('nigekireCardStage: 非数は 0 扱い（未観測）', () => {
+  assert.strictEqual(L.nigekireCardStage('x').name, '未観測');
+  assert.strictEqual(L.nigekireCardStage(undefined).name, '未観測');
+});

@@ -2264,54 +2264,17 @@ button.kitacore-rank-text:focus-visible {
 .kitacore-rank-text.rank-nige2 { background: linear-gradient(145deg, #334155, #4a5b82); }
 .kitacore-rank-text.rank-nige3 { background: linear-gradient(145deg, #1e2a4a, #3a4a72); }
 .kitacore-rank-text.rank-nige4 { background: linear-gradient(145deg, #1e2a4a, #5b6b8c); }
+/* 最終ランク（おはカノ生活管理人・§10.4）＝華やかに（金〜ローズの立ち上がり）。 */
+.kitacore-rank-text.rank-nige5 {
+  background: linear-gradient(145deg, #b45309, #f59e0b 55%, #f472b6);
+  color: #fff7ed;
+}
 .nigekire-top-char {
   font-weight: 700;
   letter-spacing: 0.02em;
 }
-
-/* ── 上部ヘッダー：7人水平バー（曜日順・キャラカラー・タップ不可） ── */
-.nigekire-progress-wrap {
-  width: 100%;
-}
-.nigekire-progress-heading {
-  font-size: 12px;
-  color: var(--ink-muted);
-  margin-bottom: 4px;
-}
-/* 7人分の水平バーを横一列に並べる（正史UI §6「━━ ━ ━━━ …」）。
-   上に曜日ラベル7セル、下に横バー7本。ラベルとバーは同じ7カラムで左右位置を揃える。 */
-.nigekire-bar-labels,
-.nigekire-bars {
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  width: 100%;
-}
-.nigekire-bar-labels {
-  margin-bottom: 3px;
-}
-.nigekire-bar-label {
-  flex: 1 1 0;
-  text-align: center;
-  font-size: 11px;
-  color: var(--ink-muted);
-  line-height: 1;
-}
-.nigekire-bar-track {
-  flex: 1 1 0; /* 7本を均等幅で横一列 */
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.nigekire-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  min-width: 0;
-  transition: width 0.2s ease-out;
-  background: var(--ink-subtle); /* color 未指定キャラのフォールバック（通常は inline color） */
-}
+/* v2：7人水平バーは廃止（1本の「おはカノ生活ゲージ」＝キタコレの .progress を流用）。
+   旧 .nigekire-progress-* / .nigekire-bar-* の CSS は撤去した。 */
 
 /* ── 記事カードチップ（回収／試練）。ワイチップ・光ボタンと同じ丸ピル基調 ── */
 .nigekire-chip,
@@ -2432,6 +2395,31 @@ button.kitacore-rank-text:focus-visible {
   font-size: 34px;
   font-weight: 700;
   color: rgba(186, 230, 253, 0.6);
+}
+/* v2 生活カード4段階の見た目（§10-1）。
+   未観測(0)：画像グレースケール・透明度低め。観測(1+)以降でカラーに戻る。 */
+.nigekire-char-card.is-unobserved .nigekire-char-thumb img {
+  filter: grayscale(1);
+  opacity: 0.4;
+}
+.nigekire-char-card.is-unobserved .nigekire-char-name,
+.nigekire-char-card.is-unobserved .nigekire-char-title {
+  color: rgba(186, 230, 253, 0.45);
+}
+/* 中核(10+)：解放対象の小バッジ（キャラカラー・サムネ右上）。 */
+.nigekire-char-badge {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  right: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(56, 189, 248, 0.85); /* inline のキャラカラーで上書き */
+  box-shadow: 0 0 0 1px rgba(2, 6, 23, 0.5);
 }
 .nigekire-char-name {
   font-size: 15px;
