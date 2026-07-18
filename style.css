@@ -2370,10 +2370,13 @@ button.kitacore-rank-text:focus-visible {
   border: 1px solid rgba(56, 189, 248, 0.3);
   background: rgba(2, 6, 23, 0.5);
 }
+/* カルーセルは1枚ずつ見せるので、キタコレのスリム縦長（並べる用）ではなく
+   元画像（正方形バストアップ）をそのまま大きく表示する。 */
 .nigekire-char-thumb {
-  width: 96px;
-  aspect-ratio: 600 / 1067;
-  border-radius: 8px;
+  width: 100%;
+  max-width: 240px;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
   overflow: hidden;
   position: relative;
   display: flex;
