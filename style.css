@@ -1422,6 +1422,26 @@ select.field {
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
     0 1px 2px rgba(0, 0, 0, 0.18);
 }
+/* ランクバッジは button（タップで詳細カード）。見た目はバッジのまま・押せると分かるように。 */
+button.kitacore-rank-text {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  line-height: 1.5;
+  transition: transform 0.08s ease, box-shadow 0.12s ease;
+}
+button.kitacore-rank-text:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.24);
+}
+button.kitacore-rank-text:active {
+  transform: translateY(1px);
+}
+button.kitacore-rank-text:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
 .kitacore-rank-text.rank-e { background: linear-gradient(145deg, #4b5563, #6b7280); }
 .kitacore-rank-text.rank-d { background: linear-gradient(145deg, #475569, #64748b); }
 .kitacore-rank-text.rank-c { background: linear-gradient(145deg, #2563eb, #60a5fa); }
@@ -2238,11 +2258,12 @@ select.field {
    ========================================================================= */
 
 /* ── 上部ヘッダー：生活ランク／現在トップ ── */
-.nigekire-life-rank {
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: 0.02em;
-}
+/* ニゲキレ生活ランクバッジの段階色（キタコレの .kitacore-rank-text.rank-* と同じ方式）。
+   段階が上がるほどネイビー→華やかに。 */
+.kitacore-rank-text.rank-nige1 { background: linear-gradient(145deg, #475569, #64748b); }
+.kitacore-rank-text.rank-nige2 { background: linear-gradient(145deg, #334155, #4a5b82); }
+.kitacore-rank-text.rank-nige3 { background: linear-gradient(145deg, #1e2a4a, #3a4a72); }
+.kitacore-rank-text.rank-nige4 { background: linear-gradient(145deg, #1e2a4a, #5b6b8c); }
 .nigekire-top-char {
   font-weight: 700;
   letter-spacing: 0.02em;

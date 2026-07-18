@@ -592,8 +592,17 @@ test('nigekireLifeRank: 4段階の境界（29/30/69/70/119/120）', () => {
 });
 
 test('nigekireLifeRank: ranks 空/不正は stage0', () => {
-  assert.deepStrictEqual(L.nigekireLifeRank(100, []), { stage: 0, name: '' });
-  assert.deepStrictEqual(L.nigekireLifeRank(100, null), { stage: 0, name: '' });
+  assert.deepStrictEqual(L.nigekireLifeRank(100, []), { stage: 0, name: '', key: '' });
+  assert.deepStrictEqual(L.nigekireLifeRank(100, null), { stage: 0, name: '', key: '' });
+});
+
+test('nigekireLifeRank: key を返す（バッジ色クラス rank-<key> の元）', () => {
+  var ranks = [
+    { stage: 1, min: 0, name: '言い訳見習い', key: 'nige1' },
+    { stage: 2, min: 30, name: '生活防衛中', key: 'nige2' },
+  ];
+  assert.strictEqual(L.nigekireLifeRank(0, ranks).key, 'nige1');
+  assert.strictEqual(L.nigekireLifeRank(30, ranks).key, 'nige2');
 });
 
 // ---- nigekireCharTitle（称号境界 9/10/24/25/44/45） ----

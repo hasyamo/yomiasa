@@ -389,13 +389,13 @@
   //   ranks = [{ stage, name, min }, ...]（min 昇順）。total 以下で最大 min の段階を返す。
   //   戻り値 { stage, name }。ranks 未指定/空なら { stage:0, name:'' }。
   function nigekireLifeRank(totalPoints, ranks) {
-    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '' };
+    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '', key: '' };
     var t = typeof totalPoints === 'number' ? totalPoints : 0;
     var cur = ranks[0];
     for (var i = 0; i < ranks.length; i++) {
       if (t >= ranks[i].min) cur = ranks[i];
     }
-    return { stage: cur.stage, name: cur.name };
+    return { stage: cur.stage, name: cur.name, key: cur.key };
   }
 
   // キャラ別称号（キャラ別ポイントの4段階・§10.6）。

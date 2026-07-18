@@ -217,10 +217,10 @@
 
   // 生活ランク（総ポイント判定・4段階・§10.5）。min 昇順。logic.js の nigekireLifeRank に渡す。
   var NIGEKIRE_LIFE_RANKS = [
-    { stage: 1, min: 0,   name: '言い訳見習い' },
-    { stage: 2, min: 30,  name: '生活防衛中' },
-    { stage: 3, min: 70,  name: '火種処理係' },
-    { stage: 4, min: 120, name: 'おはカノ生活継続者' },
+    { stage: 1, min: 0,   name: '言い訳見習い',        key: 'nige1' },
+    { stage: 2, min: 30,  name: '生活防衛中',          key: 'nige2' },
+    { stage: 3, min: 70,  name: '火種処理係',          key: 'nige3' },
+    { stage: 4, min: 120, name: 'おはカノ生活継続者',  key: 'nige4' },
   ];
 
   // キャラ別称号（キャラ別ポイント判定・4段階・§10.6）。閾値 0/10/25/45pt。
@@ -3195,12 +3195,16 @@
     var life = L.nigekireLifeRank(totalPoints, NIGEKIRE_LIFE_RANKS);
     var top = L.nigekireTopCharacter(m.charPoints, NIGEKIRE_CHARACTERS);
 
-    // 上段: 生活ランク（称号エリア）＋現在トップ「曜日｜キャラ名」。
+    // 上段: 生活ランクバッジ（キタコレの paintKitacoreHeader と完全に同じ形式）。
+    //   バッジ1個に「おはカノ生活ランク ○○」を入れる（キタコレは「ワイ語ハンターランク C級」）。
+    //   クラスも同じ .kitacore-rank-text（button）。タップで詳細カード（称号名だけがタップ領域）。
     els.kitacoreStats.innerHTML = '';
-    var rankEl = document.createElement('span');
-    rankEl.className = 'nigekire-life-rank';
-    rankEl.textContent = '生活ランク ' + (life.name || '---');
-    els.kitacoreStats.appendChild(rankEl);
+    var rank = document.createElement('button');
+    rank.type = 'button';
+    rank.className = 'kitacore-rank-text rank-' + (life.key || 'nigekire');
+    rank.textContent = 'おはカノ生活ランク ' + (life.name || '---');
+    rank.addEventListener('click', function () { openRankCard(); });
+    els.kitacoreStats.appendChild(rank);
     if (top) {
       var topEl = document.createElement('span');
       topEl.className = 'nigekire-top-char';
@@ -3407,9 +3411,12 @@
   //   badgeText/badgeKey = ランクバッジ。barCur/barMax/barText = 進捗バー。
   function paintKitacoreHeader(badgeText, badgeKey, barCur, barMax, barText) {
     els.kitacoreStats.innerHTML = '';
-    var rank = document.createElement('span');
+    // ランクバッジ＝ボタン。タップで詳細カード（称号名だけがタップ領域・§9操作統一）。
+    var rank = document.createElement('button');
+    rank.type = 'button';
     rank.className = 'kitacore-rank-text rank-' + badgeKey;
     rank.textContent = badgeText;
+    rank.addEventListener('click', function () { openRankCard(); });
     els.kitacoreStats.appendChild(rank);
 
     els.kitacoreProgress.innerHTML = '';
@@ -4485,13 +4492,9 @@
     if (els.kitacorePlayerCancel) {
       els.kitacorePlayerCancel.addEventListener('click', closePlayerInput);
     }
-    if (els.kitacoreRankArea) {
-      els.kitacoreRankArea.addEventListener('click', function (e) {
-        // デバッグボタンのクリックは除外
-        if (e.target.closest('#debug-btns')) return;
-        openRankCard();
-      });
-    }
+    // ランクエリア全体のタップは廃止。カードを開くのはランクバッジ（称号名）だけ。
+    //   キタコレ＝paintKitacoreHeader、ニゲキレ＝renderNigekireHeader で各バッジに click 登録済み。
+    //   （§4/§9「称号名のところをタップ」＝両モードで操作統一）。
     if (els.kitacoreRankCardClose) {
       els.kitacoreRankCardClose.addEventListener('click', closeRankCard);
     }
