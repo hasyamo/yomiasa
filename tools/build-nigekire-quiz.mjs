@@ -4,12 +4,16 @@
  *   ニゲキレモードのクイズ/回収データを、澪の抽出 JSONL（7曜日ぶん）から
  *   アプリが読むマップ形式 nigekire_quiz.json に変換して生成する。
  *
- * 入力: hasyamo-vault .../nigekire-quiz/candidates/{mon..sun}.jsonl（7曜日×10本＝70本）
+ * 入力: hasyamo-vault .../nigekire-quiz/candidates/{mon..sun}.jsonl（無印70本）
+ *       ＋ {mon..sun}-r2.jsonl（2周目の追加候補27本・note_key は無印と重複しない）
+ *       = 全14ファイル・97本。
  * 出力: <repo>/nigekire_quiz.json  … { quizzes: { <note_key>: {...} } }
  *
- * 方針（handoff・設計メモ準拠）:
+ * 方針（handoff・設計メモ・answer-trial-jsonl-count.md 準拠）:
  *   - 文言（question/choices/lines）は JSONL の現在値を「そのまま転記」する（創作しない）。
  *   - スキーマに無いフィールドは勝手に足さない。JSONL の値だけを写す。
+ *   - 試練対象＝運用前記事＝ article.has_comment_engine === false でフィルタ。
+ *     97本のうち運用前62本だけを出力する（運用後35本は救済検討中のため除外）。
  *   - 澪が candidates/*.jsonl を磨き直したら、本スクリプトを再実行して再生成できる。
  *
  * 使い方:
@@ -80,6 +84,8 @@ function toEntry(rec, file, candidateId) {
 
   return {
     noteKey,
+    // 運用前（試練対象）か。has_comment_engine === false が運用前。
+    hasCommentEngine: a.has_comment_engine === true,
     entry: {
       weekday: a.weekday || '',
       character: a.character || '',
@@ -102,25 +108,40 @@ function main() {
   }
 
   const quizzes = {};
-  const perDay = {};
-  let total = 0;
+  let total = 0; // 読み込んだ全レコード数（無印＋r2）
+  let kept = 0; // 運用前フィルタを通した件数
+  let skippedPost = 0; // 運用後（has_comment_engine=true）で除外した件数
   const dupes = [];
 
-  for (const wd of WEEKDAYS) {
-    const file = join(CANDIDATES_DIR, `${wd}.jsonl`);
+  // 無印（{wd}.jsonl）＋2周目（{wd}-r2.jsonl）の全ファイルを読む。
+  //   無印は必須、r2 は存在すれば読む（無ければスキップ）。
+  const files = [];
+  for (const wd of WEEKDAYS) files.push({ name: `${wd}.jsonl`, required: true });
+  for (const wd of WEEKDAYS) files.push({ name: `${wd}-r2.jsonl`, required: false });
+
+  for (const { name, required } of files) {
+    const file = join(CANDIDATES_DIR, name);
     if (!existsSync(file)) {
-      console.error(`[build-nigekire-quiz] 入力ファイルがありません: ${file}`);
-      process.exit(1);
+      if (required) {
+        console.error(`[build-nigekire-quiz] 入力ファイルがありません: ${file}`);
+        process.exit(1);
+      }
+      continue; // r2 が無い曜日はスキップ
     }
-    const recs = parseJsonl(readFileSync(file, 'utf8'), `${wd}.jsonl`);
-    perDay[wd] = recs.length;
+    const recs = parseJsonl(readFileSync(file, 'utf8'), name);
     for (const rec of recs) {
-      const { noteKey, entry } = toEntry(rec, `${wd}.jsonl`, rec.candidate_id || '?');
+      total++;
+      const { noteKey, hasCommentEngine, entry } = toEntry(rec, name, rec.candidate_id || '?');
+      // 試練対象＝運用前記事だけ（has_comment_engine=false）。運用後は除外（救済検討中）。
+      if (hasCommentEngine) {
+        skippedPost++;
+        continue;
+      }
       if (Object.prototype.hasOwnProperty.call(quizzes, noteKey)) {
         dupes.push(noteKey); // 後勝ちになるので警告だけ出す
       }
       quizzes[noteKey] = entry;
-      total++;
+      kept++;
     }
   }
 
@@ -129,8 +150,10 @@ function main() {
 
   const uniqueCount = Object.keys(quizzes).length;
   console.log(`[build-nigekire-quiz] 出力: ${OUT_PATH}`);
-  console.log(`[build-nigekire-quiz] 曜日別件数: ${WEEKDAYS.map((w) => `${w}=${perDay[w]}`).join(' ')}`);
-  console.log(`[build-nigekire-quiz] 読み込み ${total} 件 / note_key ユニーク ${uniqueCount} 件`);
+  console.log(
+    `[build-nigekire-quiz] 読み込み ${total} 件 → 運用前(試練) ${kept} 件 / ` +
+      `運用後除外 ${skippedPost} 件 / note_key ユニーク ${uniqueCount} 件`
+  );
   if (dupes.length) {
     console.warn(`[build-nigekire-quiz] 警告: note_key 重複 ${dupes.length} 件（後勝ち）: ${dupes.join(', ')}`);
   }
