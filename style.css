@@ -2472,3 +2472,198 @@ button.kitacore-rank-text:focus-visible {
   background: #38bdf8; /* アクティブ時は inline のキャラカラーで上書きされる */
   border-color: transparent;
 }
+
+/* ===================== ニゲキレ 節目イベント（最終確認） =====================
+   逃げ切り記録行・最終確認見出し・カットイン・最終確認画面・debug。
+   キタコレの既存 CSS は触らない（別クラスで完結）。絵文字・戦闘語彙は使わない。 */
+
+/* 逃げ切り記録 n / 3（§6・ゲージとは別行・落ち着いた無機質表示）。 */
+/* ニゲキレの上部 stats は縦積み（§6：ランク→逃げ切り記録→節目見出し）。
+   キタコレの横並び flex を is-nigekire で上書きする。 */
+#kitacore-stats.is-nigekire {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.nigekire-escape-record {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #525252;
+}
+
+/* 最終確認見出し（§8・ready のときだけ出す節目ブロック）。
+   キタコレのボス見出し（.kitacore-boss）と完全に同じ見た目に合わせる
+   （サムネ＋info＋pillボタン・赤系の枠/背景/ボタン）。戦闘語彙は使わない。 */
+.nigekire-final-head {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 12px;
+  height: 124px;
+  border: 1px solid rgba(127, 29, 29, 0.45);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(145deg, #1a1014, #0c0a0f);
+  align-items: stretch;
+  box-sizing: border-box;
+}
+.nigekire-final-head-thumb {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}
+.nigekire-final-head-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+.nigekire-final-head-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.nigekire-final-head-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #f87171;
+}
+.nigekire-final-head-body {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  color: #f5f5f4;
+  margin-bottom: 4px;
+}
+.nigekire-final-head-btn {
+  appearance: none;
+  align-self: flex-start;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #b91c1c;
+  background: linear-gradient(145deg, #b91c1c, #7f1d1d);
+  color: #fff;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.nigekire-final-head-btn:hover {
+  filter: brightness(1.15);
+}
+.nigekire-final-head-btn:active {
+  filter: brightness(0.95);
+}
+
+/* 最終確認カットイン（§9・暗転・縦カード大・キャラカラー発光枠・システム文）。 */
+.nigekire-cutin {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.94);
+  cursor: pointer;
+}
+.nigekire-cutin.hidden { display: none; }
+.nigekire-cutin-stage {
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+}
+.nigekire-cutin-card {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 2px solid rgba(148, 163, 184, 0.6); /* inline でキャラカラーに上書き */
+  box-shadow: 0 0 32px rgba(148, 163, 184, 0.4); /* inline でキャラカラーに上書き */
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
+.nigekire-cutin-img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 58vh;
+  min-height: 0;
+  object-fit: contain;
+}
+.nigekire-cutin-name {
+  margin: 14px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #e2e8f0; /* inline でキャラカラーに上書き */
+}
+.nigekire-cutin-text-wrap {
+  margin-top: 12px;
+  width: 100%;
+  text-align: center;
+}
+.nigekire-cutin-sys {
+  margin: 0;
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: rgba(148, 163, 184, 0.7);
+}
+.nigekire-cutin-line {
+  margin: 8px 0 0;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #f1f5f9;
+}
+.nigekire-cutin-hint {
+  margin-top: 16px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(203, 213, 225, 0.6);
+  animation: kitacore-blink 1.4s steps(1) infinite;
+}
+
+/* 最終確認画面（§10・儀式）。キタコレの .kitacore-quiz オーバーレイ枠を流用しつつ中身は独自。 */
+.nigekire-final-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e2e8f0; /* inline でキャラカラーに上書き */
+}
+.nigekire-final-line {
+  margin: 0 0 18px;
+  font-size: 15px;
+  line-height: 1.9;
+  color: #f1f5f9;
+}
+.nigekire-final-pass {
+  padding: 10px 22px;
+  font-size: 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #f8fafc;
+  background: rgba(51, 65, 85, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.7);
+}
+.nigekire-final-pass:active {
+  background: rgba(71, 85, 105, 0.9);
+}
+
+/* ニゲキレ debug ボタン群（5個・キタコレと排他・.debug-btns / .debug-btn を流用しつつ折り返す）。 */
+.nigekire-debug-btns {
+  flex-wrap: wrap;
+}

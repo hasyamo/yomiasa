@@ -1221,3 +1221,92 @@ test('nigekireCardStage: 非数は 0 扱い（未観測）', () => {
   assert.strictEqual(L.nigekireCardStage('x').name, '未観測');
   assert.strictEqual(L.nigekireCardStage(undefined).name, '未観測');
 });
+
+// ---------------------------------------------------------------------------
+// I群: ニゲキレ 節目イベント（最終確認）純ロジック
+// ---------------------------------------------------------------------------
+
+// ---- I1: nigekireEscapeRecord（逃げ切り記録 n/3・最終確認見出し判定） ----
+
+test('nigekireEscapeRecord: (0,false) → count0・ready false', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(0, false), {
+    count: 0, need: 3, ready: false, done: false,
+  });
+});
+
+test('nigekireEscapeRecord: (2,false) → count2・まだ ready でない', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(2, false), {
+    count: 2, need: 3, ready: false, done: false,
+  });
+});
+
+test('nigekireEscapeRecord: (3,false) → count3・ready true（3/3到達・未通過）', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(3, false), {
+    count: 3, need: 3, ready: true, done: false,
+  });
+});
+
+test('nigekireEscapeRecord: (5,false) → count は 3 に上限クランプ・ready true', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(5, false), {
+    count: 3, need: 3, ready: true, done: false,
+  });
+});
+
+test('nigekireEscapeRecord: (3,true) → 通過済みは ready false・done true', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(3, true), {
+    count: 3, need: 3, ready: false, done: true,
+  });
+});
+
+test('nigekireEscapeRecord: (5,true) → クランプ3・通過済みで ready false', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(5, true), {
+    count: 3, need: 3, ready: false, done: true,
+  });
+});
+
+test('nigekireEscapeRecord: 未到達×通過済み (2,true) も ready false', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(2, true), {
+    count: 2, need: 3, ready: false, done: true,
+  });
+});
+
+test('nigekireEscapeRecord: 負数は 0 扱い', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord(-1, false), {
+    count: 0, need: 3, ready: false, done: false,
+  });
+});
+
+test('nigekireEscapeRecord: 非数は 0 扱い（ready false）', () => {
+  assert.deepStrictEqual(L.nigekireEscapeRecord('x', false), {
+    count: 0, need: 3, ready: false, done: false,
+  });
+  assert.deepStrictEqual(L.nigekireEscapeRecord(undefined, false), {
+    count: 0, need: 3, ready: false, done: false,
+  });
+});
+
+test('nigekireEscapeRecord: finalCheckDone は真偽値化（truthy/falsy）', () => {
+  assert.strictEqual(L.nigekireEscapeRecord(3, 1).done, true);
+  assert.strictEqual(L.nigekireEscapeRecord(3, 1).ready, false);
+  assert.strictEqual(L.nigekireEscapeRecord(3, 0).done, false);
+  assert.strictEqual(L.nigekireEscapeRecord(3, 0).ready, true);
+});
+
+// ---- I2: nigekirePassFinalCheck（最終確認通過・二重通過防止・非破壊） ----
+
+test('nigekirePassFinalCheck: 未通過 → {ok:true, nextFinalCheckDone:true}', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheck(false), {
+    ok: true, nextFinalCheckDone: true,
+  });
+});
+
+test('nigekirePassFinalCheck: 通過済み(true) → {ok:false}（二重通過防止）', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheck(true), { ok: false });
+});
+
+test('nigekirePassFinalCheck: 非破壊（引数はプリミティブ・状態を書き換えない）', () => {
+  var done = false;
+  var out = L.nigekirePassFinalCheck(done);
+  assert.strictEqual(done, false); // 入力そのまま
+  assert.strictEqual(out.nextFinalCheckDone, true);
+});

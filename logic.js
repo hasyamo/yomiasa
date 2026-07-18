@@ -700,6 +700,30 @@
     return { stage: 1, name: '未観測' };
   }
 
+  // 逃げ切り記録 n/3 と「最終確認見出しを出すべきか」を判定（節目イベント・§6/§8）。
+  //   count = min(totalSuccess, 3)（0未満・非数は 0）。need は常に 3。
+  //   ready = 逃げ切りが 3 以上そろい、かつ最終確認をまだ通過していない状態。
+  //   done  = 最終確認を通過済みか。副作用なし。
+  function nigekireEscapeRecord(totalSuccess, finalCheckDone) {
+    var ts = typeof totalSuccess === 'number' && totalSuccess > 0 ? totalSuccess : 0;
+    var count = ts >= 3 ? 3 : Math.floor(ts);
+    var done = !!finalCheckDone;
+    return {
+      count: count,
+      need: 3,
+      ready: ts >= 3 && !done,
+      done: done,
+    };
+  }
+
+  // 最終確認の通過（節目1回きり・二重通過防止・§10）。
+  //   既に通過済み（finalCheckDone=true）なら {ok:false}。
+  //   未通過なら {ok:true, nextFinalCheckDone:true}。非破壊。
+  function nigekirePassFinalCheck(finalCheckDone) {
+    if (finalCheckDone) return { ok: false }; // 二重通過防止
+    return { ok: true, nextFinalCheckDone: true };
+  }
+
   // ---------------------------------------------------------------------------
   // クリエイター削除時のモード state 掃除（純関数・非破壊）
   //   app.js deleteCreator の副作用ロジックを切り出したもの。挙動を1バイトも変えない。
@@ -818,6 +842,8 @@
     nigekireCollectV2: nigekireCollectV2,
     nigekireTrialV2: nigekireTrialV2,
     nigekireCardStage: nigekireCardStage,
+    nigekireEscapeRecord: nigekireEscapeRecord,
+    nigekirePassFinalCheck: nigekirePassFinalCheck,
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,

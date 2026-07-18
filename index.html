@@ -109,6 +109,15 @@
               <button id="debug-add-wai" class="debug-btn" type="button">💬 ワイ+100</button>
               <button id="debug-clear" class="debug-btn debug-btn-danger" type="button">🗑 データクリア</button>
             </div>
+            <!-- デバッグ用（ニゲキレ）：収集注入・逃げ切り注入・クリア（開発中のみ・キタコレと排他） -->
+            <div id="nigekire-debug-btns" class="debug-btns nigekire-debug-btns hidden">
+              <span class="debug-label">DEBUG</span>
+              <button id="nigekire-debug-add-all" class="debug-btn" type="button">収集+5（全）</button>
+              <button id="nigekire-debug-add-tsukiko" class="debug-btn" type="button">収集+5（月子）</button>
+              <button id="nigekire-debug-over200" class="debug-btn" type="button">200超注入</button>
+              <button id="nigekire-debug-escape" class="debug-btn" type="button">逃げ切り+1</button>
+              <button id="nigekire-debug-clear" class="debug-btn debug-btn-danger" type="button">クリア</button>
+            </div>
             <div id="kitacore-progress" class="read-progress"></div>
           </div>
           <!-- キタコレ：覚醒前のみ。次のボスカード（挑戦ボタン）。 -->
@@ -375,6 +384,31 @@
           <p id="kitacore-battle-text" class="kitacore-battle-text"></p>
           <div class="kitacore-battle-hint">画面をタップ</div>
         </div>
+      </div>
+    </div>
+
+    <!-- ============= ニゲキレ：最終確認カットイン（§9・戦闘語彙なし） ============= -->
+    <!-- 暗転・曜日キャラ縦カード大・キャラカラー発光枠・システム文。画面タップで最終確認へ。 -->
+    <div id="nigekire-cutin" class="nigekire-cutin hidden" role="dialog" aria-modal="true" aria-label="最終確認">
+      <div class="nigekire-cutin-stage">
+        <div id="nigekire-cutin-card" class="nigekire-cutin-card">
+          <img id="nigekire-cutin-img" class="nigekire-cutin-img" alt="" />
+        </div>
+        <p id="nigekire-cutin-name" class="nigekire-cutin-name"></p>
+        <div class="nigekire-cutin-text-wrap">
+          <p class="nigekire-cutin-sys">［ システム ］</p>
+          <p id="nigekire-cutin-line" class="nigekire-cutin-line"></p>
+          <div class="nigekire-cutin-hint">画面をタップして最終確認へ</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============= ニゲキレ：最終確認画面（§10・儀式・クイズなし） ============= -->
+    <div id="nigekire-final" class="kitacore-quiz nigekire-final hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-final-title">
+      <div class="kitacore-quiz-window nigekire-final-window">
+        <p id="nigekire-final-title" class="nigekire-final-title"></p>
+        <p id="nigekire-final-line" class="nigekire-final-line"></p>
+        <button id="nigekire-final-pass" class="nigekire-final-pass" type="button">確認を通過する</button>
       </div>
     </div>
 

@@ -111,6 +111,9 @@
       if (!m.passed || typeof m.passed !== 'object') m.passed = {};             // { [articleId]: true } 試練通過
       if (typeof m.totalSuccess !== 'number') m.totalSuccess = 0;               // 総ニゲキレ成功数（逃げ切り数）
       if (typeof m.firstTrySuccess !== 'number') m.firstTrySuccess = 0;         // 一発成功数
+      // ── 節目イベント（最終確認）──
+      if (typeof m.finalCheckDone !== 'boolean') m.finalCheckDone = false;      // 最終確認を通過したか（節目1回きり・収集解放フラグ）
+      if (m.finalCheckChar !== null && typeof m.finalCheckChar !== 'string') m.finalCheckChar = null; // 最終確認カットインで出すキャラkey（3本到達時に確定）
       // 旧 charPoints（v1 ポイント制）は残っていても無害（v2 では使わない）。初期化はしない。
     }
     return m;
@@ -258,6 +261,48 @@
     medium: [2, 3],
     heavy:  [3, 4],
   };
+
+  // 最終確認カットインのシステム文（正史 §9・7人分そのまま）。charKey → 中央の一文。
+  //   演出は「出かけようとしたところで曜日キャラが逃げ道をふさいでいる」。戦闘語彙・絵文字は使わない。
+  var NIGEKIRE_CUTIN_LINES = {
+    tsukiko: '〈月子〉が玄関で待っている。',
+    you:     '〈陽〉が笑顔で先回りしている。',
+    shizuku: '〈しずく〉が静かにこちらを見ている。',
+    rinka:   '〈凛華〉が何も言わずに立っている。',
+    runa:    '〈るな〉が逃げ道をふさいでいる。',
+    mahiru:  '〈まひる〉が眠そうに待っている。',
+    hiyori:  '〈日和〉がやさしく待っている。',
+  };
+
+  // カットイン専用画像（charKey → 画像パス）。当面は各キャラの生活カード画像（ch.img）と同値。
+  //   ※専用カットイン画像は後日はしゃもさんから受け取る。差し替えはこの定数の値を変えるだけで済む
+  //     （openNigekireFinalCutin は必ずこの定数から src を引く。1箇所修正で全体に反映される）。
+  // 最終確認カットイン専用画像（§9・縦長全身の暗転ポーズ）。生活カード（正方形バストアップ）とは別。
+  var NIGEKIRE_CUTIN_IMG = NIGEKIRE_CHARACTERS.reduce(function (map, ch) {
+    map[ch.key] = 'assets/ohakano/cutin/' + ch.key + '.webp';
+    return map;
+  }, {});
+
+  // 最終確認画面のキャラ別セリフ（正史 §10-1・7人分確定）。
+  //   月子=既存の正史セリフ、他6人=ジュリ作・澪検品済み（answer-final-check-lines.md）。
+  //   ※鉤括弧「」は表示時に付与するのでここでは含めない。
+  var NIGEKIRE_FINAL_TSUKIKO_LINE = '3つも逃げ切ったなら、少しは分かってきたみたいね';
+  var NIGEKIRE_FINAL_LINES = {
+    tsukiko: NIGEKIRE_FINAL_TSUKIKO_LINE,
+    you:     '3つも逃げ切ったんだから、もう分かってるよね。次はちゃんと説明してよ？',
+    shizuku: '3つ、ちゃんと向き合えたね。急がなくていいから、次も言葉にしていこう',
+    rinka:   '3つも逃げ切ったなら、少しは分かってるでしょ。……別に、まだ許したわけじゃないけど',
+    runa:    '3つも逃げ切ったなら、もう大丈夫っ！ でも次に逃げたら、ちゃんと追いかけるからね！',
+    mahiru:  '3つ逃げ切れたなら、少し休んでいいよ。でも、次は置いていかないでね',
+    hiyori:  '3つ、ちゃんと戻ってこられたね。大丈夫、次もあなたなら向き合えるよ',
+  };
+
+  // charKey → NIGEKIRE_CHARACTERS の1件（見つからなければ null）。
+  function nigekireCharByKey(charKey) {
+    if (!charKey) return null;
+    var hit = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === charKey; });
+    return hit.length ? hit[0] : null;
+  }
 
   // ── モード定義（静的データのみ。関数参照は演出 lines のみ許容）──
   //   MODE_DEFS はモードの静的定義だけを持つ（state ではない）。値は全て既存
@@ -1941,6 +1986,9 @@
   //   wrongCount = このモーダルで失敗した回数（0のまま成功＝一発）。
   var activeNigekireTrial = null;
 
+  // 最終確認カットイン／最終確認画面で扱っている曜日キャラ key（タップ遷移の受け渡し用）。
+  var activeNigekireFinalChar = null;
+
   // 試練成功後に出すシステムメッセージ列（成功→一発→ランク更新）をまとめて出す。
   //   showSystemMessage は1枚しか出せないため、§17/§18/§20 を1メッセージに連結する。
   //   （キタコレの覚醒メッセージと同じく複数節を1枚に流し込む方式）
@@ -2079,6 +2127,12 @@
     m.passed = out.nextPassed;
     m.totalSuccess = out.nextTotalSuccess;
     m.firstTrySuccess = out.nextFirstTrySuccess;
+    // 節目の起点: 逃げ切りが3本目に到達した瞬間、最終確認カットインで出すキャラを
+    //   「その逃げ切った試練の曜日キャラ」に確定する（未設定のときだけ）。
+    //   既に3本以上/設定済みなら触らない。最終確認通過まで finalCheckDone は false のまま。
+    if (m.totalSuccess >= 3 && !m.finalCheckChar && t.char && t.char.key) {
+      m.finalCheckChar = t.char.key;
+    }
     saveState();
 
     // 記事チップ（逃げ切り済み表示）とヘッダーへ反映。
@@ -2093,6 +2147,113 @@
   function closeNigekireTrial() {
     activeNigekireTrial = null;
     if (els.kitacoreQuiz) els.kitacoreQuiz.classList.add('hidden');
+  }
+
+  // ---------------------------------------------------------------------------
+  // 節目イベント（最終確認）: カットイン → 最終確認画面 → 通過（§9/§10）。
+  //   キタコレのボスカットイン相当だが戦闘語彙は使わない。専用オーバーレイ #nigekire-cutin
+  //   / #nigekire-final を使う（キタコレのボス戦 DOM とは分離＝キタコレ無改変）。
+  // ---------------------------------------------------------------------------
+
+  // 最終確認カットイン（§9）。暗転・曜日キャラ縦カード大・キャラカラー発光枠・システム文・
+  //   [画面タップで最終確認へ]案内。画面（背景/カード）タップで最終確認画面へ進む。
+  function openNigekireFinalCutin(charKey) {
+    if (!els.nigekireCutin) return;
+    var ch = nigekireCharByKey(charKey);
+    if (!ch) return;
+    // 二重防御: 既に通過済みなら開かない。
+    var m = ensureMode('nigekire');
+    if (m.finalCheckDone) return;
+
+    if (els.nigekireCutinCard) {
+      els.nigekireCutinCard.style.borderColor = ch.color || '';
+      els.nigekireCutinCard.style.boxShadow = ch.color
+        ? '0 0 32px ' + ch.color + ', 0 0 12px ' + ch.color
+        : '';
+    }
+    if (els.nigekireCutinImg) {
+      // 画像は必ず専用定数から引く（後日の専用カットイン画像差し替えを1箇所で済ませるため）。
+      els.nigekireCutinImg.src = NIGEKIRE_CUTIN_IMG[charKey] || ('assets/ohakano/' + ch.img);
+      els.nigekireCutinImg.alt = ch.name;
+    }
+    if (els.nigekireCutinName) {
+      els.nigekireCutinName.textContent = ch.label + '｜' + ch.name;
+      els.nigekireCutinName.style.color = ch.color || '';
+    }
+    if (els.nigekireCutinLine) {
+      var line = NIGEKIRE_CUTIN_LINES[charKey] || ('〈' + ch.name + '〉が待っている。');
+      els.nigekireCutinLine.textContent = line;
+    }
+    // タップで進む先のキャラを覚えておく（オーバーレイの click ハンドラで参照）。
+    activeNigekireFinalChar = charKey;
+    els.nigekireCutin.classList.remove('hidden');
+  }
+
+  // カットインのタップ → 最終確認画面へ。
+  function onNigekireCutinTap() {
+    var charKey = activeNigekireFinalChar;
+    if (els.nigekireCutin) els.nigekireCutin.classList.add('hidden');
+    if (charKey) openNigekireFinalCheck(charKey);
+  }
+
+  // 最終確認画面（§10）。「○○の最終確認」＋キャラ別セリフ＋[確認を通過する]（クイズなし・儀式）。
+  function openNigekireFinalCheck(charKey) {
+    if (!els.nigekireFinal) return;
+    var ch = nigekireCharByKey(charKey);
+    if (!ch) return;
+    var m = ensureMode('nigekire');
+    if (m.finalCheckDone) return; // 二重防御
+
+    if (els.nigekireFinalTitle) {
+      els.nigekireFinalTitle.textContent = ch.name + 'の最終確認';
+      els.nigekireFinalTitle.style.color = ch.color || '';
+    }
+    if (els.nigekireFinalLine) {
+      var line = NIGEKIRE_FINAL_LINES[charKey] || NIGEKIRE_FINAL_TSUKIKO_LINE;
+      els.nigekireFinalLine.textContent = '「' + line + '」';
+    }
+    activeNigekireFinalChar = charKey;
+    els.nigekireFinal.classList.remove('hidden');
+  }
+
+  // 最終確認画面を閉じる。
+  function closeNigekireFinalCheck() {
+    if (els.nigekireFinal) els.nigekireFinal.classList.add('hidden');
+  }
+
+  // [確認を通過する]（§10通過後）。二重通過防止・生活ランク更新メッセージ・収集解放。
+  function passNigekireFinalCheck(charKey) {
+    var m = ensureMode('nigekire');
+    var pass = L.nigekirePassFinalCheck(m.finalCheckDone);
+    if (!pass.ok) { closeNigekireFinalCheck(); return; } // 既に通過済み
+
+    var ch = nigekireCharByKey(charKey) || nigekireCharByKey(m.finalCheckChar);
+    // 通過前後の生活ランク（収集数は変わらないので通常は同名。正史例文はランク更新を示すため
+    //   before→after の形式で出す。実際に上がっていなければ現ランク名のまま表示でよい）。
+    var totalCollected = L.nigekireTotalCollected(m.charCounts);
+    var lifeBefore = L.nigekireLifeRankV2(totalCollected, NIGEKIRE_LIFE_RANKS);
+    m.finalCheckDone = pass.nextFinalCheckDone;
+    saveState();
+    var lifeAfter = L.nigekireLifeRankV2(totalCollected, NIGEKIRE_LIFE_RANKS);
+
+    // §10通過後のシステムメッセージ（戦闘語彙・絵文字なし）。
+    var label = ch ? ch.label : '曜日';
+    var name = ch ? ch.name : '曜日担当';
+    var lines = [
+      '［ システム ］',
+      '',
+      label + '担当〈' + name + '〉の最終確認を通過しました。',
+      '',
+      'おはカノ生活ランクが更新されました。',
+      (lifeBefore.name || '---') + ' → ' + (lifeAfter.name || '---'),
+      '',
+      'キャラ名収集が解放されました。',
+    ];
+    closeNigekireFinalCheck();
+    // 再描画（最終確認見出しが消える）。ヘッダー・記事チップを更新してからメッセージ。
+    renderRoute();
+    updateReadStatsHeader();
+    showSystemMessage(lines);
   }
 
   // 一言チップのタップ回収 v2（+1・§10）。読了自動ではなくチップタップで回収する。
@@ -2414,6 +2575,23 @@
     kitacoreBattle: document.getElementById('kitacore-battle'),
     kitacoreBattleImg: document.getElementById('kitacore-battle-img'),
     kitacoreBattleText: document.getElementById('kitacore-battle-text'),
+
+    // ニゲキレ 節目イベント（最終確認）オーバーレイ ＆ debug（キタコレ DOM とは分離）。
+    nigekireCutin: document.getElementById('nigekire-cutin'),
+    nigekireCutinCard: document.getElementById('nigekire-cutin-card'),
+    nigekireCutinImg: document.getElementById('nigekire-cutin-img'),
+    nigekireCutinName: document.getElementById('nigekire-cutin-name'),
+    nigekireCutinLine: document.getElementById('nigekire-cutin-line'),
+    nigekireFinal: document.getElementById('nigekire-final'),
+    nigekireFinalTitle: document.getElementById('nigekire-final-title'),
+    nigekireFinalLine: document.getElementById('nigekire-final-line'),
+    nigekireFinalPass: document.getElementById('nigekire-final-pass'),
+    nigekireDebugBtns: document.getElementById('nigekire-debug-btns'),
+    nigekireDebugAddAll: document.getElementById('nigekire-debug-add-all'),
+    nigekireDebugAddTsukiko: document.getElementById('nigekire-debug-add-tsukiko'),
+    nigekireDebugOver200: document.getElementById('nigekire-debug-over200'),
+    nigekireDebugEscape: document.getElementById('nigekire-debug-escape'),
+    nigekireDebugClear: document.getElementById('nigekire-debug-clear'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -3288,7 +3466,12 @@
 
     if (els.kitacoreRankArea) els.kitacoreRankArea.classList.remove('hidden');
     if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
+    // キタコレ用 debug は常に隠す（排他）。ニゲキレ用は下で ?debug=1 のとき出す。
     if (els.debugBtns) els.debugBtns.classList.add('hidden');
+
+    // ニゲキレ用 debug ボタン群: ?debug=1 かつ 記事取得済み のときだけ表示（キタコレと同方式・排他）。
+    var hasArticles = c && (state.articlesByCreator[c.id] || []).length > 0;
+    if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.toggle('hidden', !(DEBUG_MODE && hasArticles));
 
     var m = ensureMode('nigekire');
     // v2：進行は「7人の一言チップ収集数の合計」。生活ランク・ゲージ・最推しは全て収集数ベース。
@@ -3301,6 +3484,9 @@
     //   バッジ1個に「おはカノ生活ランク ○○」を入れる。クラスも同じ .kitacore-rank-text（button）。
     //   タップで詳細カード（称号名だけがタップ領域・§4 操作統一）。
     els.kitacoreStats.innerHTML = '';
+    // ニゲキレは上部を縦積みにする（§6：ランク→逃げ切り記録→節目見出し）。
+    //   キタコレの stats は横並び flex なので、ニゲキレ時だけ is-nigekire で縦積みへ切り替える。
+    els.kitacoreStats.classList.add('is-nigekire');
     var rank = document.createElement('button');
     rank.type = 'button';
     rank.className = 'kitacore-rank-text rank-' + (life.key || 'nigekire');
@@ -3314,6 +3500,56 @@
       topEl.textContent = '最推し ' + top.label + '｜' + top.name;
       if (top.color) topEl.style.color = top.color;
       els.kitacoreStats.appendChild(topEl);
+    }
+
+    // 逃げ切り記録行（§6・ゲージとは別行・絵文字を使わない）。「逃げ切り記録 n / 3」。
+    var esc = L.nigekireEscapeRecord(m.totalSuccess, m.finalCheckDone);
+    var recEl = document.createElement('div');
+    recEl.className = 'nigekire-escape-record';
+    recEl.textContent = '逃げ切り記録 ' + esc.count + ' / ' + esc.need;
+    els.kitacoreStats.appendChild(recEl);
+
+    // 最終確認見出し（§8）。ready（3/3 かつ未通過）のときだけ表示。done なら出さない。
+    //   キタコレのボス見出し（サムネ＋info＋pillボタン）と同型の節目カードにする（§7 相当表）。
+    //   戦闘語彙は使わず、色はキャラカラーにする。
+    if (esc.ready) {
+      var fchar = nigekireCharByKey(m.finalCheckChar);
+      var fname = fchar ? fchar.name : '曜日担当';
+      var head = document.createElement('div');
+      head.className = 'nigekire-final-head';
+
+      // サムネ（曜日キャラの立ち絵・キタコレの kitacore-boss-thumb 相当）。
+      var fthumb = document.createElement('div');
+      fthumb.className = 'nigekire-final-head-thumb';
+      if (fchar) {
+        var fimg = document.createElement('img');
+        fimg.src = 'assets/ohakano/' + fchar.img;
+        fimg.alt = fname;
+        fimg.loading = 'lazy';
+        fthumb.appendChild(fimg);
+      }
+
+      // 情報カラム（label／本文／pillボタン）。
+      var finfo = document.createElement('div');
+      finfo.className = 'nigekire-final-head-info';
+      var hTitle = document.createElement('div');
+      hTitle.className = 'nigekire-final-head-title';
+      hTitle.textContent = '最終確認';
+      var hBody = document.createElement('div');
+      hBody.className = 'nigekire-final-head-body';
+      hBody.textContent = fchar ? (fchar.label + '担当 ' + fname + 'が待っています') : (fname + 'が待っています');
+      var hBtn = document.createElement('button');
+      hBtn.type = 'button';
+      hBtn.className = 'nigekire-final-head-btn';
+      hBtn.textContent = '言い訳する';
+      hBtn.addEventListener('click', function () { openNigekireFinalCutin(m.finalCheckChar); });
+      finfo.appendChild(hTitle);
+      finfo.appendChild(hBody);
+      finfo.appendChild(hBtn);
+
+      head.appendChild(fthumb);
+      head.appendChild(finfo);
+      els.kitacoreStats.appendChild(head);
     }
 
     // 下段: 1本ゲージ（§5/§6）。塗り=次ランク進行率(pct)・ラベル=オーバー値表示(実数/200)。
@@ -3343,6 +3579,8 @@
     var c = getSelectedCreator();
     var on = c && activeModeKey(c.id) === 'kitacore' && isModeOn(c.id);
     if (els.kitacoreRankArea) els.kitacoreRankArea.classList.toggle('hidden', !on);
+    // ニゲキレ用 debug ボタンはキタコレ描画中は常に隠す（排他・キタコレ挙動は無改変）。
+    if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.add('hidden');
     if (!on) {
       if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
       if (els.debugBtns) els.debugBtns.classList.add('hidden');
@@ -3489,6 +3727,8 @@
   //   badgeText/badgeKey = ランクバッジ。barCur/barMax/barText = 進捗バー。
   function paintKitacoreHeader(badgeText, badgeKey, barCur, barMax, barText) {
     els.kitacoreStats.innerHTML = '';
+    // キタコレは横並び stats（ニゲキレの縦積みクラスが残っていたら外す）。
+    els.kitacoreStats.classList.remove('is-nigekire');
     // ランクバッジ＝ボタン。タップで詳細カード（称号名だけがタップ領域・§9操作統一）。
     var rank = document.createElement('button');
     rank.type = 'button';
@@ -4631,6 +4871,93 @@
         if (e.key === 'Enter') authPlayer();
       });
     }
+
+    // ── ニゲキレ 節目イベント（最終確認）の配線（キタコレ DOM とは分離）──
+    //   カットイン：画面（背景/カード）タップで最終確認画面へ。
+    if (els.nigekireCutin) {
+      els.nigekireCutin.addEventListener('click', onNigekireCutinTap);
+    }
+    //   最終確認：[確認を通過する]で通過処理（active char を渡す）。
+    if (els.nigekireFinalPass) {
+      els.nigekireFinalPass.addEventListener('click', function () {
+        passNigekireFinalCheck(activeNigekireFinalChar);
+      });
+    }
+
+    // ── ニゲキレ DEBUG（?debug=1・記事取得済み・activeModeKey==='nigekire' のときだけ表示）──
+    //   全ボタン activeModeKey==='nigekire' ガード・ensureMode('nigekire')経由・saveState・再描画。
+    //   キタコレの debug ボタンとは別 DOM・別ハンドラ（キタコレ挙動は無改変）。
+    if (els.nigekireDebugAddAll) {
+      els.nigekireDebugAddAll.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        NIGEKIRE_CHARACTERS.forEach(function (ch) {
+          m.charCounts[ch.key] = (typeof m.charCounts[ch.key] === 'number' ? m.charCounts[ch.key] : 0) + 5;
+        });
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    if (els.nigekireDebugAddTsukiko) {
+      els.nigekireDebugAddTsukiko.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        m.charCounts.tsukiko = (typeof m.charCounts.tsukiko === 'number' ? m.charCounts.tsukiko : 0) + 5;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    if (els.nigekireDebugOver200) {
+      els.nigekireDebugOver200.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        // 合計 > 200 になるよう注入（月子に多め・他は据え置き）。オーバー値 255/200 の確認用。
+        m.charCounts.tsukiko = 255;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    if (els.nigekireDebugEscape) {
+      els.nigekireDebugEscape.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        m.totalSuccess = (typeof m.totalSuccess === 'number' ? m.totalSuccess : 0) + 1;
+        // 3本到達で最終確認見出しが出るよう、未設定なら曜日キャラを暫定確定（月曜=月子）。
+        if (m.totalSuccess >= 3 && !m.finalCheckChar) {
+          m.finalCheckChar = NIGEKIRE_CHARACTERS[0].key; // tsukiko（月曜）
+        }
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    if (els.nigekireDebugClear) {
+      els.nigekireDebugClear.addEventListener('click', function () {
+        if (!window.confirm('ニゲキレの進行データ（収集・逃げ切り・最終確認）をすべてクリアします。よろしいですか？')) return;
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        m.charCounts = {};
+        m.counts = {};
+        m.collected = {};
+        m.passed = {};
+        m.totalSuccess = 0;
+        m.firstTrySuccess = 0;
+        m.finalCheckDone = false;
+        m.finalCheckChar = null;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
     checkVersionUpdate();
