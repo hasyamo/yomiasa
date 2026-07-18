@@ -2311,6 +2311,14 @@ button.kitacore-rank-text:focus-visible {
   color: var(--ink-subtle);
   background: var(--surface-alt);
 }
+/* 収集ロック（初期試練 最終確認 通過前）＝薄いグレーの非活性（戦闘語彙／絵文字なし） */
+.nigekire-chip.is-locked {
+  cursor: default;
+  opacity: 0.5;
+  color: var(--ink-subtle);
+  background: var(--surface-alt);
+  border-style: dashed;
+}
 
 /* ── 詳細カード（7人カルーセル）。共有の暗いランクカード窓内＝明色固定 ── */
 .nigekire-card-summary {

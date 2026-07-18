@@ -724,6 +724,95 @@
     return { ok: true, nextFinalCheckDone: true };
   }
 
+  // ===========================================================================
+  // ニゲキレ 通過ベースランク 純ロジック（rankStage・§10-2）
+  //   参照: nigekire-final-check-spec.md §10-2 / answer-final-check-rank-update.md
+  //   ランクは「収集数の自動判定」ではなく「通過した節目の数（rankStage 0〜4）」で
+  //   決まる（キタコレの撃破ベース準拠）。収集数は次の節目を出すトリガーにすぎない。
+  //   既存の nigekireLifeRankV2 / nigekirePassFinalCheck は非破壊で残す。
+  // ===========================================================================
+
+  // 通過ベースのランク名解決（§10-2）。
+  //   rankStage（0〜4）を ranks[rankStage] にマップして {stage,name,key} を返す。
+  //   ranks = [{stage,min,name,key}, ...]（5要素・index0=言い訳見習い…index4=管理人）。
+  //   範囲外は 0〜(ranks.length-1) にクランプ。非数は 0 扱い。
+  //   ranks 空/不正は {stage:0, name:'', key:''}。副作用なし。
+  function nigekireRankByStage(rankStage, ranks) {
+    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '', key: '' };
+    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
+    if (s < 0) s = 0;
+    if (s > ranks.length - 1) s = ranks.length - 1;
+    var r = ranks[s];
+    if (!r || typeof r !== 'object') return { stage: 0, name: '', key: '' };
+    return {
+      stage: typeof r.stage === 'number' ? r.stage : 0,
+      name: typeof r.name === 'string' ? r.name : '',
+      key: typeof r.key === 'string' ? r.key : '',
+    };
+  }
+
+  // 次の節目（最終確認見出し）を出すべきか判定（§10-2・通過ベース）。
+  //   rankStage 0: ready = totalSuccess >= 3（初期試練の逃げ切り記録）。needCollected=null。
+  //   rankStage 1: ready = totalCollected >= ranks[2].min（=70）。needCollected=ranks[2].min。
+  //   rankStage 2: ready = totalCollected >= ranks[3].min（=120）。needCollected=ranks[3].min。
+  //   rankStage 3: ready = totalCollected >= ranks[4].min（=200）。needCollected=ranks[4].min。
+  //   rankStage 4: ready=false（最終・もう節目なし）。needCollected=null。
+  //   閾値は ranks の min を使う（ハードコードしない）。副作用なし。
+  function nigekireFinalCheckReady(rankStage, totalSuccess, totalCollected, ranks) {
+    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
+    var ts = typeof totalSuccess === 'number' && isFinite(totalSuccess) ? totalSuccess : 0;
+    var tc = typeof totalCollected === 'number' && isFinite(totalCollected) ? totalCollected : 0;
+    if (s <= 0) {
+      return { ready: ts >= 3, needCollected: null };
+    }
+    // rankStage 1〜3 は次段（ranks[s+1]）の min を閾値に使う。
+    if (Array.isArray(ranks) && s >= 1 && s <= 3) {
+      var next = ranks[s + 1];
+      var need = next && typeof next.min === 'number' ? next.min : Infinity;
+      return { ready: tc >= need, needCollected: need };
+    }
+    // rankStage 4（最終）以降は節目なし。
+    return { ready: false, needCollected: null };
+  }
+
+  // 節目通過で rankStage を 1 上げる（§10-2・通過ベース）。
+  //   最大は ranks 最終 index（=4）。既に 4 なら {ok:false}（これ以上上がらない）。
+  //   未到達なら {ok:true, nextRankStage: rankStage+1}。非破壊。
+  //   旧 nigekirePassFinalCheck(finalCheckDone) は残す（消さない）が、これが新版。
+  function nigekirePassFinalCheckV2(rankStage) {
+    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
+    if (s < 0) s = 0;
+    if (s >= 4) return { ok: false }; // 最終ランク・これ以上上がらない
+    return { ok: true, nextRankStage: s + 1 };
+  }
+
+  // 節目に立つキャラの選定（§10-2・ジュリ確定 selectFinalCheckCharacter の JS移植）。
+  //   その時点で最多収集のキャラを返す。同数タイブレーク:
+  //     1. 直近収集キャラ（lastCollectedChar）が候補にいれば優先。
+  //     2. でなければ characterOrder（曜日順）で先頭の候補。
+  //   charCounts 空/不正なら characterOrder[0]（tsukiko）。
+  //   characterOrder 空/不正なら '' を返す。副作用なし。
+  function selectFinalCheckChar(charCounts, characterOrder, lastCollectedChar) {
+    var order = Array.isArray(characterOrder) ? characterOrder : [];
+    if (order.length === 0) return '';
+    var cc = charCounts && typeof charCounts === 'object' ? charCounts : {};
+    // 各キャラの収集数（非数は0）で最大値を求める。空/全0でも max=0。
+    var max = 0;
+    for (var i = 0; i < order.length; i++) {
+      var n = typeof cc[order[i]] === 'number' ? cc[order[i]] : 0;
+      if (n > max) max = n;
+    }
+    var candidates = order.filter(function (id) {
+      var v = typeof cc[id] === 'number' ? cc[id] : 0;
+      return v === max;
+    });
+    if (candidates.length === 0) return order[0];
+    if (lastCollectedChar && candidates.indexOf(lastCollectedChar) !== -1) {
+      return lastCollectedChar;
+    }
+    return candidates[0];
+  }
+
   // ---------------------------------------------------------------------------
   // クリエイター削除時のモード state 掃除（純関数・非破壊）
   //   app.js deleteCreator の副作用ロジックを切り出したもの。挙動を1バイトも変えない。
@@ -844,6 +933,11 @@
     nigekireCardStage: nigekireCardStage,
     nigekireEscapeRecord: nigekireEscapeRecord,
     nigekirePassFinalCheck: nigekirePassFinalCheck,
+    // ---- ニゲキレ 通過ベースランク（rankStage・§10-2） ----
+    nigekireRankByStage: nigekireRankByStage,
+    nigekireFinalCheckReady: nigekireFinalCheckReady,
+    nigekirePassFinalCheckV2: nigekirePassFinalCheckV2,
+    selectFinalCheckChar: selectFinalCheckChar,
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,

@@ -1310,3 +1310,171 @@ test('nigekirePassFinalCheck: 非破壊（引数はプリミティブ・状態�
   assert.strictEqual(done, false); // 入力そのまま
   assert.strictEqual(out.nextFinalCheckDone, true);
 });
+
+// ---------------------------------------------------------------------------
+// J群: ニゲキレ 通過ベースランク（rankStage・§10-2）
+//   ランクは「収集数の自動判定」→「通過した節目の数（rankStage 0〜4）」で決まる。
+//   閾値は ranks の min 由来（70/120/200 をハードコードしない）。
+//   確定値: selectFinalCheckCharacter（answer-final-check-rank-update.md）。
+// ---------------------------------------------------------------------------
+
+// J群で使う曜日順キャラリスト（§10-2）
+const NIGEKIRE_CHAR_ORDER = ['tsukiko', 'you', 'shizuku', 'rinka', 'runa', 'mahiru', 'hiyori'];
+
+// ---- J1: nigekireRankByStage（通過段→ランク名） ----
+
+test('nigekireRankByStage: 0 → 言い訳見習い/nige1', () => {
+  const out = L.nigekireRankByStage(0, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.name, '言い訳見習い');
+  assert.strictEqual(out.key, 'nige1');
+});
+
+test('nigekireRankByStage: 1 → 生活防衛中/nige2', () => {
+  const out = L.nigekireRankByStage(1, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.name, '生活防衛中');
+  assert.strictEqual(out.key, 'nige2');
+});
+
+test('nigekireRankByStage: 4 → おはカノ生活管理人/nige5（最終段）', () => {
+  const out = L.nigekireRankByStage(4, NIGEKIRE_LIFE_RANKS_V2);
+  assert.strictEqual(out.name, 'おはカノ生活管理人');
+  assert.strictEqual(out.key, 'nige5');
+});
+
+test('nigekireRankByStage: 範囲外は 0〜(length-1) にクランプ（5→4, -1→0）', () => {
+  assert.strictEqual(L.nigekireRankByStage(5, NIGEKIRE_LIFE_RANKS_V2).key, 'nige5'); // index4へ
+  assert.strictEqual(L.nigekireRankByStage(99, NIGEKIRE_LIFE_RANKS_V2).key, 'nige5');
+  assert.strictEqual(L.nigekireRankByStage(-1, NIGEKIRE_LIFE_RANKS_V2).key, 'nige1'); // index0へ
+});
+
+test('nigekireRankByStage: 非数は 0 扱い（先頭段）', () => {
+  assert.strictEqual(L.nigekireRankByStage('x', NIGEKIRE_LIFE_RANKS_V2).key, 'nige1');
+  assert.strictEqual(L.nigekireRankByStage(undefined, NIGEKIRE_LIFE_RANKS_V2).key, 'nige1');
+});
+
+test('nigekireRankByStage: 空/不正 ranks は stage0/name空/key空', () => {
+  assert.deepStrictEqual(L.nigekireRankByStage(1, []), { stage: 0, name: '', key: '' });
+  assert.deepStrictEqual(L.nigekireRankByStage(1, null), { stage: 0, name: '', key: '' });
+});
+
+// ---- J2: nigekireFinalCheckReady（次の節目を出すべきか・閾値は ranks.min 由来） ----
+
+test('nigekireFinalCheckReady: rankStage 0 は totalSuccess>=3（初期試練・2/3は not ready）', () => {
+  const R = NIGEKIRE_LIFE_RANKS_V2;
+  assert.deepStrictEqual(
+    L.nigekireFinalCheckReady(0, 2, 999, R),
+    { ready: false, needCollected: null }
+  );
+  assert.deepStrictEqual(
+    L.nigekireFinalCheckReady(0, 3, 0, R),
+    { ready: true, needCollected: null }
+  );
+});
+
+test('nigekireFinalCheckReady: rankStage 1 は総収集>=ranks[2].min（69/70境界）', () => {
+  const R = NIGEKIRE_LIFE_RANKS_V2;
+  assert.strictEqual(R[2].min, 70); // 閾値は ranks 由来
+  assert.deepStrictEqual(
+    L.nigekireFinalCheckReady(1, 0, 69, R),
+    { ready: false, needCollected: 70 }
+  );
+  assert.deepStrictEqual(
+    L.nigekireFinalCheckReady(1, 0, 70, R),
+    { ready: true, needCollected: 70 }
+  );
+});
+
+test('nigekireFinalCheckReady: rankStage 2 は総収集>=ranks[3].min（119/120境界）', () => {
+  const R = NIGEKIRE_LIFE_RANKS_V2;
+  assert.strictEqual(R[3].min, 120);
+  assert.strictEqual(L.nigekireFinalCheckReady(2, 0, 119, R).ready, false);
+  assert.strictEqual(L.nigekireFinalCheckReady(2, 0, 119, R).needCollected, 120);
+  assert.strictEqual(L.nigekireFinalCheckReady(2, 0, 120, R).ready, true);
+});
+
+test('nigekireFinalCheckReady: rankStage 3 は総収集>=ranks[4].min（199/200境界）', () => {
+  const R = NIGEKIRE_LIFE_RANKS_V2;
+  assert.strictEqual(R[4].min, 200);
+  assert.strictEqual(L.nigekireFinalCheckReady(3, 0, 199, R).ready, false);
+  assert.strictEqual(L.nigekireFinalCheckReady(3, 0, 199, R).needCollected, 200);
+  assert.strictEqual(L.nigekireFinalCheckReady(3, 0, 200, R).ready, true);
+});
+
+test('nigekireFinalCheckReady: rankStage 4 は常に ready false（最終・節目なし）', () => {
+  const R = NIGEKIRE_LIFE_RANKS_V2;
+  assert.deepStrictEqual(
+    L.nigekireFinalCheckReady(4, 999, 9999, R),
+    { ready: false, needCollected: null }
+  );
+});
+
+// ---- J3: nigekirePassFinalCheckV2（節目通過で rankStage+1・最終で止まる・非破壊） ----
+
+test('nigekirePassFinalCheckV2: 0 → {ok:true, nextRankStage:1}', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV2(0), { ok: true, nextRankStage: 1 });
+});
+
+test('nigekirePassFinalCheckV2: 3 → {ok:true, nextRankStage:4}', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV2(3), { ok: true, nextRankStage: 4 });
+});
+
+test('nigekirePassFinalCheckV2: 4 → {ok:false}（最終で止まる・これ以上上がらない）', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV2(4), { ok: false });
+});
+
+test('nigekirePassFinalCheckV2: 非破壊（引数プリミティブを書き換えない）', () => {
+  var s = 2;
+  var out = L.nigekirePassFinalCheckV2(s);
+  assert.strictEqual(s, 2); // 入力そのまま
+  assert.strictEqual(out.nextRankStage, 3);
+});
+
+// ---- J4: selectFinalCheckChar（節目キャラ選定・ジュリ確定・タイブレーク） ----
+
+test('selectFinalCheckChar: 単独最多 → そのキャラ（tsukiko:5,you:3 → tsukiko）', () => {
+  assert.strictEqual(
+    L.selectFinalCheckChar({ tsukiko: 5, you: 3 }, NIGEKIRE_CHAR_ORDER, null),
+    'tsukiko'
+  );
+});
+
+test('selectFinalCheckChar: 同数で lastCollectedChar 優先（tsukiko:5,you:5,last=you → you）', () => {
+  assert.strictEqual(
+    L.selectFinalCheckChar({ tsukiko: 5, you: 5 }, NIGEKIRE_CHAR_ORDER, 'you'),
+    'you'
+  );
+});
+
+test('selectFinalCheckChar: 同数で last なし → 曜日順で先頭（tsukiko:5,you:5 → tsukiko）', () => {
+  assert.strictEqual(
+    L.selectFinalCheckChar({ tsukiko: 5, you: 5 }, NIGEKIRE_CHAR_ORDER, null),
+    'tsukiko'
+  );
+});
+
+test('selectFinalCheckChar: last が候補外なら曜日順先頭（tsukiko:5,you:5,last=shizuku → tsukiko）', () => {
+  assert.strictEqual(
+    L.selectFinalCheckChar({ tsukiko: 5, you: 5 }, NIGEKIRE_CHAR_ORDER, 'shizuku'),
+    'tsukiko'
+  );
+});
+
+test('selectFinalCheckChar: 全0（max=0・全員候補）→ 曜日順先頭 tsukiko', () => {
+  assert.strictEqual(
+    L.selectFinalCheckChar(
+      { tsukiko: 0, you: 0, shizuku: 0, rinka: 0, runa: 0, mahiru: 0, hiyori: 0 },
+      NIGEKIRE_CHAR_ORDER,
+      null
+    ),
+    'tsukiko'
+  );
+});
+
+test('selectFinalCheckChar: 空 charCounts → 曜日順先頭 tsukiko', () => {
+  assert.strictEqual(L.selectFinalCheckChar({}, NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
+});
+
+test('selectFinalCheckChar: 不正 charCounts（null/非オブジェクト）→ tsukiko', () => {
+  assert.strictEqual(L.selectFinalCheckChar(null, NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
+  assert.strictEqual(L.selectFinalCheckChar('x', NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
+});

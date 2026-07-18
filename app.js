@@ -111,9 +111,17 @@
       if (!m.passed || typeof m.passed !== 'object') m.passed = {};             // { [articleId]: true } 試練通過
       if (typeof m.totalSuccess !== 'number') m.totalSuccess = 0;               // 総ニゲキレ成功数（逃げ切り数）
       if (typeof m.firstTrySuccess !== 'number') m.firstTrySuccess = 0;         // 一発成功数
-      // ── 節目イベント（最終確認）──
-      if (typeof m.finalCheckDone !== 'boolean') m.finalCheckDone = false;      // 最終確認を通過したか（節目1回きり・収集解放フラグ）
-      if (m.finalCheckChar !== null && typeof m.finalCheckChar !== 'string') m.finalCheckChar = null; // 最終確認カットインで出すキャラkey（3本到達時に確定）
+      // ── 節目イベント（最終確認・通過ベース §10-2）──
+      //   rankStage = 通過した節目の数（0〜4）＝現ランク段。ランク名の源泉（収集数ではない）。
+      if (typeof m.rankStage !== 'number' || !isFinite(m.rankStage)) m.rankStage = 0;
+      else {
+        m.rankStage = Math.floor(m.rankStage);
+        if (m.rankStage < 0) m.rankStage = 0;
+        if (m.rankStage > 4) m.rankStage = 4;
+      }
+      if (m.lastCollectedChar !== null && typeof m.lastCollectedChar !== 'string') m.lastCollectedChar = null; // 直近収集キャラkey（節目キャラ選定のタイブレーク用）
+      if (typeof m.finalCheckDone !== 'boolean') m.finalCheckDone = false;      // 互換のため残置（通過判定には rankStage を使う・これは見ない）
+      if (m.finalCheckChar !== null && typeof m.finalCheckChar !== 'string') m.finalCheckChar = null; // 今出ている節目のキャラkey（都度セット）
       // 旧 charPoints（v1 ポイント制）は残っていても無害（v2 では使わない）。初期化はしない。
     }
     return m;
@@ -229,6 +237,10 @@
     map[ch.name] = ch.key;
     return map;
   }, {});
+
+  // 節目キャラ選定（selectFinalCheckChar）に渡す曜日順の key 配列（同数タイブレーク用）。
+  //   = ['tsukiko','you','shizuku','rinka','runa','mahiru','hiyori']（NIGEKIRE_CHARACTERS の key 順）。
+  var NIGEKIRE_CHAR_ORDER = NIGEKIRE_CHARACTERS.map(function (ch) { return ch.key; });
 
   // 生活ランク（総収集数判定・5段階・§10.4）。min 昇順。logic.js の nigekireLifeRankV2 に渡す。
   //   v2：最終段（min:200・key nige5）を追加。totalCollected=7人の収集数合算。
@@ -782,10 +794,11 @@
     el.classList.add('nigekire-card');
 
     var m = ensureMode('nigekire');
-    // v2：収集数ベース。生活ランク＝総収集数の5段階。キャラ別カードは charCounts で育つ。
+    // v2：ランクは通過ベース（rankStage・§10-2）。収集数は次の節目トリガーで、ランク名は決めない。
+    //   キャラ別カードは charCounts で育つ（収集数表示は別途 totalCollected）。
     var counts = m.charCounts && typeof m.charCounts === 'object' ? m.charCounts : {};
     var totalCollected = L.nigekireTotalCollected(counts);
-    var life = L.nigekireLifeRankV2(totalCollected, NIGEKIRE_LIFE_RANKS);
+    var life = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
     var totalSuccess = typeof m.totalSuccess === 'number' ? m.totalSuccess : 0;
     var firstTry = typeof m.firstTrySuccess === 'number' ? m.firstTrySuccess : 0;
 
@@ -2127,10 +2140,10 @@
     m.passed = out.nextPassed;
     m.totalSuccess = out.nextTotalSuccess;
     m.firstTrySuccess = out.nextFirstTrySuccess;
-    // 節目の起点: 逃げ切りが3本目に到達した瞬間、最終確認カットインで出すキャラを
-    //   「その逃げ切った試練の曜日キャラ」に確定する（未設定のときだけ）。
-    //   既に3本以上/設定済みなら触らない。最終確認通過まで finalCheckDone は false のまま。
-    if (m.totalSuccess >= 3 && !m.finalCheckChar && t.char && t.char.key) {
+    // 節目の起点: 初期試練フェーズ（rankStage 0）で逃げ切りが3本目に到達した瞬間、
+    //   最終確認カットインで出すキャラを「その逃げ切った試練の曜日キャラ」に確定する。
+    //   rankStage>=1（初期試練通過済み）では逃げ切り記録は関係ない（触らない）。
+    if (m.rankStage < 1 && m.totalSuccess >= 3 && !m.finalCheckChar && t.char && t.char.key) {
       m.finalCheckChar = t.char.key;
     }
     saveState();
@@ -2161,9 +2174,9 @@
     if (!els.nigekireCutin) return;
     var ch = nigekireCharByKey(charKey);
     if (!ch) return;
-    // 二重防御: 既に通過済みなら開かない。
+    // 二重防御: 最終ランク（rankStage 4・もう節目なし）なら開かない。
     var m = ensureMode('nigekire');
-    if (m.finalCheckDone) return;
+    if (m.rankStage >= 4) return;
 
     if (els.nigekireCutinCard) {
       els.nigekireCutinCard.style.borderColor = ch.color || '';
@@ -2202,7 +2215,7 @@
     var ch = nigekireCharByKey(charKey);
     if (!ch) return;
     var m = ensureMode('nigekire');
-    if (m.finalCheckDone) return; // 二重防御
+    if (m.rankStage >= 4) return; // 二重防御（最終ランク・節目なし）
 
     if (els.nigekireFinalTitle) {
       els.nigekireFinalTitle.textContent = ch.name + 'の最終確認';
@@ -2221,20 +2234,21 @@
     if (els.nigekireFinal) els.nigekireFinal.classList.add('hidden');
   }
 
-  // [確認を通過する]（§10通過後）。二重通過防止・生活ランク更新メッセージ・収集解放。
+  // [確認を通過する]（§10通過後・通過ベース §10-2）。節目を通過して rankStage を1段上げる。
+  //   通過前後で必ずランク名が A→B に変わる（「生活防衛中→生活防衛中」の嘘表示が消える）。
+  //   二重通過防止は nigekirePassFinalCheckV2（rankStage 4 で ok:false）に委ねる。
   function passNigekireFinalCheck(charKey) {
     var m = ensureMode('nigekire');
-    var pass = L.nigekirePassFinalCheck(m.finalCheckDone);
-    if (!pass.ok) { closeNigekireFinalCheck(); return; } // 既に通過済み
+    var out = L.nigekirePassFinalCheckV2(m.rankStage);
+    if (!out.ok) { closeNigekireFinalCheck(); return; } // 最終ランク・これ以上上がらない
 
     var ch = nigekireCharByKey(charKey) || nigekireCharByKey(m.finalCheckChar);
-    // 通過前後の生活ランク（収集数は変わらないので通常は同名。正史例文はランク更新を示すため
-    //   before→after の形式で出す。実際に上がっていなければ現ランク名のまま表示でよい）。
-    var totalCollected = L.nigekireTotalCollected(m.charCounts);
-    var lifeBefore = L.nigekireLifeRankV2(totalCollected, NIGEKIRE_LIFE_RANKS);
-    m.finalCheckDone = pass.nextFinalCheckDone;
+    // 通過前後の生活ランク（rankStage ベース）。通過で必ず1段上がる＝A→B で変わる。
+    var lifeBefore = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
+    var wasInitial = m.rankStage < 1; // 初期試練の通過（0→1）＝収集解放
+    m.rankStage = out.nextRankStage;
     saveState();
-    var lifeAfter = L.nigekireLifeRankV2(totalCollected, NIGEKIRE_LIFE_RANKS);
+    var lifeAfter = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
 
     // §10通過後のシステムメッセージ（戦闘語彙・絵文字なし）。
     var label = ch ? ch.label : '曜日';
@@ -2246,11 +2260,14 @@
       '',
       'おはカノ生活ランクが更新されました。',
       (lifeBefore.name || '---') + ' → ' + (lifeAfter.name || '---'),
-      '',
-      'キャラ名収集が解放されました。',
     ];
+    // 初期試練の通過（0→1）でだけ収集解放を告知する。以降の節目は解放済みなので出さない。
+    if (wasInitial) {
+      lines.push('');
+      lines.push('キャラ名収集が解放されました。');
+    }
     closeNigekireFinalCheck();
-    // 再描画（最終確認見出しが消える）。ヘッダー・記事チップを更新してからメッセージ。
+    // 再描画（最終確認見出しが消える・ランク更新）。ヘッダー・記事チップを更新してからメッセージ。
     renderRoute();
     updateReadStatsHeader();
     showSystemMessage(lines);
@@ -2262,23 +2279,21 @@
   //   生活ランクが上がったら §20 更新メッセージを続けて出す。
   function nigekireCollect(articleId) {
     var m = ensureMode('nigekire');
-    // 回収前の生活ランク（総収集数ベース）を控える＝更新判定に使う。
-    var lifeBefore = L.nigekireLifeRankV2(L.nigekireTotalCollected(m.charCounts), NIGEKIRE_LIFE_RANKS);
+    // 収集ロック（正史 §10-2）: 初期試練の最終確認を通過（rankStage>=1）して初めて解放。
+    if (m.rankStage < 1) return; // 未通過（初期試練フェーズ）＝回収拒否
     var out = L.nigekireCollectV2(m.counts, m.collected, m.charCounts, articleId);
     if (!out.ok) return; // 未検出 / 二重取り防止（回収済み）
     m.collected = out.nextCollected;
     m.charCounts = out.nextCharCounts;
+    m.lastCollectedChar = out.charKey; // 節目キャラ選定のタイブレーク用（直近収集）
     saveState();
     renderArticles();
-    updateReadStatsHeader();
+    updateReadStatsHeader(); // 節目トリガー到達時はここで見出しが出る（renderNigekireHeader）
 
     var char = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === out.charKey; })[0];
-    var lifeAfter = L.nigekireLifeRankV2(L.nigekireTotalCollected(m.charCounts), NIGEKIRE_LIFE_RANKS);
-    var rankUpdated = lifeAfter.key !== lifeBefore.key;
-    // 収集モーダル（§17-1）。ランク更新時は §20 を連結。
+    // 収集モーダル（§17-1）。ランクは通過ベースなので収集ではランク更新メッセージを出さない。
     linesModeKey = 'nigekire';
     var lines = nigekireCollectLines(char);
-    if (rankUpdated) lines = lines.concat(nigekireRankUpdateLines(lifeAfter.name));
     linesModeKey = null;
     showSystemMessage(lines);
   }
@@ -2591,6 +2606,7 @@
     nigekireDebugAddTsukiko: document.getElementById('nigekire-debug-add-tsukiko'),
     nigekireDebugOver200: document.getElementById('nigekire-debug-over200'),
     nigekireDebugEscape: document.getElementById('nigekire-debug-escape'),
+    nigekireDebugPass: document.getElementById('nigekire-debug-pass'),
     nigekireDebugClear: document.getElementById('nigekire-debug-clear'),
   };
 
@@ -3390,16 +3406,25 @@
         if (cchar) {
           var cLabel = cchar.label + '｜' + cchar.name;
           var already = !!(nm.collected && nm.collected[article.id]);
+          // 収集ロック（正史 §10-2）: 初期試練の最終確認 通過前（rankStage<1）は回収不可。
+          var locked = (typeof nm.rankStage === 'number' ? nm.rankStage : 0) < 1;
           var chip = document.createElement('button');
           chip.type = 'button';
-          chip.className = 'nigekire-chip' + (already ? ' is-done' : '');
-          chip.textContent = already ? cLabel + ' 回収済み' : cLabel + ' 一言チップ';
-          chip.disabled = already;
-          if (cchar.color) chip.style.borderColor = cchar.color;
-          if (!already) {
-            chip.addEventListener('click', function () {
-              nigekireCollect(article.id);
-            });
+          if (locked && !already) {
+            // 非活性表示（薄いグレー・戦闘語彙/絵文字なし）。通過後に有効化される。
+            chip.className = 'nigekire-chip is-locked';
+            chip.textContent = cLabel + ' 最終確認 通過後に収集できます';
+            chip.disabled = true;
+          } else {
+            chip.className = 'nigekire-chip' + (already ? ' is-done' : '');
+            chip.textContent = already ? cLabel + ' 回収済み' : cLabel + ' 一言チップ';
+            chip.disabled = already;
+            if (cchar.color) chip.style.borderColor = cchar.color;
+            if (!already) {
+              chip.addEventListener('click', function () {
+                nigekireCollect(article.id);
+              });
+            }
           }
           meta.appendChild(chip);
         }
@@ -3474,9 +3499,10 @@
     if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.toggle('hidden', !(DEBUG_MODE && hasArticles));
 
     var m = ensureMode('nigekire');
-    // v2：進行は「7人の一言チップ収集数の合計」。生活ランク・ゲージ・最推しは全て収集数ベース。
+    // v2（通過ベース §10-2）：ランクは rankStage（通過した節目数）で決まる。収集数は次の
+    //   節目トリガーで、ランク名は決めない。ゲージ（総収集の進捗）と最推しは収集数ベースのまま。
     var totalCollected = L.nigekireTotalCollected(m.charCounts);
-    var life = L.nigekireLifeRankV2(totalCollected, NIGEKIRE_LIFE_RANKS);
+    var life = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
     var gauge = L.nigekireGaugeProgress(totalCollected, NIGEKIRE_LIFE_RANKS);
     var top = L.nigekireTopChar(m.charCounts, NIGEKIRE_CHARACTERS);
 
@@ -3503,16 +3529,34 @@
     }
 
     // 逃げ切り記録行（§6・ゲージとは別行・絵文字を使わない）。「逃げ切り記録 n / 3」。
-    var esc = L.nigekireEscapeRecord(m.totalSuccess, m.finalCheckDone);
-    var recEl = document.createElement('div');
-    recEl.className = 'nigekire-escape-record';
-    recEl.textContent = '逃げ切り記録 ' + esc.count + ' / ' + esc.need;
-    els.kitacoreStats.appendChild(recEl);
+    //   通過ベース §10-2: 初期試練フェーズ（rankStage 0）のときだけ出す。rankStage>=1 は
+    //   初期試練 完了済みなので出さない（逃げ切り記録は以降の進行に関係しない）。
+    if (m.rankStage < 1) {
+      var esc = L.nigekireEscapeRecord(m.totalSuccess, false);
+      var recEl = document.createElement('div');
+      recEl.className = 'nigekire-escape-record';
+      recEl.textContent = '逃げ切り記録 ' + esc.count + ' / ' + esc.need;
+      els.kitacoreStats.appendChild(recEl);
+    }
 
-    // 最終確認見出し（§8）。ready（3/3 かつ未通過）のときだけ表示。done なら出さない。
+    // 節目トリガー判定（通過ベース §10-2）。rankStage と収集数から「今 節目が出ているか」を決める。
+    //   rankStage 0: 逃げ切り3/3、rankStage 1-3: 総収集が次段閾値(70/120/200)到達、rankStage 4: なし。
+    var readyOut = L.nigekireFinalCheckReady(m.rankStage, m.totalSuccess, totalCollected, NIGEKIRE_LIFE_RANKS);
+
+    // 最終確認見出し（§8）。ready のときだけ表示。
     //   キタコレのボス見出し（サムネ＋info＋pillボタン）と同型の節目カードにする（§7 相当表）。
     //   戦闘語彙は使わず、色はキャラカラーにする。
-    if (esc.ready) {
+    if (readyOut.ready) {
+      // 節目キャラを算出してセット（表示前に確定・saveState）。
+      //   rankStage 0: 3本目の逃げ切り曜日（answerNigekire でセット済みの m.finalCheckChar）。
+      //   rankStage 1-3: その時点で最多収集キャラ（selectFinalCheckChar・タイブレーク=直近収集）。
+      if (m.rankStage >= 1) {
+        var picked = L.selectFinalCheckChar(m.charCounts, NIGEKIRE_CHAR_ORDER, m.lastCollectedChar);
+        if (picked && picked !== m.finalCheckChar) {
+          m.finalCheckChar = picked;
+          saveState();
+        }
+      }
       var fchar = nigekireCharByKey(m.finalCheckChar);
       var fname = fchar ? fchar.name : '曜日担当';
       var head = document.createElement('div');
@@ -4929,13 +4973,34 @@
         if (!c || activeModeKey(c.id) !== 'nigekire') return;
         var m = ensureMode('nigekire');
         m.totalSuccess = (typeof m.totalSuccess === 'number' ? m.totalSuccess : 0) + 1;
-        // 3本到達で最終確認見出しが出るよう、未設定なら曜日キャラを暫定確定（月曜=月子）。
-        if (m.totalSuccess >= 3 && !m.finalCheckChar) {
+        // 初期試練フェーズ（rankStage 0）で3本到達したら最終確認見出しが出るよう、
+        //   未設定なら曜日キャラを暫定確定（月曜=月子）。rankStage>=1 では触らない。
+        if (m.rankStage < 1 && m.totalSuccess >= 3 && !m.finalCheckChar) {
           m.finalCheckChar = NIGEKIRE_CHARACTERS[0].key; // tsukiko（月曜）
         }
         saveState();
         renderRoute();
         updateReadStatsHeader();
+      });
+    }
+    // 節目を通過（通過ベース §10-2）: 今 ready なら通過処理を呼んで rankStage を1段上げる。
+    //   収集+5大量→70/120/200到達→このボタンで通常進行の節目を手で通せる（確認用）。
+    if (els.nigekireDebugPass) {
+      els.nigekireDebugPass.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        var totalCollected = L.nigekireTotalCollected(m.charCounts);
+        var readyOut = L.nigekireFinalCheckReady(m.rankStage, m.totalSuccess, totalCollected, NIGEKIRE_LIFE_RANKS);
+        if (!readyOut.ready) return; // まだ節目が出ていない（閾値未到達）
+        // 節目キャラを確定（rankStage 0=逃げ切り曜日、以降=最多収集）してから通過処理へ。
+        if (m.rankStage >= 1) {
+          var picked = L.selectFinalCheckChar(m.charCounts, NIGEKIRE_CHAR_ORDER, m.lastCollectedChar);
+          if (picked) m.finalCheckChar = picked;
+        } else if (!m.finalCheckChar) {
+          m.finalCheckChar = NIGEKIRE_CHARACTERS[0].key;
+        }
+        passNigekireFinalCheck(m.finalCheckChar);
       });
     }
     if (els.nigekireDebugClear) {
@@ -4950,6 +5015,8 @@
         m.passed = {};
         m.totalSuccess = 0;
         m.firstTrySuccess = 0;
+        m.rankStage = 0;
+        m.lastCollectedChar = null;
         m.finalCheckDone = false;
         m.finalCheckChar = null;
         saveState();
