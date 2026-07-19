@@ -1851,3 +1851,252 @@ test('nigekirePassFinalCheckV3: 非破壊（引数プリミティブを書き換
   assert.strictEqual(s, 2);
   assert.strictEqual(out.nextRankStage, 3);
 });
+
+// ============================================================================
+// N群: ニゲキレ キャラ単位ポイント＋閾値初到達ランク
+//   参照: nigekire-percharacter-points.md
+//   ポイントは charCounts[charKey]（キャラ単位）。節目は1キャラ6回
+//   （逃げ切き 3/6/9 → ポイント 5/10/15）。ランクは閾値への初到達でだけ上がる。
+// ============================================================================
+
+const NIGEKIRE_TH = { escape: [3, 6, 9], point: [5, 10, 15] };
+
+// ---- N1: nigekireThresholdKey ----
+
+test('nigekireThresholdKey: escape/point のキーを作る', () => {
+  assert.strictEqual(L.nigekireThresholdKey('escape', 3), 'escape3');
+  assert.strictEqual(L.nigekireThresholdKey('escape', 9), 'escape9');
+  assert.strictEqual(L.nigekireThresholdKey('point', 5), 'point5');
+  assert.strictEqual(L.nigekireThresholdKey('point', 15), 'point15');
+});
+
+test('nigekireThresholdKey: 不正な kind / need は空文字', () => {
+  assert.strictEqual(L.nigekireThresholdKey('done', 3), '');
+  assert.strictEqual(L.nigekireThresholdKey('escape', null), '');
+  assert.strictEqual(L.nigekireThresholdKey(null, 3), '');
+  assert.strictEqual(L.nigekireThresholdKey('point', Infinity), '');
+});
+
+// ---- N2: nigekireOshiMilestone（初期試練フェーズ・逃げ切き 3/6/9） ----
+
+test('nigekireOshiMilestone: 通過0回・逃げ切き2本 → 3本に届かず ready=false', () => {
+  const out = L.nigekireOshiMilestone({ tsukiko: 2 }, {}, {}, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: false, kind: 'escape', need: 3, passIndex: 1 });
+});
+
+test('nigekireOshiMilestone: 通過0回・逃げ切き3本 → ready=true（境界）', () => {
+  const out = L.nigekireOshiMilestone({ tsukiko: 3 }, {}, {}, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: true, kind: 'escape', need: 3, passIndex: 1 });
+});
+
+test('nigekireOshiMilestone: 通過1回 → 次は6本・5本では出ない', () => {
+  const counts = { tsukiko: 1 };
+  assert.strictEqual(L.nigekireOshiMilestone({ tsukiko: 5 }, {}, counts, 'tsukiko', NIGEKIRE_TH).ready, false);
+  const out = L.nigekireOshiMilestone({ tsukiko: 6 }, {}, counts, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: true, kind: 'escape', need: 6, passIndex: 2 });
+});
+
+test('nigekireOshiMilestone: 通過2回 → 次は9本・passIndex=3', () => {
+  const out = L.nigekireOshiMilestone({ tsukiko: 9 }, {}, { tsukiko: 2 }, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: true, kind: 'escape', need: 9, passIndex: 3 });
+});
+
+// ---- N3: nigekireOshiMilestone（収集フェーズ・ポイント 5/10/15） ----
+
+test('nigekireOshiMilestone: 通過3回・ポイント4 → 5点に届かず ready=false', () => {
+  const out = L.nigekireOshiMilestone({}, { tsukiko: 4 }, { tsukiko: 3 }, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: false, kind: 'point', need: 5, passIndex: 4 });
+});
+
+test('nigekireOshiMilestone: 通過3回・ポイント5 → ready=true（境界）', () => {
+  const out = L.nigekireOshiMilestone({}, { tsukiko: 5 }, { tsukiko: 3 }, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: true, kind: 'point', need: 5, passIndex: 4 });
+});
+
+test('nigekireOshiMilestone: 通過4回 → 10点・通過5回 → 15点', () => {
+  const a = L.nigekireOshiMilestone({}, { tsukiko: 10 }, { tsukiko: 4 }, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(a, { ready: true, kind: 'point', need: 10, passIndex: 5 });
+  const b = L.nigekireOshiMilestone({}, { tsukiko: 15 }, { tsukiko: 5 }, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(b, { ready: true, kind: 'point', need: 15, passIndex: 6 });
+});
+
+test('nigekireOshiMilestone: 収集フェーズはキャラ単位（他キャラのポイントは効かない）', () => {
+  const out = L.nigekireOshiMilestone({}, { you: 99, tsukiko: 1 }, { tsukiko: 3 }, 'tsukiko', NIGEKIRE_TH);
+  assert.strictEqual(out.ready, false);
+});
+
+test('nigekireOshiMilestone: 通過6回 → kind=done・ready=false', () => {
+  const out = L.nigekireOshiMilestone({ tsukiko: 99 }, { tsukiko: 99 }, { tsukiko: 6 }, 'tsukiko', NIGEKIRE_TH);
+  assert.deepStrictEqual(out, { ready: false, kind: 'done', need: null, passIndex: 6 });
+});
+
+test('nigekireOshiMilestone: 不正入力（推し未選択・非数）でも落ちない', () => {
+  assert.strictEqual(L.nigekireOshiMilestone({}, {}, {}, null, NIGEKIRE_TH).ready, false);
+  assert.strictEqual(L.nigekireOshiMilestone(null, null, null, 'tsukiko', NIGEKIRE_TH).ready, false);
+  assert.strictEqual(L.nigekireOshiMilestone({ tsukiko: 'x' }, {}, {}, 'tsukiko', NIGEKIRE_TH).ready, false);
+  assert.strictEqual(L.nigekireOshiMilestone({ tsukiko: 9 }, {}, {}, 'tsukiko', null).ready, false);
+});
+
+// ---- N4: nigekirePassOshiMilestone ----
+
+test('nigekirePassOshiMilestone: 初到達 → rankUp=true・閾値キーが積まれる', () => {
+  const out = L.nigekirePassOshiMilestone([], {}, [], 'tsukiko', 'escape', 3);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.rankUp, true);
+  assert.deepStrictEqual(out.nextReached, ['escape3']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 1 });
+  assert.deepStrictEqual(out.nextCleared, []);
+});
+
+test('nigekirePassOshiMilestone: 2人目（既に到達済み）→ rankUp=false・通過回数だけ進む', () => {
+  const out = L.nigekirePassOshiMilestone(['escape3'], { you: 0 }, ['tsukiko'], 'you', 'escape', 3);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.rankUp, false);
+  assert.deepStrictEqual(out.nextReached, ['escape3']); // 増えない
+  assert.deepStrictEqual(out.nextPassCounts, { you: 1 });
+});
+
+test('nigekirePassOshiMilestone: 3回目の通過で oshiCleared に積まれる', () => {
+  const out = L.nigekirePassOshiMilestone(['escape3', 'escape6'], { tsukiko: 2 }, [], 'tsukiko', 'escape', 9);
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 3 });
+  assert.strictEqual(out.rankUp, true);
+});
+
+test('nigekirePassOshiMilestone: oshiCleared は重複しない（4回目以降）', () => {
+  const out = L.nigekirePassOshiMilestone(['point5'], { tsukiko: 3 }, ['tsukiko'], 'tsukiko', 'point', 5);
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 4 });
+  assert.strictEqual(out.rankUp, false);
+});
+
+test('nigekirePassOshiMilestone: 6回通過済み → ok:false', () => {
+  const out = L.nigekirePassOshiMilestone([], { tsukiko: 6 }, ['tsukiko'], 'tsukiko', 'point', 15);
+  assert.strictEqual(out.ok, false);
+  assert.strictEqual(out.rankUp, false);
+});
+
+test('nigekirePassOshiMilestone: 不正入力（推し未選択・kind=done）→ ok:false', () => {
+  assert.strictEqual(L.nigekirePassOshiMilestone([], {}, [], null, 'escape', 3).ok, false);
+  assert.strictEqual(L.nigekirePassOshiMilestone([], {}, [], 'tsukiko', 'done', null).ok, false);
+});
+
+test('nigekirePassOshiMilestone: 非破壊（入力の配列/マップを書き換えない）', () => {
+  const reached = ['escape3'];
+  const counts = { tsukiko: 2 };
+  const cleared = [];
+  const out = L.nigekirePassOshiMilestone(reached, counts, cleared, 'tsukiko', 'escape', 9);
+  assert.deepStrictEqual(reached, ['escape3']);
+  assert.deepStrictEqual(counts, { tsukiko: 2 });
+  assert.deepStrictEqual(cleared, []);
+  assert.deepStrictEqual(out.nextReached, ['escape3', 'escape9']);
+});
+
+test('nigekirePassOshiMilestone: 6回とおすと閾値6つが順に積まれる（1人目）', () => {
+  let reached = [];
+  let counts = {};
+  let cleared = [];
+  const seq = [['escape', 3], ['escape', 6], ['escape', 9], ['point', 5], ['point', 10], ['point', 15]];
+  seq.forEach(([kind, need]) => {
+    const out = L.nigekirePassOshiMilestone(reached, counts, cleared, 'tsukiko', kind, need);
+    assert.strictEqual(out.ok, true);
+    assert.strictEqual(out.rankUp, true); // 1人目は毎回 初到達
+    reached = out.nextReached; counts = out.nextPassCounts; cleared = out.nextCleared;
+  });
+  assert.deepStrictEqual(reached, ['escape3', 'escape6', 'escape9', 'point5', 'point10', 'point15']);
+  assert.deepStrictEqual(counts, { tsukiko: 6 });
+  assert.deepStrictEqual(cleared, ['tsukiko']);
+});
+
+test('nigekirePassOshiMilestone: 2人目は6回とも rankUp=false（ランクは動かない）', () => {
+  const full = ['escape3', 'escape6', 'escape9', 'point5', 'point10', 'point15'];
+  let reached = full.slice();
+  let counts = {};
+  let cleared = ['tsukiko'];
+  const seq = [['escape', 3], ['escape', 6], ['escape', 9], ['point', 5], ['point', 10], ['point', 15]];
+  seq.forEach(([kind, need]) => {
+    const out = L.nigekirePassOshiMilestone(reached, counts, cleared, 'you', kind, need);
+    assert.strictEqual(out.ok, true);
+    assert.strictEqual(out.rankUp, false);
+    reached = out.nextReached; counts = out.nextPassCounts; cleared = out.nextCleared;
+  });
+  assert.deepStrictEqual(reached, full); // 増えない
+  assert.deepStrictEqual(counts, { you: 6 });
+  assert.deepStrictEqual(cleared, ['tsukiko', 'you']);
+});
+
+// ---- N5: nigekireOshiGauge ----
+
+test('nigekireOshiGauge: 分母は常に最終閾値 15（通過回数によらず目盛りが動かない）', () => {
+  const g = L.nigekireOshiGauge({ tsukiko: 2 }, 'tsukiko', {}, NIGEKIRE_TH);
+  assert.strictEqual(g.cur, 2);
+  assert.strictEqual(g.need, 15);
+  assert.strictEqual(g.display, '2 / 15');
+  assert.strictEqual(g.over, false);
+  assert.strictEqual(Math.round(g.pct), 13);
+});
+
+test('nigekireOshiGauge: 通過5回・8点 → 「8 / 15」', () => {
+  const g = L.nigekireOshiGauge({ tsukiko: 8 }, 'tsukiko', { tsukiko: 5 }, NIGEKIRE_TH);
+  assert.strictEqual(g.need, 15);
+  assert.strictEqual(g.display, '8 / 15');
+  assert.strictEqual(g.over, false);
+});
+
+test('nigekireOshiGauge: オーバー値は分子だけ伸びる（20 / 15）・pct は100止まり', () => {
+  const g = L.nigekireOshiGauge({ tsukiko: 20 }, 'tsukiko', { tsukiko: 6 }, NIGEKIRE_TH);
+  assert.strictEqual(g.cur, 20);
+  assert.strictEqual(g.need, 15);
+  assert.strictEqual(g.display, '20 / 15');
+  assert.strictEqual(g.over, true);
+  assert.strictEqual(g.pct, 100);
+});
+
+test('nigekireOshiGauge: 途中の閾値(10点)でも分母は15のまま・over=false', () => {
+  const g = L.nigekireOshiGauge({ tsukiko: 10 }, 'tsukiko', { tsukiko: 4 }, NIGEKIRE_TH);
+  assert.strictEqual(g.display, '10 / 15');
+  assert.strictEqual(g.over, false);
+  assert.strictEqual(Math.round(g.pct), 67);
+});
+
+test('nigekireOshiGauge: ちょうど最終閾値(15点)なら over=false・pct=100', () => {
+  const g = L.nigekireOshiGauge({ tsukiko: 15 }, 'tsukiko', { tsukiko: 6 }, NIGEKIRE_TH);
+  assert.strictEqual(g.display, '15 / 15');
+  assert.strictEqual(g.over, false);
+  assert.strictEqual(g.pct, 100);
+});
+
+test('nigekireOshiGauge: 選択中キャラのぶんだけ見る（他キャラは無関係）', () => {
+  const g = L.nigekireOshiGauge({ you: 99, tsukiko: 3 }, 'tsukiko', { tsukiko: 3 }, NIGEKIRE_TH);
+  assert.strictEqual(g.display, '3 / 15');
+});
+
+test('nigekireOshiGauge: 不正入力（推し未選択・非数）でも落ちない', () => {
+  const a = L.nigekireOshiGauge({}, null, {}, NIGEKIRE_TH);
+  assert.strictEqual(a.cur, 0);
+  assert.strictEqual(a.display, '0 / 15');
+  const b = L.nigekireOshiGauge({ tsukiko: 'x' }, 'tsukiko', null, NIGEKIRE_TH);
+  assert.strictEqual(b.cur, 0);
+  const c = L.nigekireOshiGauge(null, 'tsukiko', {}, null);
+  assert.strictEqual(c.cur, 0);
+  assert.strictEqual(c.need, 0);
+  assert.strictEqual(c.pct, 0);
+});
+
+// ---- N6: nigekireRankStageFromReached ----
+
+test('nigekireRankStageFromReached: 到達数がそのまま段になる', () => {
+  assert.strictEqual(L.nigekireRankStageFromReached([], 6), 0);
+  assert.strictEqual(L.nigekireRankStageFromReached(['escape3'], 6), 1);
+  assert.strictEqual(L.nigekireRankStageFromReached(['escape3', 'escape6', 'escape9'], 6), 3);
+  assert.strictEqual(
+    L.nigekireRankStageFromReached(['escape3', 'escape6', 'escape9', 'point5', 'point10', 'point15'], 6), 6
+  );
+});
+
+test('nigekireRankStageFromReached: maxStage でクランプ・不正入力は0', () => {
+  assert.strictEqual(L.nigekireRankStageFromReached(['a', 'b', 'c'], 2), 2);
+  assert.strictEqual(L.nigekireRankStageFromReached(null, 6), 0);
+  assert.strictEqual(L.nigekireRankStageFromReached(['a'], null), 0);
+  assert.strictEqual(L.nigekireRankStageFromReached(['a'], -3), 0);
+});

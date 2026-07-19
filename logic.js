@@ -984,6 +984,150 @@
     return { ok: true, nextRankStage: s + 1 };
   }
 
+  // ===========================================================================
+  // N群: ニゲキレ キャラ単位ポイント＋閾値初到達ランク
+  //   参照: nigekire-percharacter-points.md
+  //   ポイントは charCounts[charKey]（キャラ単位）。節目は 1キャラにつき6回
+  //   （逃げ切き 3/6/9 → ポイント 5/10/15）。ランクは「閾値への初到達」でだけ上がる。
+  //   2人目以降は節目のカットインは出るが reachedThresholds に既にあるのでランクは動かない。
+  //   M群の旧関数（nigekireOshiFinalCheckReady / nigekirePassOshiFinalCheck）は
+  //   非破壊で残す（app.js からは呼ばなくなる）。すべて副作用なし。
+  // ===========================================================================
+
+  // 通過回数（0..6）を取り出す内部ヘルパ。M群の nigekireOshiPassCount は上限3なので別に持つ。
+  function nigekireOshiPassCount6(oshiPassCounts, oshiChar) {
+    var map = oshiPassCounts && typeof oshiPassCounts === 'object' ? oshiPassCounts : {};
+    var raw = oshiChar ? map[oshiChar] : 0;
+    var n = typeof raw === 'number' && isFinite(raw) ? Math.floor(raw) : 0;
+    if (n < 0) n = 0;
+    if (n > 6) n = 6;
+    return n;
+  }
+
+  // 閾値キー。'escape3' / 'point5' 等。kind/need が不正なら ''。
+  function nigekireThresholdKey(kind, need) {
+    if (kind !== 'escape' && kind !== 'point') return '';
+    if (typeof need !== 'number' || !isFinite(need)) return '';
+    return kind + String(Math.floor(need));
+  }
+
+  // 次の節目が出ているか（キャラ単位ポイント版）。
+  //   p = そのキャラの通過回数（0..6）。
+  //   p<3      : kind='escape'、need=thresholds.escape[p]（3/6/9）、ready=escapeCounts[char]>=need
+  //   3<=p<6   : kind='point' 、need=thresholds.point[p-3]（5/10/15）、ready=charCounts[char]>=need
+  //   p>=6     : kind='done'、ready=false（そのキャラは6回とも見た）
+  //   passIndex = p+1（1..6）＝通過セリフの n。
+  function nigekireOshiMilestone(escapeCounts, charCounts, oshiPassCounts, oshiChar, thresholds) {
+    var th = thresholds && typeof thresholds === 'object' ? thresholds : {};
+    var escList = Array.isArray(th.escape) ? th.escape : [];
+    var ptList = Array.isArray(th.point) ? th.point : [];
+    var p = nigekireOshiPassCount6(oshiPassCounts, oshiChar);
+    var passIndex = p + 1 > 6 ? 6 : p + 1;
+    if (!oshiChar || typeof oshiChar !== 'string') {
+      return { ready: false, kind: 'done', need: null, passIndex: passIndex };
+    }
+    if (p >= 6) return { ready: false, kind: 'done', need: null, passIndex: 6 };
+
+    if (p < 3) {
+      var needE = typeof escList[p] === 'number' ? escList[p] : Infinity;
+      var em = escapeCounts && typeof escapeCounts === 'object' ? escapeCounts : {};
+      var rawE = em[oshiChar];
+      var cntE = typeof rawE === 'number' && isFinite(rawE) ? Math.floor(rawE) : 0;
+      return { ready: cntE >= needE, kind: 'escape', need: needE, passIndex: passIndex };
+    }
+    var needP = typeof ptList[p - 3] === 'number' ? ptList[p - 3] : Infinity;
+    var cm = charCounts && typeof charCounts === 'object' ? charCounts : {};
+    var rawP = cm[oshiChar];
+    var cntP = typeof rawP === 'number' && isFinite(rawP) ? Math.floor(rawP) : 0;
+    return { ready: cntP >= needP, kind: 'point', need: needP, passIndex: passIndex };
+  }
+
+  // 節目の通過処理（キャラ単位ポイント版）。非破壊で次の state を返す。
+  //   - そのキャラの通過回数 +1（上限6）。
+  //   - 閾値キーが reachedThresholds に無ければ追加して rankUp=true（＝初到達）。
+  //     既にあれば追加せず rankUp=false（2人目以降）。
+  //   - 通過回数が3に達したら oshiCleared に追加（重複しない）。
+  //   - oshiChar/kind/need が不正、または既に6回通過済みなら {ok:false}。
+  function nigekirePassOshiMilestone(reachedThresholds, oshiPassCounts, oshiCleared, oshiChar, kind, need) {
+    var reachedIn = Array.isArray(reachedThresholds) ? reachedThresholds : [];
+    var countsIn = oshiPassCounts && typeof oshiPassCounts === 'object' ? oshiPassCounts : {};
+    var clearedIn = Array.isArray(oshiCleared) ? oshiCleared : [];
+    var key = nigekireThresholdKey(kind, need);
+    if (!oshiChar || typeof oshiChar !== 'string' || !key) {
+      return {
+        ok: false,
+        nextReached: reachedIn.slice(),
+        nextPassCounts: Object.assign({}, countsIn),
+        nextCleared: clearedIn.slice(),
+        rankUp: false,
+      };
+    }
+    var p = nigekireOshiPassCount6(countsIn, oshiChar);
+    if (p >= 6) {
+      return {
+        ok: false,
+        nextReached: reachedIn.slice(),
+        nextPassCounts: Object.assign({}, countsIn),
+        nextCleared: clearedIn.slice(),
+        rankUp: false,
+      };
+    }
+
+    var nextPassCounts = Object.assign({}, countsIn);
+    nextPassCounts[oshiChar] = p + 1;
+
+    var nextReached = reachedIn.slice();
+    var rankUp = false;
+    if (nextReached.indexOf(key) === -1) {
+      nextReached.push(key);
+      rankUp = true;
+    }
+
+    var nextCleared = clearedIn.slice();
+    if (p + 1 >= 3 && nextCleared.indexOf(oshiChar) === -1) nextCleared.push(oshiChar);
+
+    return {
+      ok: true,
+      nextReached: nextReached,
+      nextPassCounts: nextPassCounts,
+      nextCleared: nextCleared,
+      rankUp: rankUp,
+    };
+  }
+
+  // ゲージ（選択中キャラのポイント / 次のポイント閾値）。
+  //   cur  = charCounts[oshiChar]（そのキャラのポイント）
+  //   need = 次のポイント閾値。p<3 なら最初の 5、3<=p<6 なら point[p-3]、p>=6 なら最後の 15。
+  //   pct  = cur/need*100（0-100クランプ）。over = cur > need。
+  //   display = cur + ' / ' + need（オーバーしても分子だけ伸びる＝'20 / 15'）。
+  function nigekireOshiGauge(charCounts, oshiChar, oshiPassCounts, thresholds) {
+    var th = thresholds && typeof thresholds === 'object' ? thresholds : {};
+    var ptList = Array.isArray(th.point) && th.point.length > 0 ? th.point : [];
+    // 分母は常に最終閾値（15）。途中の閾値（5/10）を分母にすると 0/5 → 5/10 →
+    //   10/15 と目盛りが動いてしまい、そのキャラをどこまで掘ったかが読めなくなる。
+    var need = typeof ptList[ptList.length - 1] === 'number' ? ptList[ptList.length - 1] : 0;
+
+    var cm = charCounts && typeof charCounts === 'object' ? charCounts : {};
+    var raw = oshiChar ? cm[oshiChar] : 0;
+    var cur = typeof raw === 'number' && isFinite(raw) ? Math.floor(raw) : 0;
+    if (cur < 0) cur = 0;
+
+    var pct = need > 0 ? (cur / need) * 100 : 0;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return { cur: cur, need: need, pct: pct, over: cur > need, display: cur + ' / ' + need };
+  }
+
+  // ランク段＝到達済み閾値の数（0..maxStage にクランプ）。
+  function nigekireRankStageFromReached(reachedThresholds, maxStage) {
+    var list = Array.isArray(reachedThresholds) ? reachedThresholds : [];
+    var max = typeof maxStage === 'number' && isFinite(maxStage) ? Math.floor(maxStage) : 0;
+    if (max < 0) max = 0;
+    var n = list.length;
+    if (n > max) n = max;
+    return n;
+  }
+
   // ---------------------------------------------------------------------------
   // クリエイター削除時のモード state 掃除（純関数・非破壊）
   //   app.js deleteCreator の副作用ロジックを切り出したもの。挙動を1バイトも変えない。
@@ -1116,6 +1260,13 @@
     nigekireRankTitleWithDays: nigekireRankTitleWithDays,
     nigekirePassOshiFinalCheck: nigekirePassOshiFinalCheck,
     nigekirePassFinalCheckV3: nigekirePassFinalCheckV3,
+
+    // N群: キャラ単位ポイント＋閾値初到達ランク
+    nigekireThresholdKey: nigekireThresholdKey,
+    nigekireOshiMilestone: nigekireOshiMilestone,
+    nigekirePassOshiMilestone: nigekirePassOshiMilestone,
+    nigekireOshiGauge: nigekireOshiGauge,
+    nigekireRankStageFromReached: nigekireRankStageFromReached,
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,

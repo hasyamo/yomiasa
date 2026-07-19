@@ -111,19 +111,28 @@
       if (!m.passed || typeof m.passed !== 'object') m.passed = {};             // { [articleId]: true } 試練通過
       if (typeof m.totalSuccess !== 'number') m.totalSuccess = 0;               // 総ニゲキレ成功数（逃げ切り数）
       if (typeof m.firstTrySuccess !== 'number') m.firstTrySuccess = 0;         // 一発成功数
-      // ── 節目イベント（最終確認・通過ベース §10-2）──
-      //   rankStage = 通過した節目の数（0〜4）＝現ランク段。ランク名の源泉（収集数ではない）。
+      // ── 節目イベント（最終確認・閾値初到達ベース）──
+      //   rankStage = 到達済み閾値の数（0〜6）＝現ランク段。reachedThresholds から導出する。
       if (typeof m.rankStage !== 'number' || !isFinite(m.rankStage)) m.rankStage = 0;
       else {
         m.rankStage = Math.floor(m.rankStage);
         if (m.rankStage < 0) m.rankStage = 0;
         if (m.rankStage > 6) m.rankStage = 6;
       }
+      // reachedThresholds: 到達済み閾値キーの配列（'escape3'..'point15'）。ランクの源泉。
+      //   既存データ（この配列を持たない）は rankStage から順番どおりに復元する。
+      if (!Array.isArray(m.reachedThresholds)) {
+        m.reachedThresholds = NIGEKIRE_THRESHOLD_ORDER.slice(0, m.rankStage);
+      }
+      // rankStage は毎回 reachedThresholds.length から導出して代入（既存コードが参照するため）。
+      m.rankStage = L.nigekireRankStageFromReached(
+        m.reachedThresholds, NIGEKIRE_LIFE_RANKS.length - 1
+      );
       // ── 推し1人選択構造 ──
       //   oshiChar: 選択中の推し charKey（null=未選択＝推し選択モーダルを出す）
       //   oshiCleared: 初期試練を3回通過したキャラの charKey 配列（称号の曜日・カード解放）
       //   escapeCounts: { [charKey]: number } キャラ別の逃げ切き数（0..9）。キャラ変更で消えない
-      //   oshiPassCounts: { [charKey]: number } キャラ別の最終確認 通過回数（0..3）
+      //   oshiPassCounts: { [charKey]: number } キャラ別の節目 通過回数（0..6・初期試練3＋収集3）
       if (m.oshiChar !== null && typeof m.oshiChar !== 'string') m.oshiChar = null;
       if (typeof m.oshiChar === 'undefined') m.oshiChar = null;
       if (!Array.isArray(m.oshiCleared)) m.oshiCleared = [];
@@ -252,24 +261,35 @@
   var NIGEKIRE_CHAR_ORDER = NIGEKIRE_CHARACTERS.map(function (ch) { return ch.key; });
 
   // 生活ランク定義（7段階・通過ベース）。ランクは全体で1つ（キャラごとに持たない）。
-  //   ランクは収集数では決まらない。rankStage（通過した節目の数・0〜6）で決まる。
-  //   この配列は logic.js の nigekireRankByStage（rankStage→ランク名）と
-  //   nigekireOshiFinalCheckReady（次の節目の閾値＝ranks[s+1].min）に渡す。
+  //   ランクは収集数では決まらない。rankStage（到達済み閾値の数・0〜6）で決まる。
+  //   この配列は logic.js の nigekireRankByStage（rankStage→ランク名）に渡す。
   //
-  //   min は「次の節目を出すトリガー」であってランク境界ではない。
-  //   ※参照されるのは rankStage 4/5/6 の min（70/120/200）だけ。
-  //     rankStage 1〜3（言い訳準備中/生活立て直し中/生活防衛中）への到達は
-  //     推しの初期試練（逃げ切き 3/6/9）で決まるため、min:0 は参照されない。
-  //   totalCollected=7人の収集数合算。
+  //   ※ min は【もう参照されない】（nigekire-percharacter-points.md で閾値は
+  //     NIGEKIRE_THRESHOLDS へ移した）。値は既存データ互換のため残置するが、
+  //     判定には一切使わない。
   var NIGEKIRE_LIFE_RANKS = [
     { stage: 1, min: 0,   name: '言い訳見習い',        key: 'nige1' }, // min 参照されない
     { stage: 2, min: 0,   name: '言い訳準備中',        key: 'nige2' }, // min 参照されない
     { stage: 3, min: 0,   name: '生活立て直し中',      key: 'nige3' }, // min 参照されない
     { stage: 4, min: 0,   name: '生活防衛中',          key: 'nige4' }, // min 参照されない
-    { stage: 5, min: 70,  name: '火種処理係',          key: 'nige5' },
-    { stage: 6, min: 120, name: 'おはカノ生活継続者',  key: 'nige6' },
-    { stage: 7, min: 200, name: 'おはカノ生活管理人',  key: 'nige7' },
+    { stage: 5, min: 70,  name: '火種処理係',          key: 'nige5' }, // min 参照されない
+    { stage: 6, min: 120, name: 'おはカノ生活継続者',  key: 'nige6' }, // min 参照されない
+    { stage: 7, min: 200, name: 'おはカノ生活管理人',  key: 'nige7' }, // min 参照されない
   ];
+
+  // 節目の閾値（1キャラにつき6回）。
+  //   escape: 初期試練＝そのキャラの逃げ切き本数 3/6/9
+  //   point : 収集＝そのキャラのポイント（charCounts[charKey]）5/10/15
+  //   ランクは「閾値キーへの初到達」でだけ上がる（2人目以降は節目だけ出てランクは動かない）。
+  var NIGEKIRE_THRESHOLDS = { escape: [3, 6, 9], point: [5, 10, 15] };
+
+  // 閾値キーの正順（ランク段 1..6 に対応）。既存データの reachedThresholds 復元に使う。
+  //   rankStage=3 → ['escape3','escape6','escape9']、rankStage=5 → +['point5','point10']。
+  var NIGEKIRE_THRESHOLD_ORDER = NIGEKIRE_THRESHOLDS.escape
+    .map(function (n) { return L.nigekireThresholdKey('escape', n); })
+    .concat(NIGEKIRE_THRESHOLDS.point.map(function (n) {
+      return L.nigekireThresholdKey('point', n);
+    }));
 
   // キャラ別称号（キャラ別収集数判定・4段階・§10.5）。閾値 0/5/10/15。
   //   names[charKey] = [段階1..4名]。logic.js の nigekireCharTitle に渡す（閾値だけ v2 に変更）。
@@ -2268,12 +2288,11 @@
   }
 
   // 今 節目が出ているか（1箇所に集約・見出し／カットイン／最終確認／通過／DEBUG で共用）。
-  //   -> { ready, mode:'initial'|'collect'|'done', passIndex }
+  //   -> { ready, kind:'escape'|'point'|'done', need, passIndex }
+  //   閾値は選択中キャラ単位（逃げ切き 3/6/9 → ポイント 5/10/15・計6回）。
   function nigekireReadyOut(m) {
-    var totalCollected = L.nigekireTotalCollected(m.charCounts);
-    return L.nigekireOshiFinalCheckReady(
-      m.rankStage, m.escapeCounts, m.oshiPassCounts, m.oshiChar,
-      m.oshiCleared, totalCollected, NIGEKIRE_LIFE_RANKS
+    return L.nigekireOshiMilestone(
+      m.escapeCounts, m.charCounts, m.oshiPassCounts, m.oshiChar, NIGEKIRE_THRESHOLDS
     );
   }
 
@@ -2518,12 +2537,10 @@
     if (els.nigekireFinal) els.nigekireFinal.classList.add('hidden');
   }
 
-  // [確認を通過する]。節目を通過する。2系統あるので mode で分岐する。
-  //   initial（推しの初期試練・逃げ切き 3/6/9）→ nigekirePassOshiFinalCheck
-  //     1人目（rankStage<3）は rankStage が1段上がる。2人目以降は rankStage が動かず
-  //     oshiCleared にだけ積まれる（answer「2人目以降で3回通過してもランクは動かない」）。
-  //   collect（収集の節目・70/120/200）→ nigekirePassFinalCheckV3（rankStage が1段上がる）。
-  //   ランク A→B の行は rankStage が実際に動いたときだけ出す（動かないのに出すと嘘表示になる）。
+  // [確認を通過する]。節目を通過する（キャラ単位ポイント＋閾値初到達）。
+  //   閾値キー（'escape3'..'point15'）が reachedThresholds に無ければ追加＝初到達で
+  //   ランクが1段上がる。2人目以降は既に到達済みなので節目は出るがランクは動かない。
+  //   ランク A→B の行は rankUp のときだけ出す（動かないのに出すと嘘表示になる）。
   function passNigekireFinalCheck(charKey) {
     var m = ensureMode('nigekire');
     var ready = nigekireReadyOut(m);
@@ -2534,19 +2551,17 @@
     var clearedBefore = m.oshiCleared.length;
     var stageBefore = m.rankStage;
 
-    if (ready.mode === 'initial') {
-      var oOut = L.nigekirePassOshiFinalCheck(
-        m.rankStage, m.oshiChar, m.oshiCleared, m.oshiPassCounts, NIGEKIRE_LIFE_RANKS
-      );
-      if (!oOut.ok) { closeNigekireFinalCheck(); return; }
-      m.rankStage = oOut.nextRankStage;
-      m.oshiCleared = oOut.nextCleared;
-      m.oshiPassCounts = oOut.nextPassCounts;
-    } else {
-      var cOut = L.nigekirePassFinalCheckV3(m.rankStage, NIGEKIRE_LIFE_RANKS);
-      if (!cOut.ok) { closeNigekireFinalCheck(); return; }
-      m.rankStage = cOut.nextRankStage;
-    }
+    var out = L.nigekirePassOshiMilestone(
+      m.reachedThresholds, m.oshiPassCounts, m.oshiCleared, m.oshiChar, ready.kind, ready.need
+    );
+    if (!out.ok) { closeNigekireFinalCheck(); return; }
+    m.reachedThresholds = out.nextReached;
+    m.oshiPassCounts = out.nextPassCounts;
+    m.oshiCleared = out.nextCleared;
+    // rankStage は到達済み閾値の数から導出（rankUp のときだけ実際に動く）。
+    m.rankStage = L.nigekireRankStageFromReached(
+      m.reachedThresholds, NIGEKIRE_LIFE_RANKS.length - 1
+    );
     saveState();
 
     var lifeAfter = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
@@ -2557,8 +2572,8 @@
       '',
       label + '担当〈' + name + '〉の最終確認を通過しました。',
     ];
-    // ランク更新の行は rankStage が動いたときだけ（2人目以降の初期試練では動かない）。
-    if (m.rankStage !== stageBefore) {
+    // ランク更新の行は閾値への初到達（rankUp）のときだけ。2人目以降は動かないので出さない。
+    if (out.rankUp && m.rankStage !== stageBefore) {
       lines.push('');
       lines.push('おはカノ生活ランクが更新されました。');
       lines.push((lifeBefore.name || '---') + ' → ' + (lifeAfter.name || '---'));
@@ -3793,7 +3808,8 @@
   }
 
   // ニゲキレ：ヘッダー（v2・生活ランクバッジ＋最推し＋1本ゲージ）。モードON のときだけ表示。
-  //   ※v2で7人水平バーは廃止（1本の「おはカノ生活ゲージ」＝収集数合計に統一・§5/§6）。
+  //   ※v2で7人水平バーは廃止（1本の「おはカノ生活ゲージ」に統一・§5/§6）。
+  //     ゲージの中身は選択中キャラのポイント（次のポイント閾値 5/10/15 まで）。
   //   キタコレの #kitacore-rank-area / #kitacore-stats / #kitacore-progress を排他利用する
   //   （ニゲキレ対象=hasyamo・キタコレ対象=ktcrs1107 で creator が異なるため衝突しない）。
   //   称号エリア（rank-area）タップ→詳細カード（openRankCard がモード分岐）＝キタコレと操作統一。
@@ -3818,9 +3834,9 @@
     if (!m.oshiChar) openNigekireOshiSelect(false);
     // v2（通過ベース §10-2）：ランクは rankStage（通過した節目数）で決まる。収集数は次の
     //   節目トリガーで、ランク名は決めない。ゲージ（総収集の進捗）と最推しは収集数ベースのまま。
-    var totalCollected = L.nigekireTotalCollected(m.charCounts);
     var life = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
-    var gauge = L.nigekireGaugeProgress(totalCollected, NIGEKIRE_LIFE_RANKS);
+    // ゲージは選択中キャラのポイント（総収集ではない）。例「8 / 15」・オーバーは「20 / 15」。
+    var gauge = L.nigekireOshiGauge(m.charCounts, m.oshiChar, m.oshiPassCounts, NIGEKIRE_THRESHOLDS);
     var top = L.nigekireTopChar(m.charCounts, NIGEKIRE_CHARACTERS);
 
     // 上段: 生活ランクバッジ（キタコレの paintKitacoreHeader と完全に同じ形式）＋最推し。
@@ -3941,7 +3957,7 @@
       els.kitacoreStats.appendChild(head);
     }
 
-    // 下段: 1本ゲージ（§5/§6）。塗り=次ランク進行率(pct)・ラベル=オーバー値表示(実数/200)。
+    // 下段: 1本ゲージ（§5/§6）。塗り=次のポイント閾値への進行率(pct)・ラベルはオーバー値表示。
     //   キタコレの progress バー（.progress/.progress-track/.progress-fill/.progress-pct）を流用。
     //   タップ不可（表示専用）。7人水平バーは v2 で廃止。
     els.kitacoreProgress.innerHTML = '';
@@ -3955,7 +3971,7 @@
     track.appendChild(fill);
     var barLabel = document.createElement('span');
     barLabel.className = 'progress-pct kitacore-wai-count';
-    barLabel.textContent = gauge.display; // 例「42 / 200」・上限超は「255 / 200」
+    barLabel.textContent = gauge.display; // 例「8 / 15」・閾値超は「20 / 15」
     wrap.appendChild(track);
     wrap.appendChild(barLabel);
     els.kitacoreProgress.appendChild(wrap);
@@ -5310,8 +5326,10 @@
         var c = getSelectedCreator();
         if (!c || activeModeKey(c.id) !== 'nigekire') return;
         var m = ensureMode('nigekire');
-        // 合計 > 200 になるよう注入（月子に多め・他は据え置き）。オーバー値 255/200 の確認用。
-        m.charCounts.tsukiko = 255;
+        // 推しのポイントを最終閾値(15)超にする。オーバー値表示（20 / 15）の確認用。
+        //   ポイントはキャラ単位なので、選択中の推しに入れる。
+        var oshi = m.oshiChar || NIGEKIRE_CHARACTERS[0].key;
+        m.charCounts[oshi] = 20;
         saveState();
         renderRoute();
         updateReadStatsHeader();
@@ -5365,6 +5383,7 @@
         m.totalSuccess = 0;
         m.firstTrySuccess = 0;
         m.rankStage = 0;
+        m.reachedThresholds = []; // 到達済み閾値も戻す（ランクの源泉）
         // 推し選択構造のぶんも戻す（これを消さないと推し選択モーダルが出ない）。
         m.oshiChar = null;
         m.oshiCleared = [];
