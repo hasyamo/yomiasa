@@ -770,6 +770,7 @@
       stage: typeof r.stage === 'number' ? r.stage : 0,
       name: typeof r.name === 'string' ? r.name : '',
       key: typeof r.key === 'string' ? r.key : '',
+      grade: typeof r.grade === 'string' ? r.grade : '', // 等級記号（E..SS）。表示で名前に前置する
     };
   }
 
@@ -904,6 +905,17 @@
   // 称号に曜日を積む。'生活防衛中〈月水金〉'。
   //   oshiCleared を characters の並び（曜日順）に整列し、各 label の1文字目を連結する。
   //   oshiCleared が空/不正なら rankName のみ（括弧なし）。rankName が不正なら '' 。
+  // ランク名に等級記号を前置する（例: 'SS:おはカノ生活管理人'）。
+  //   ランク名だけでは何段目か分からないため、キタコレ（E級/C級/A級…）と同じ読み口にする。
+  //   rank は NIGEKIRE_LIFE_RANKS の1件（{grade, name}）。grade が無ければ name だけ返す。
+  function nigekireRankLabel(rank) {
+    var r = rank && typeof rank === 'object' ? rank : {};
+    var name = typeof r.name === 'string' ? r.name : '';
+    var grade = typeof r.grade === 'string' ? r.grade : '';
+    if (!name) return '';
+    return grade ? grade + ':' + name : name;
+  }
+
   function nigekireRankTitleWithDays(rankName, oshiCleared, characters) {
     var name = typeof rankName === 'string' ? rankName : '';
     if (!name) return '';
@@ -1257,6 +1269,7 @@
     nigekireOshiEscapeRecord: nigekireOshiEscapeRecord,
     nigekireOshiFinalCheckReady: nigekireOshiFinalCheckReady,
     nigekireOshiPassLineKey: nigekireOshiPassLineKey,
+    nigekireRankLabel: nigekireRankLabel,
     nigekireRankTitleWithDays: nigekireRankTitleWithDays,
     nigekirePassOshiFinalCheck: nigekirePassOshiFinalCheck,
     nigekirePassFinalCheckV3: nigekirePassFinalCheckV3,

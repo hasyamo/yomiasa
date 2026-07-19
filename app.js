@@ -267,14 +267,16 @@
   //   ※ min は【もう参照されない】（nigekire-percharacter-points.md で閾値は
   //     NIGEKIRE_THRESHOLDS へ移した）。値は既存データ互換のため残置するが、
   //     判定には一切使わない。
+  //   grade = 上位感を伝える記号（E→SS）。ランク名だけだと何段目か分からないため、
+  //     キタコレ（E級/C級/A級/S級覚醒…）と同じ読み口で「S:おはカノ生活継続者」と前置する。
   var NIGEKIRE_LIFE_RANKS = [
-    { stage: 1, min: 0,   name: '言い訳見習い',        key: 'nige1' }, // min 参照されない
-    { stage: 2, min: 0,   name: '言い訳準備中',        key: 'nige2' }, // min 参照されない
-    { stage: 3, min: 0,   name: '生活立て直し中',      key: 'nige3' }, // min 参照されない
-    { stage: 4, min: 0,   name: '生活防衛中',          key: 'nige4' }, // min 参照されない
-    { stage: 5, min: 70,  name: '火種処理係',          key: 'nige5' }, // min 参照されない
-    { stage: 6, min: 120, name: 'おはカノ生活継続者',  key: 'nige6' }, // min 参照されない
-    { stage: 7, min: 200, name: 'おはカノ生活管理人',  key: 'nige7' }, // min 参照されない
+    { stage: 1, min: 0,   grade: 'E',  name: '言い訳見習い',        key: 'nige1' }, // min 参照されない
+    { stage: 2, min: 0,   grade: 'D',  name: '言い訳準備中',        key: 'nige2' }, // min 参照されない
+    { stage: 3, min: 0,   grade: 'C',  name: '生活立て直し中',      key: 'nige3' }, // min 参照されない
+    { stage: 4, min: 0,   grade: 'B',  name: '生活防衛中',          key: 'nige4' }, // min 参照されない
+    { stage: 5, min: 70,  grade: 'A',  name: '火種処理係',          key: 'nige5' }, // min 参照されない
+    { stage: 6, min: 120, grade: 'S',  name: 'おはカノ生活継続者',  key: 'nige6' }, // min 参照されない
+    { stage: 7, min: 200, grade: 'SS', name: 'おはカノ生活管理人',  key: 'nige7' }, // min 参照されない
   ];
 
   // 節目の閾値（1キャラにつき6回）。
@@ -935,7 +937,7 @@
     rankRow.innerHTML =
       '<span class="rank-card-label">ランク</span>' +
       '<span class="kitacore-rank-text rank-' + escapeHtml(life.key || 'nige1') + '">' +
-      escapeHtml(L.nigekireRankTitleWithDays(life.name || '---', m.oshiCleared, NIGEKIRE_CHARACTERS)) +
+      escapeHtml(L.nigekireRankTitleWithDays(L.nigekireRankLabel(life) || '---', m.oshiCleared, NIGEKIRE_CHARACTERS)) +
       '</span>';
     summary.appendChild(rankRow);
     var succRow = document.createElement('div');
@@ -2576,7 +2578,7 @@
     if (out.rankUp && m.rankStage !== stageBefore) {
       lines.push('');
       lines.push('おはカノ生活ランクが更新されました。');
-      lines.push((lifeBefore.name || '---') + ' → ' + (lifeAfter.name || '---'));
+      lines.push((L.nigekireRankLabel(lifeBefore) || '---') + ' → ' + (L.nigekireRankLabel(lifeAfter) || '---'));
     }
     // 3回通過（oshiCleared に積まれた）＝そのキャラの立ち絵が生活カードで見えるようになる。
     //   「生活カードが開きました」だけだと何が起きたか伝わらないので、
@@ -3854,7 +3856,7 @@
     rank.className = 'kitacore-rank-text rank-' + (life.key || 'nigekire');
     // 称号に通過済みキャラの曜日を積む（曜日順固定）。例: 生活防衛中〈月水金〉
     rank.textContent = 'ランク ' +
-      L.nigekireRankTitleWithDays(life.name || '---', m.oshiCleared, NIGEKIRE_CHARACTERS);
+      L.nigekireRankTitleWithDays(L.nigekireRankLabel(life) || '---', m.oshiCleared, NIGEKIRE_CHARACTERS);
     rank.addEventListener('click', function () { openRankCard(); });
     rankRow.appendChild(rank);
 

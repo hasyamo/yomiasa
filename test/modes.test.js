@@ -2100,3 +2100,34 @@ test('nigekireRankStageFromReached: maxStage でクランプ・不正入力は0'
   assert.strictEqual(L.nigekireRankStageFromReached(['a'], null), 0);
   assert.strictEqual(L.nigekireRankStageFromReached(['a'], -3), 0);
 });
+
+// ---- nigekireRankLabel（等級記号の前置） ----
+
+test('nigekireRankLabel: grade があれば「SS:名前」の形にする', () => {
+  assert.strictEqual(L.nigekireRankLabel({ grade: 'SS', name: 'おはカノ生活管理人' }), 'SS:おはカノ生活管理人');
+  assert.strictEqual(L.nigekireRankLabel({ grade: 'E', name: '言い訳見習い' }), 'E:言い訳見習い');
+});
+
+test('nigekireRankLabel: grade が無ければ名前だけ返す', () => {
+  assert.strictEqual(L.nigekireRankLabel({ name: '生活防衛中' }), '生活防衛中');
+  assert.strictEqual(L.nigekireRankLabel({ grade: '', name: '生活防衛中' }), '生活防衛中');
+});
+
+test('nigekireRankLabel: 不正入力は空文字', () => {
+  assert.strictEqual(L.nigekireRankLabel(null), '');
+  assert.strictEqual(L.nigekireRankLabel({}), '');
+  assert.strictEqual(L.nigekireRankLabel({ grade: 'S' }), '');
+});
+
+test('nigekireRankLabel: 曜日の積み上げと併用できる（SS:名前〈月水〉）', () => {
+  const chars = [
+    { key: 'tsukiko', label: '月曜' },
+    { key: 'you', label: '火曜' },
+    { key: 'shizuku', label: '水曜' },
+  ];
+  const label = L.nigekireRankLabel({ grade: 'SS', name: 'おはカノ生活管理人' });
+  assert.strictEqual(
+    L.nigekireRankTitleWithDays(label, ['tsukiko', 'shizuku'], chars),
+    'SS:おはカノ生活管理人〈月水〉'
+  );
+});
