@@ -2322,13 +2322,10 @@
     return L.monthOf(a);
   }
 
+  // 記事の公開日「YYYY.MM.DD (曜)」。曜日は JST 基準（logic.js・ニゲキレのチップと必ず一致）。
+  //   記事一覧・お気に入り一覧の両方で使う（全モード共通の常時表示）。
   function formatDateDot(a) {
-    var d = parseDate(a.publishedAt);
-    if (!d) return '';
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var day = String(d.getDate()).padStart(2, '0');
-    return y + '.' + m + '.' + day;
+    return L.formatDateWithWeekday(a && a.publishedAt);
   }
 
   function formatFetched(iso) {

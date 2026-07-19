@@ -375,6 +375,28 @@
     return NIGEKIRE_WEEKDAY_KEYS[jst.getUTCDay()];
   }
 
+  // weekday（'mon'..'sun'）→ 日本語1文字（'月'..'日'）。該当なしは ''。
+  var WEEKDAY_JA = { sun: '日', mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土' };
+  function weekdayLabelJa(weekday) {
+    return WEEKDAY_JA[weekday] || '';
+  }
+
+  // 記事の公開日を「YYYY.MM.DD (曜)」形式にする。全モード共通の一覧表示用。
+  //   曜日は weekdayOf と同じ JST 基準で出す（ニゲキレのチップ表示と必ず一致させるため。
+  //   ローカル TZ の getDay() だと JST 以外の環境で1日ずれる）。
+  //   日付部分も JST の暦日で組む（published_at が '2025-12-15' のような日付のみでも、
+  //   タイムゾーンによって前日/翌日にならない）。パース不能なら ''。
+  function formatDateWithWeekday(publishedAt) {
+    var d = parseDate(publishedAt);
+    if (!d) return '';
+    var jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    var y = jst.getUTCFullYear();
+    var m = String(jst.getUTCMonth() + 1).padStart(2, '0');
+    var day = String(jst.getUTCDate()).padStart(2, '0');
+    var wd = weekdayLabelJa(NIGEKIRE_WEEKDAY_KEYS[jst.getUTCDay()]);
+    return y + '.' + m + '.' + day + (wd ? ' (' + wd + ')' : '');
+  }
+
   // weekday（'mon'..'sun'）から担当キャラを引く。characters は MODE_DEFS の
   //   曜日順キャラ配列（各要素に .weekday を持つ）。該当なしは null。
   function weekdayCharOf(weekday, characters) {
@@ -914,6 +936,8 @@
     canSummonPostBoss: canSummonPostBoss,
     // ---- ニゲキレモード純ロジック（フェーズ1） ----
     weekdayOf: weekdayOf,
+    weekdayLabelJa: weekdayLabelJa,
+    formatDateWithWeekday: formatDateWithWeekday,
     weekdayCharOf: weekdayCharOf,
     nigekireLifeRank: nigekireLifeRank,
     nigekireCharTitle: nigekireCharTitle,

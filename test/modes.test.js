@@ -1478,3 +1478,57 @@ test('selectFinalCheckChar: 不正 charCounts（null/非オブジェクト）→
   assert.strictEqual(L.selectFinalCheckChar(null, NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
   assert.strictEqual(L.selectFinalCheckChar('x', NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
 });
+
+// ============================================================================
+// K群: 記事一覧の日付表示（YYYY.MM.DD (曜)・JST基準・全モード共通）
+// ============================================================================
+
+test('weekdayLabelJa: weekday キー → 日本語1文字（7通り）', () => {
+  assert.strictEqual(L.weekdayLabelJa('mon'), '月');
+  assert.strictEqual(L.weekdayLabelJa('tue'), '火');
+  assert.strictEqual(L.weekdayLabelJa('wed'), '水');
+  assert.strictEqual(L.weekdayLabelJa('thu'), '木');
+  assert.strictEqual(L.weekdayLabelJa('fri'), '金');
+  assert.strictEqual(L.weekdayLabelJa('sat'), '土');
+  assert.strictEqual(L.weekdayLabelJa('sun'), '日');
+});
+
+test('weekdayLabelJa: 不正な値は空文字', () => {
+  assert.strictEqual(L.weekdayLabelJa('xxx'), '');
+  assert.strictEqual(L.weekdayLabelJa(null), '');
+  assert.strictEqual(L.weekdayLabelJa(undefined), '');
+});
+
+test('formatDateWithWeekday: 日付のみの文字列を YYYY.MM.DD (曜) にする', () => {
+  assert.strictEqual(L.formatDateWithWeekday('2025-12-15'), '2025.12.15 (月)');
+  assert.strictEqual(L.formatDateWithWeekday('2026-07-14'), '2026.07.14 (火)');
+  assert.strictEqual(L.formatDateWithWeekday('2025-12-21'), '2025.12.21 (日)');
+});
+
+test('formatDateWithWeekday: 曜日は weekdayOf（JST基準）と必ず一致する', () => {
+  // ニゲキレのチップ（weekdayOf）と一覧の曜日がズレないことを守る回帰テスト。
+  const map = { sun: '日', mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土' };
+  const dates = [
+    '2025-12-15', '2025-12-16', '2025-12-17', '2025-12-18',
+    '2025-12-19', '2025-12-20', '2025-12-21', '2026-07-14',
+  ];
+  for (const s of dates) {
+    const label = L.formatDateWithWeekday(s);
+    const expected = map[L.weekdayOf(s)];
+    assert.ok(label.endsWith('(' + expected + ')'), `${s}: ${label} が weekdayOf(${expected}) と不一致`);
+  }
+});
+
+test('formatDateWithWeekday: JST 深夜（UTCでは前日）でも JST の暦日・曜日で出す', () => {
+  // 2025-12-15T00:30:00+09:00 は UTC では 12/14 15:30。JST の月曜として出す。
+  assert.strictEqual(L.formatDateWithWeekday('2025-12-15T00:30:00+09:00'), '2025.12.15 (月)');
+  // 2025-12-15T23:30:00+09:00 も同じ JST 暦日。
+  assert.strictEqual(L.formatDateWithWeekday('2025-12-15T23:30:00+09:00'), '2025.12.15 (月)');
+});
+
+test('formatDateWithWeekday: パース不能・空は空文字', () => {
+  assert.strictEqual(L.formatDateWithWeekday(''), '');
+  assert.strictEqual(L.formatDateWithWeekday(null), '');
+  assert.strictEqual(L.formatDateWithWeekday(undefined), '');
+  assert.strictEqual(L.formatDateWithWeekday('not-a-date'), '');
+});
