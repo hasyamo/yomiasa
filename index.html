@@ -434,6 +434,22 @@
       </div>
     </div>
 
+    <!-- ===================== 交換所（おへんじ帖の季節衣装） ===================== -->
+    <div id="nigekire-outfit" class="kitacore-quiz nigekire-outfit hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-outfit-title">
+      <div class="kitacore-quiz-window nigekire-outfit-window">
+        <p id="nigekire-outfit-title" class="nigekire-outfit-title"></p>
+        <p id="nigekire-outfit-summary" class="nigekire-outfit-summary"></p>
+        <div id="nigekire-outfit-grid" class="nigekire-outfit-grid"></div>
+        <button id="nigekire-outfit-close" class="nigekire-outfit-close" type="button">閉じる</button>
+      </div>
+    </div>
+
+    <!-- 交換の演出（ちび絵を大きく出す・§6）。取得済みマスのタップでも再生する。 -->
+    <div id="nigekire-outfit-reveal" class="nigekire-outfit-reveal hidden" role="dialog" aria-modal="true">
+      <img id="nigekire-outfit-reveal-img" class="nigekire-outfit-reveal-img" alt="" />
+      <p id="nigekire-outfit-reveal-text" class="nigekire-outfit-reveal-text"></p>
+    </div>
+
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
     <script src="logic.js?v=0.1.8"></script>
     <script src="app.js?v=0.1.8"></script>

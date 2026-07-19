@@ -138,6 +138,11 @@
       if (!Array.isArray(m.oshiCleared)) m.oshiCleared = [];
       if (!m.escapeCounts || typeof m.escapeCounts !== 'object') m.escapeCounts = {};
       if (!m.oshiPassCounts || typeof m.oshiPassCounts !== 'object') m.oshiPassCounts = {};
+      // ── 交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md §7）──
+      //   outfitUnlocks: [{characterId, season, unlockedAt}] のキャッシュ。
+      //   正本はD1（サーバー）。毎回通信しないためローカルにも持つ。
+      //   ★ポイントは減らないので、ここに残高の類は持たない。
+      if (!Array.isArray(m.outfitUnlocks)) m.outfitUnlocks = [];
       // ※ lastCollectedChar / finalCheckDone は推し選択構造では使わない（残置は無害・参照しない）。
       if (m.finalCheckChar !== null && typeof m.finalCheckChar !== 'string') m.finalCheckChar = null; // 今出ている節目のキャラkey（都度セット）
       // 旧 charPoints（v1 ポイント制）は残っていても無害（v2 では使わない）。初期化はしない。
@@ -284,6 +289,22 @@
   //   point : 収集＝そのキャラのポイント（charCounts[charKey]）5/10/15
   //   ランクは「閾値キーへの初到達」でだけ上がる（2人目以降は節目だけ出てランクは動かない）。
   var NIGEKIRE_THRESHOLDS = { escape: [3, 6, 9], point: [5, 10, 15] };
+
+  // ---- 交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md）----
+  //   ★ポイントは減らない（§2）。到達数で「何着選べるか」が決まる。
+  //   解放数はキャラ単位（ポイントが charCounts[charKey] のキャラ単位のため）。
+  var NIGEKIRE_OUTFIT_THRESHOLDS = [5, 10, 15, 20];
+  // 実装済み＝画像がある季節。将来 chibi-autumn/ 等が増えたらここに足す（§7 カタログはコードに持つ）。
+  var NIGEKIRE_OUTFIT_AVAILABLE = ['summer'];
+  // 季節の表示名と記号（未実装マスは記号＋「今後のバージョンで解放」・§5）。
+  var NIGEKIRE_SEASON_META = {
+    spring: { name: '春', dir: 'chibi-spring' },
+    summer: { name: '夏', dir: 'chibi-summer' },
+    autumn: { name: '秋', dir: 'chibi-autumn' },
+    winter: { name: '冬', dir: 'chibi-winter' },
+  };
+  // サーバー（CF/yomiasa-site・README の本番URL）。
+  var NIGEKIRE_OUTFIT_API = 'https://yomiasa-site.hasyamo.workers.dev';
 
   // 閾値キーの正順（ランク段 1..6 に対応）。既存データの reachedThresholds 復元に使う。
   //   rankStage=3 → ['escape3','escape6','escape9']、rankStage=5 → +['point5','point10']。
@@ -1045,6 +1066,63 @@
     statRow.appendChild(cntLabel);
     statRow.appendChild(cntEl);
     info.appendChild(statRow);
+
+    // 衣装行（交換所・§4）。春夏秋冬で位置固定・取得済みだけ季節名・未取得は「-」。
+    //   ボタンは常時表示（5pt以上でカラー／未満はグレー）。
+    var outfitSeasons = L.nigekireUnlockedSeasons(nm.outfitUnlocks, ch.key);
+    // 交換できるのは「姿が解放された（アイコンが活性化した）キャラ」だけ。
+    //   ＝初期試練を3回通過して oshiCleared に入っているキャラ（unobserved の裏）。
+    //   ポイントが足りていても、未観測のキャラは交換できない。
+    var canExchange = !unobserved &&
+      L.nigekireOutfitAllowance(cnt, NIGEKIRE_OUTFIT_THRESHOLDS) > 0;
+
+    var outfitRow = document.createElement('div');
+    outfitRow.className = 'nigekire-char-row nigekire-outfit-row';
+    var outfitLabel = document.createElement('span');
+    outfitLabel.className = 'nigekire-char-label';
+    outfitLabel.textContent = '衣装';
+    var slots = document.createElement('span');
+    slots.className = 'nigekire-outfit-slots';
+    L.OUTFIT_SEASONS.forEach(function (season) {
+      var slot = document.createElement('span');
+      var has = outfitSeasons.indexOf(season) >= 0;
+      slot.className = 'nigekire-outfit-slot' + (has ? ' is-has' : '');
+      slot.textContent = has ? (NIGEKIRE_SEASON_META[season] || {}).name || season : '-';
+      slots.appendChild(slot);
+    });
+    outfitRow.appendChild(outfitLabel);
+    outfitRow.appendChild(slots);
+    info.appendChild(outfitRow);
+
+    // 交換所を開くボタン（文言は日本語で固定・§4）。
+    var exBtn = document.createElement('button');
+    exBtn.type = 'button';
+    exBtn.className = 'nigekire-outfit-btn' + (canExchange ? '' : ' is-locked');
+    exBtn.textContent = 'おへんじ帖の衣装';
+    exBtn.addEventListener('click', function () {
+      // 押せない理由を出す（無反応にしない）。姿が未解放のほうを先に案内する。
+      if (unobserved) {
+        showSystemMessage([
+          '［ システム ］',
+          '',
+          '〈' + ch.name + '〉の姿がまだ見えていません。',
+          '初期試練を通すと受け取れるようになります。',
+        ]);
+        return;
+      }
+      if (!canExchange) {
+        var need = L.nigekireOutfitNextThreshold(cnt, NIGEKIRE_OUTFIT_THRESHOLDS);
+        showSystemMessage([
+          '［ システム ］',
+          '',
+          'まだ受け取れません。',
+          need == null ? '' : 'あと' + (need - cnt) + 'pt で1着選べます。',
+        ]);
+        return;
+      }
+      openNigekireOutfit(ch.key);
+    });
+    info.appendChild(exBtn);
 
     card.appendChild(info);
 
@@ -2419,6 +2497,219 @@
   }
 
   // ---------------------------------------------------------------------------
+  // 交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md）
+  //   ★ポイントは減らない（§2）。到達数で「何着選べるか」が決まる。
+  //   ポイントの正本はローカル。交換ボタンを押したときだけ API を叩く（§7）。
+  // ---------------------------------------------------------------------------
+
+  // 交換所で今開いているキャラ。二度押しロックは inFlight で持つ（§4 通信の失敗時）。
+  var outfitCharKey = null;
+  var outfitInFlight = false;
+
+  // ちび絵のパス。季節ごとにディレクトリが分かれる（chibi-summer/tsukiko.png）。
+  function nigekireOutfitImgSrc(charKey, season) {
+    var meta = NIGEKIRE_SEASON_META[season];
+    if (!meta || !meta.dir) return '';
+    return 'assets/ohakano/' + meta.dir + '/' + charKey + '.png';
+  }
+
+  // 解放済み一覧をサーバーから取り直してローカルへ反映（§7 キャッシュ）。
+  //   失敗しても致命ではない（キャッシュで表示を続ける）。
+  function refreshNigekireOutfitUnlocks() {
+    var m = ensureMode('nigekire');
+    var noteId = m.player && m.player.id ? m.player.id : '';
+    if (!noteId) return Promise.resolve();
+    return fetch(NIGEKIRE_OUTFIT_API + '/api/outfit/unlocks?noteId=' + encodeURIComponent(noteId))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.outfits)) return;
+        m.outfitUnlocks = data.outfits.map(function (o) {
+          return {
+            characterId: o.characterId,
+            season: o.season,
+            unlockedAt: typeof o.unlockedAt === 'string' ? o.unlockedAt : '',
+          };
+        });
+        saveState();
+      })
+      .catch(function () { /* オフラインはキャッシュで続行（§7） */ });
+  }
+
+  // 交換画面を開く（§5・2列×2行）。
+  function openNigekireOutfit(charKey) {
+    if (!els.nigekireOutfit || !els.nigekireOutfitGrid) return;
+    outfitCharKey = charKey;
+    renderNigekireOutfit();
+    els.nigekireOutfit.classList.remove('hidden');
+    // 開いたあとに最新を取り直す（取れたら描き直す）。オフラインでも開ける。
+    refreshNigekireOutfitUnlocks().then(function () {
+      if (outfitCharKey === charKey) renderNigekireOutfit();
+    });
+  }
+
+  function closeNigekireOutfit() {
+    outfitCharKey = null;
+    if (els.nigekireOutfit) els.nigekireOutfit.classList.add('hidden');
+    // カード画面の衣装行を更新（交換後の `- 夏 - -` を反映）。
+    renderNigekireCard();
+  }
+
+  // 交換画面の中身を描く。状態は logic の nigekireOutfitState に集約。
+  function renderNigekireOutfit() {
+    if (!outfitCharKey || !els.nigekireOutfitGrid) return;
+    var m = ensureMode('nigekire');
+    var ch = nigekireCharByKey(outfitCharKey);
+    if (!ch) return;
+    var cnt = typeof m.charCounts[ch.key] === 'number' ? m.charCounts[ch.key] : 0;
+    var unlocked = L.nigekireUnlockedSeasons(m.outfitUnlocks, ch.key);
+    var st = L.nigekireOutfitState(
+      cnt, unlocked, NIGEKIRE_OUTFIT_AVAILABLE, NIGEKIRE_OUTFIT_THRESHOLDS
+    );
+
+    if (els.nigekireOutfitTitle) {
+      els.nigekireOutfitTitle.textContent = ch.label + '｜' + ch.name;
+      if (ch.color) els.nigekireOutfitTitle.style.setProperty('--char-color', ch.color);
+    }
+    // 「選べる衣装 N着」＝減らないが到達数で決まる仕組みを伝える唯一の場所（§5・省略しない）。
+    if (els.nigekireOutfitSummary) {
+      var summary = '収集 ' + cnt + '　選べる衣装 ' + st.remaining + '着';
+      if (st.remaining === 0 && st.nextThreshold != null) {
+        summary += '（次は' + st.nextThreshold + 'pt）';
+      }
+      els.nigekireOutfitSummary.textContent = summary;
+    }
+
+    els.nigekireOutfitGrid.innerHTML = '';
+    st.seasons.forEach(function (slot) {
+      var meta = NIGEKIRE_SEASON_META[slot.season] || {};
+      var cell = document.createElement('div');
+      cell.className = 'nigekire-outfit-cell is-' + slot.state;
+
+      var art = document.createElement('div');
+      art.className = 'nigekire-outfit-art';
+      if (slot.state === 'unimplemented') {
+        // 未実装は画像を持たない。空枠のままにする（記号やアイコンを勝手に置かない）。
+      } else {
+        var img = document.createElement('img');
+        img.src = nigekireOutfitImgSrc(ch.key, slot.season);
+        img.alt = ch.name + ' ' + (meta.name || slot.season);
+        img.loading = 'lazy';
+        art.appendChild(img);
+      }
+      cell.appendChild(art);
+
+      var name = document.createElement('div');
+      name.className = 'nigekire-outfit-season';
+      name.textContent = meta.name || slot.season;
+      cell.appendChild(name);
+
+      var action = document.createElement('div');
+      action.className = 'nigekire-outfit-action';
+      if (slot.state === 'unimplemented') {
+        action.textContent = '準備中';
+      } else if (slot.state === 'unlocked') {
+        action.textContent = '取得済み';
+        action.classList.add('is-owned');
+        // 取得済みマスのタップで演出を再生（§6・コレクションを眺める楽しみ）。
+        cell.classList.add('is-replayable');
+        cell.addEventListener('click', function () {
+          playNigekireOutfitReveal(ch, slot.season);
+        });
+      } else if (slot.state === 'short') {
+        action.textContent = slot.shortfall == null ? '受け取れません' : 'あと' + slot.shortfall + 'pt';
+      } else {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nigekire-outfit-exchange';
+        btn.textContent = '受け取る';
+        btn.addEventListener('click', function () {
+          confirmNigekireOutfit(ch, slot.season);
+        });
+        action.appendChild(btn);
+      }
+      cell.appendChild(action);
+      els.nigekireOutfitGrid.appendChild(cell);
+    });
+  }
+
+  // 交換の確認（§6）。「本当によろしいですか？」ではなく、ちび絵を見せた上での [交換する]。
+  function confirmNigekireOutfit(ch, season) {
+    if (outfitInFlight) return; // 二度押しロック
+    var meta = NIGEKIRE_SEASON_META[season] || {};
+    showSystemConfirm(
+      ['［ システム ］', '', ch.name + 'の' + (meta.name || season) + '衣装を受け取ります。'],
+      [
+        {
+          label: '受け取る',
+          primary: true,
+          onSelect: function () { execNigekireOutfitUnlock(ch, season); },
+        },
+        { label: 'やめる' },
+      ]
+    );
+  }
+
+  // 交換の実行。API 成功後にローカルへ反映して演出を出す。
+  //   ★ポイントは減らさない（§2）。失敗しても巻き戻す残高が無い（§7）。
+  function execNigekireOutfitUnlock(ch, season) {
+    if (outfitInFlight) return;
+    var m = ensureMode('nigekire');
+    var noteId = m.player && m.player.id ? m.player.id : '';
+    if (!noteId) {
+      showSystemMessage(['［ システム ］', '', 'プレイヤー情報が見つかりません。']);
+      return;
+    }
+    outfitInFlight = true;
+    // 押せなくする（レスポンスが返るまで・§7）。
+    if (els.nigekireOutfitGrid) els.nigekireOutfitGrid.classList.add('is-busy');
+
+    fetch(NIGEKIRE_OUTFIT_API + '/api/outfit/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ noteId: noteId, characterId: ch.key, season: season }),
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || data.ok !== true) throw new Error('unlock failed');
+        // 既に解放済み（alreadyUnlocked）でもローカルに入れる＝二重タップ対策と整合。
+        m.outfitUnlocks = L.nigekireApplyOutfitUnlock(
+          m.outfitUnlocks, ch.key, season, data.unlockedAt
+        );
+        saveState();
+        renderNigekireOutfit();
+        playNigekireOutfitReveal(ch, season);
+      })
+      .catch(function () {
+        showSystemMessage(['［ システム ］', '', '解放できませんでした。']);
+      })
+      .then(function () {
+        outfitInFlight = false;
+        if (els.nigekireOutfitGrid) els.nigekireOutfitGrid.classList.remove('is-busy');
+      });
+  }
+
+  // 解放の演出（§6）。買っても YOMIASA 側では何も変わらないので、ここが唯一の報酬。
+  //   ちび絵を大きく出し、「おへんじ帖で使えるようになりました」を必ず添える。
+  function playNigekireOutfitReveal(ch, season) {
+    if (!els.nigekireOutfitReveal) return;
+    if (els.nigekireOutfitRevealImg) {
+      els.nigekireOutfitRevealImg.src = nigekireOutfitImgSrc(ch.key, season);
+      els.nigekireOutfitRevealImg.alt = ch.name;
+    }
+    if (els.nigekireOutfitRevealText) {
+      els.nigekireOutfitRevealText.textContent = 'おへんじ帖で使えるようになりました';
+    }
+    if (ch.color) els.nigekireOutfitReveal.style.setProperty('--char-color', ch.color);
+    els.nigekireOutfitReveal.classList.remove('hidden');
+    // タップで閉じる（§6 は1〜2秒だが、読み終わる前に消えないようタップでも閉じられる）。
+    var close = function () {
+      els.nigekireOutfitReveal.classList.add('hidden');
+      els.nigekireOutfitReveal.removeEventListener('click', close);
+    };
+    els.nigekireOutfitReveal.addEventListener('click', close);
+  }
+
+  // ---------------------------------------------------------------------------
   // 節目イベント（最終確認）: カットイン → 最終確認画面 → 通過（§9/§10）。
   //   キタコレのボスカットイン相当だが戦闘語彙は使わない。専用オーバーレイ #nigekire-cutin
   //   / #nigekire-final を使う（キタコレのボス戦 DOM とは分離＝キタコレ無改変）。
@@ -2937,6 +3228,15 @@
     nigekireOshiNote: document.getElementById('nigekire-oshi-note'),
     nigekireOshiGrid: document.getElementById('nigekire-oshi-grid'),
     nigekireOshiCancel: document.getElementById('nigekire-oshi-cancel'),
+    // 交換所（おへんじ帖の季節衣装）
+    nigekireOutfit: document.getElementById('nigekire-outfit'),
+    nigekireOutfitTitle: document.getElementById('nigekire-outfit-title'),
+    nigekireOutfitSummary: document.getElementById('nigekire-outfit-summary'),
+    nigekireOutfitGrid: document.getElementById('nigekire-outfit-grid'),
+    nigekireOutfitClose: document.getElementById('nigekire-outfit-close'),
+    nigekireOutfitReveal: document.getElementById('nigekire-outfit-reveal'),
+    nigekireOutfitRevealImg: document.getElementById('nigekire-outfit-reveal-img'),
+    nigekireOutfitRevealText: document.getElementById('nigekire-outfit-reveal-text'),
     // システム確認（Yes/No の汎用部品・システムメッセージと同じ見た目）
     systemConfirm: document.getElementById('system-confirm'),
     systemConfirmText: document.getElementById('system-confirm-text'),
@@ -5294,6 +5594,11 @@
     //   推し選択モーダル：[やめる]で閉じる（キャラ変更時のみ表示・初回は閉じられない）。
     if (els.nigekireOshiCancel) {
       els.nigekireOshiCancel.addEventListener('click', closeNigekireOshiSelect);
+    }
+
+    //   交換所：[閉じる]で閉じる（カード画面の衣装行を更新して戻る）。
+    if (els.nigekireOutfitClose) {
+      els.nigekireOutfitClose.addEventListener('click', closeNigekireOutfit);
     }
 
     // ── ニゲキレ DEBUG（?debug=1・記事取得済み・activeModeKey==='nigekire' のときだけ表示）──

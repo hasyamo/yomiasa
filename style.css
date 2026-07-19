@@ -2096,7 +2096,9 @@ button.kitacore-rank-text:focus-visible {
 .kitacore-system {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /* システムメッセージは他の画面（カード画面・交換所・確認 …）の上に重ねて出す。
+     100 のままだと同値の kitacore-rank-card に DOM 順で負けて隠れる。 */
+  z-index: 140;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3100,4 +3102,197 @@ button.kitacore-rank-text:focus-visible {
 /* ニゲキレ debug ボタン群（5個・キタコレと排他・.debug-btns / .debug-btn を流用しつつ折り返す）。 */
 .nigekire-debug-btns {
   flex-wrap: wrap;
+}
+
+/* ===========================================================================
+   交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md）
+   カード画面の衣装行＋交換モーダル（2列×2行）＋解放演出。
+   色味・角丸はニゲキレ既存（推し選択・生活カード）に揃える。
+   =========================================================================== */
+
+/* ---- カード画面の衣装行（§4）---- */
+/* 春夏秋冬で位置固定。取得済みだけ季節名、未取得は「-」。 */
+.nigekire-outfit-slots {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.nigekire-outfit-slot {
+  min-width: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  color: rgba(186, 230, 253, 0.35);
+}
+.nigekire-outfit-slot.is-has {
+  color: #e0f2fe;
+}
+/* 交換所を開くボタン。常時表示で、5pt未満はグレー（押すと不足が分かる）。 */
+/* 押せる状態。塗り＋発光ではっきり「押せる」と分かるようにする
+   （生活カードの解放済みキャラだけがこの見た目になる）。 */
+.nigekire-outfit-btn {
+  margin-top: 6px;
+  padding: 6px 12px;
+  border: 1px solid #7dd3fc;
+  border-radius: 999px;
+  background: rgba(14, 116, 144, 0.75);
+  color: #f0f9ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(125, 211, 252, 0.35);
+}
+/* 押せない状態（姿が未解放・またはポイント不足）。枠線だけの沈んだ見た目にして、
+   塗りの有無で押せる／押せないが一目で分かるようにする。 */
+.nigekire-outfit-btn.is-locked {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: transparent;
+  color: rgba(203, 213, 225, 0.4);
+  cursor: default;
+  box-shadow: none;
+}
+
+/* ---- 交換モーダル（§5）---- */
+.nigekire-outfit-window {
+  max-width: 420px;
+}
+.nigekire-outfit-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--char-color, #e0f2fe) 45%, #ffffff);
+}
+/* 「選べる衣装 N着」＝減らないが到達数で決まる仕組みを伝える唯一の場所（省略しない）。 */
+.nigekire-outfit-summary {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: rgba(186, 230, 253, 0.75);
+}
+/* 2列×2行。1列に4つ並べるとちび絵が小さくなりすぎるため（§5）。 */
+.nigekire-outfit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.nigekire-outfit-grid.is-busy {
+  pointer-events: none;
+  opacity: 0.6;
+}
+.nigekire-outfit-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 12px;
+  background: rgba(8, 47, 73, 0.45);
+}
+.nigekire-outfit-cell.is-replayable {
+  cursor: pointer;
+}
+/* 未実装は沈める（ロックでなく未完成であることは文言側で伝える）。 */
+.nigekire-outfit-cell.is-unimplemented {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(30, 41, 59, 0.4);
+}
+.nigekire-outfit-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 120px;
+}
+.nigekire-outfit-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.nigekire-outfit-season {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(186, 230, 253, 0.85);
+}
+.nigekire-outfit-action {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.3;
+  color: rgba(186, 230, 253, 0.55);
+}
+.nigekire-outfit-action.is-owned {
+  color: #7dd3fc;
+  font-weight: 700;
+}
+.nigekire-outfit-exchange {
+  padding: 5px 14px;
+  border: 1px solid #7dd3fc;
+  border-radius: 999px;
+  background: rgba(14, 116, 144, 0.55);
+  color: #e0f2fe;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.nigekire-outfit-close {
+  display: block;
+  margin: 14px auto 0;
+  padding: 8px 24px;
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  border-radius: 999px;
+  background: transparent;
+  color: #bae6fd;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ---- 解放演出（§6）---- */
+/* 買っても YOMIASA 側では何も変わらないので、この瞬間が唯一の報酬。 */
+.nigekire-outfit-reveal {
+  position: fixed;
+  inset: 0;
+  /* 交換モーダル(.kitacore-quiz=100)は backdrop-filter を持つ＝独自の stacking context を
+     作り、後ろの要素を合成してしまう。演出はそれに巻き込まれないよう最前面に置く
+     （システムメッセージ 140 より上）。isolation で自前の文脈を確定させる。 */
+  z-index: 150;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.92);
+  animation: nigekire-outfit-fade 260ms ease-out;
+}
+.nigekire-outfit-reveal.hidden {
+  display: none;
+}
+.nigekire-outfit-reveal-img {
+  width: min(300px, 72vw);
+  height: auto;
+  filter: drop-shadow(0 0 24px color-mix(in srgb, var(--char-color, #7dd3fc) 60%, transparent));
+  animation: nigekire-outfit-pop 380ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 別アプリで効くという説明を報酬の中に埋める（§6・必ず添える）。 */
+.nigekire-outfit-reveal-text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e0f2fe;
+  text-align: center;
+}
+@keyframes nigekire-outfit-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes nigekire-outfit-pop {
+  from { opacity: 0; transform: scale(0.86); }
+  to   { opacity: 1; transform: scale(1); }
 }
