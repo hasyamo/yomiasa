@@ -833,6 +833,138 @@
     return next;
   }
 
+  // ===========================================================================
+  // X群: ニゲキレ交換所（おへんじ帖の季節衣装）
+  //   参照: nigekire-exchange-spec.md
+  //   ★ポイントは減らない（§2）。累計ポイントの「到達数」で何着選べるかが決まる。
+  //     減算を書くとランク（reachedThresholds の初到達ベース）と食い違うため。
+  //   解放数はキャラ単位（ポイントが charCounts[charKey] のキャラ単位のため）。
+  //   すべて副作用なし・非破壊。
+  // ===========================================================================
+
+  // 季節の並び（春夏秋冬で位置固定・§4）。表示順はこの配列がゴールデン。
+  var OUTFIT_SEASONS = ['spring', 'summer', 'autumn', 'winter'];
+
+  // 累計ポイント → 解放できる衣装の数（§2の到達表）。
+  //   thresholds = [5,10,15,20] のような昇順配列。到達した閾値の数がそのまま着数。
+  //   ポイントは減らないので、これは「使える枠の総数」であって残高ではない。
+  function nigekireOutfitAllowance(points, thresholds) {
+    var p = typeof points === 'number' && isFinite(points) ? Math.floor(points) : 0;
+    var list = Array.isArray(thresholds) ? thresholds : [];
+    var n = 0;
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      if (typeof t === 'number' && isFinite(t) && p >= t) n++;
+    }
+    return n;
+  }
+
+  // 次の閾値（まだ到達していない最小の閾値）。全部到達済みなら null。
+  //   「選べる衣装 0着（次は10pt）」の 10 を出すのに使う（§5）。
+  function nigekireOutfitNextThreshold(points, thresholds) {
+    var p = typeof points === 'number' && isFinite(points) ? Math.floor(points) : 0;
+    var list = Array.isArray(thresholds) ? thresholds : [];
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      if (typeof t === 'number' && isFinite(t) && p < t) return t;
+    }
+    return null;
+  }
+
+  // あるキャラの解放済み季節を配列で返す（unlocks から絞り込む）。
+  //   unlocks = [{characterId, season}, ...]（APIの GET /api/outfit/unlocks 形式）。
+  //   並びは OUTFIT_SEASONS 順に正規化する（APIの返却順に依存しない）。
+  function nigekireUnlockedSeasons(unlocks, charKey) {
+    var list = Array.isArray(unlocks) ? unlocks : [];
+    var found = {};
+    for (var i = 0; i < list.length; i++) {
+      var u = list[i];
+      if (u && u.characterId === charKey && typeof u.season === 'string') found[u.season] = true;
+    }
+    var out = [];
+    for (var j = 0; j < OUTFIT_SEASONS.length; j++) {
+      if (found[OUTFIT_SEASONS[j]]) out.push(OUTFIT_SEASONS[j]);
+    }
+    return out;
+  }
+
+  // 交換画面の状態をまとめて算出する（§5）。表示に必要な値を1回で出す。
+  //   points      : そのキャラの収集数（charCounts[charKey]）
+  //   unlocked    : そのキャラの解放済み季節（nigekireUnlockedSeasons の返り値）
+  //   available   : 実装済み季節（画像がある季節。現時点は ['summer']）
+  //   thresholds  : [5,10,15,20]
+  //   -> { allowance, usedCount, remaining, nextThreshold, seasons:[{season,state,shortfall}] }
+  //   state は 'unimplemented' | 'unlocked' | 'exchangeable' | 'short'
+  function nigekireOutfitState(points, unlocked, available, thresholds) {
+    var p = typeof points === 'number' && isFinite(points) ? Math.floor(points) : 0;
+    var un = Array.isArray(unlocked) ? unlocked : [];
+    var av = Array.isArray(available) ? available : [];
+    var allowance = nigekireOutfitAllowance(p, thresholds);
+    // 使った枠は「解放済みの数」。ポイントは減らないので枠だけが埋まる。
+    var usedCount = un.length;
+    var remaining = allowance - usedCount;
+    if (remaining < 0) remaining = 0;
+    var next = nigekireOutfitNextThreshold(p, thresholds);
+
+    var seasons = [];
+    for (var i = 0; i < OUTFIT_SEASONS.length; i++) {
+      var s = OUTFIT_SEASONS[i];
+      var isUnlocked = un.indexOf(s) >= 0;
+      var isAvailable = av.indexOf(s) >= 0;
+      var state;
+      var shortfall = null;
+      if (isUnlocked) {
+        // 取得済みは実装状況より優先（過去に解放したものは必ず出す）。
+        state = 'unlocked';
+      } else if (!isAvailable) {
+        state = 'unimplemented';
+      } else if (remaining > 0) {
+        state = 'exchangeable';
+      } else {
+        state = 'short';
+        // 「あと◯pt」の不足分（§5）。次の閾値が無い（全部到達済み）なら null。
+        shortfall = next == null ? null : next - p;
+      }
+      seasons.push({ season: s, state: state, shortfall: shortfall });
+    }
+    return {
+      allowance: allowance,
+      usedCount: usedCount,
+      remaining: remaining,
+      nextThreshold: next,
+      seasons: seasons,
+    };
+  }
+
+  // 解放できるか（交換ボタンを押せるか）の判定。UIの二度押しロックとは別に、
+  //   状態面で許されるかだけを見る。副作用なし。
+  function nigekireCanUnlockOutfit(points, unlocked, available, season, thresholds) {
+    var st = nigekireOutfitState(points, unlocked, available, thresholds);
+    for (var i = 0; i < st.seasons.length; i++) {
+      if (st.seasons[i].season === season) return st.seasons[i].state === 'exchangeable';
+    }
+    return false;
+  }
+
+  // 解放の反映（非破壊）。API 成功後に呼ぶ。既に入っていれば増やさない（二重登録防止）。
+  //   unlocks は [{characterId, season, unlockedAt}] のキャッシュ配列。
+  function nigekireApplyOutfitUnlock(unlocks, charKey, season, unlockedAt) {
+    var list = Array.isArray(unlocks) ? unlocks.slice() : [];
+    if (!charKey || typeof charKey !== 'string' || !season || typeof season !== 'string') {
+      return list;
+    }
+    for (var i = 0; i < list.length; i++) {
+      var u = list[i];
+      if (u && u.characterId === charKey && u.season === season) return list; // 既存＝そのまま
+    }
+    list.push({
+      characterId: charKey,
+      season: season,
+      unlockedAt: typeof unlockedAt === 'string' ? unlockedAt : '',
+    });
+    return list;
+  }
+
   // ニゲキレ state の掃除。isTargetCreator（=creatorId が NIGEKIRE_ID 本体=唯一の対象）なら、
   //   ポイント逆算が煩雑なため進行を丸ごとリセット（亡霊 state を残さない）。
   //   対象でなければ変更なし（＝入力と同値の新オブジェクトを返す）。非破壊。
@@ -906,6 +1038,14 @@
     nigekirePassOshiMilestone: nigekirePassOshiMilestone,
     nigekireOshiGauge: nigekireOshiGauge,
     nigekireRankStageFromReached: nigekireRankStageFromReached,
+    // ---- X群: 交換所（おへんじ帖の季節衣装）----
+    OUTFIT_SEASONS: OUTFIT_SEASONS,
+    nigekireOutfitAllowance: nigekireOutfitAllowance,
+    nigekireOutfitNextThreshold: nigekireOutfitNextThreshold,
+    nigekireUnlockedSeasons: nigekireUnlockedSeasons,
+    nigekireOutfitState: nigekireOutfitState,
+    nigekireCanUnlockOutfit: nigekireCanUnlockOutfit,
+    nigekireApplyOutfitUnlock: nigekireApplyOutfitUnlock,
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,

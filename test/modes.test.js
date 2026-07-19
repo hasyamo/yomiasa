@@ -1583,3 +1583,142 @@ test('quizデータ: 全問が3択で正解がちょうど1つ・correctKey と�
     assert.strictEqual(correct[0].key, q.correctKey, key + ' の correctKey が正解肢と食い違う');
   }
 });
+
+// ---------------------------------------------------------------------------
+// X群: ニゲキレ交換所（おへんじ帖の季節衣装）
+//   参照: nigekire-exchange-spec.md
+//   ★ここで最も強く守るのは「ポイントが減らない」こと（§2）。
+//     減算を入れるとランク（初到達ベース）と食い違い、
+//     「最高ランクなのにゲージが満タンでない」状態が起きる。
+// ---------------------------------------------------------------------------
+
+// §2 の到達表（app.js の NIGEKIRE_OUTFIT_THRESHOLDS と同値）。
+const OUTFIT_TH = [5, 10, 15, 20];
+// 現時点で画像がある季節（assets/ohakano/chibi-summer/ のみ）。
+const OUTFIT_AVAIL = ['summer'];
+
+test('交換所: 到達数で着数が決まる（0/5/10/15/20 の境界）', () => {
+  assert.strictEqual(L.nigekireOutfitAllowance(0, OUTFIT_TH), 0);
+  assert.strictEqual(L.nigekireOutfitAllowance(4, OUTFIT_TH), 0);
+  assert.strictEqual(L.nigekireOutfitAllowance(5, OUTFIT_TH), 1);
+  assert.strictEqual(L.nigekireOutfitAllowance(9, OUTFIT_TH), 1);
+  assert.strictEqual(L.nigekireOutfitAllowance(10, OUTFIT_TH), 2);
+  assert.strictEqual(L.nigekireOutfitAllowance(15, OUTFIT_TH), 3);
+  assert.strictEqual(L.nigekireOutfitAllowance(20, OUTFIT_TH), 4);
+});
+
+test('交換所: 20pt超（オーバー値）でも4着で頭打ち', () => {
+  assert.strictEqual(L.nigekireOutfitAllowance(23, OUTFIT_TH), 4);
+  assert.strictEqual(L.nigekireOutfitAllowance(999, OUTFIT_TH), 4);
+});
+
+test('交換所: 次の閾値（「次は10pt」の 10）', () => {
+  assert.strictEqual(L.nigekireOutfitNextThreshold(0, OUTFIT_TH), 5);
+  assert.strictEqual(L.nigekireOutfitNextThreshold(5, OUTFIT_TH), 10);
+  assert.strictEqual(L.nigekireOutfitNextThreshold(19, OUTFIT_TH), 20);
+  assert.strictEqual(L.nigekireOutfitNextThreshold(20, OUTFIT_TH), null); // 全部到達
+});
+
+test('交換所: 解放済み季節をキャラで絞り、春夏秋冬順に正規化する', () => {
+  const unlocks = [
+    { characterId: 'tsukiko', season: 'winter' },
+    { characterId: 'shizuku', season: 'summer' },
+    { characterId: 'tsukiko', season: 'summer' },
+  ];
+  // APIの返却順（winter→summer）に依存せず、必ず春夏秋冬順。
+  assert.deepStrictEqual(L.nigekireUnlockedSeasons(unlocks, 'tsukiko'), ['summer', 'winter']);
+  assert.deepStrictEqual(L.nigekireUnlockedSeasons(unlocks, 'shizuku'), ['summer']);
+  assert.deepStrictEqual(L.nigekireUnlockedSeasons(unlocks, 'runa'), []);
+});
+
+test('交換所: 5pt未満は交換できない（夏は short・「あと5pt」）', () => {
+  const st = L.nigekireOutfitState(0, [], OUTFIT_AVAIL, OUTFIT_TH);
+  assert.strictEqual(st.allowance, 0);
+  assert.strictEqual(st.remaining, 0);
+  const summer = st.seasons.find((s) => s.season === 'summer');
+  assert.strictEqual(summer.state, 'short');
+  assert.strictEqual(summer.shortfall, 5); // 不足分を出す（「5pt」ではなく「あと5pt」）
+});
+
+test('交換所: 2pt なら「あと3pt」（不足分であって閾値ではない）', () => {
+  const st = L.nigekireOutfitState(2, [], OUTFIT_AVAIL, OUTFIT_TH);
+  assert.strictEqual(st.seasons.find((s) => s.season === 'summer').shortfall, 3);
+});
+
+test('交換所: 5ptで夏が交換可能になる（未実装の春秋冬は unimplemented のまま）', () => {
+  const st = L.nigekireOutfitState(5, [], OUTFIT_AVAIL, OUTFIT_TH);
+  assert.strictEqual(st.allowance, 1);
+  assert.strictEqual(st.remaining, 1);
+  const byKey = Object.fromEntries(st.seasons.map((s) => [s.season, s.state]));
+  assert.deepStrictEqual(byKey, {
+    spring: 'unimplemented',
+    summer: 'exchangeable',
+    autumn: 'unimplemented',
+    winter: 'unimplemented',
+  });
+});
+
+test('交換所: 5pt・1着取得済み → 残り0着・次は10pt（§5の表示例）', () => {
+  const st = L.nigekireOutfitState(5, ['summer'], OUTFIT_AVAIL, OUTFIT_TH);
+  assert.strictEqual(st.allowance, 1);
+  assert.strictEqual(st.usedCount, 1);
+  assert.strictEqual(st.remaining, 0);
+  assert.strictEqual(st.nextThreshold, 10);
+  assert.strictEqual(st.seasons.find((s) => s.season === 'summer').state, 'unlocked');
+});
+
+test('交換所: 15pt・1着取得済み → 残り2着（§5の表示例）', () => {
+  const st = L.nigekireOutfitState(15, ['summer'], OUTFIT_AVAIL, OUTFIT_TH);
+  assert.strictEqual(st.allowance, 3);
+  assert.strictEqual(st.remaining, 2);
+});
+
+test('交換所: 取得済みは実装状況より優先（未実装季節でも unlocked で出す）', () => {
+  // 将来 autumn を配ったあと画像だけ差し戻る等でも、解放済みは必ず表示する。
+  const st = L.nigekireOutfitState(10, ['autumn'], OUTFIT_AVAIL, OUTFIT_TH);
+  assert.strictEqual(st.seasons.find((s) => s.season === 'autumn').state, 'unlocked');
+});
+
+test('交換所: 枠を使い切ると未取得の実装済み季節は short に落ちる', () => {
+  // 10pt=2着だが、実装済みが夏だけなので夏を取ると残り1着が余る。
+  // ここでは available を広げて枠切れを作る。
+  const st = L.nigekireOutfitState(5, ['summer'], ['summer', 'autumn'], OUTFIT_TH);
+  assert.strictEqual(st.remaining, 0);
+  assert.strictEqual(st.seasons.find((s) => s.season === 'autumn').state, 'short');
+  assert.strictEqual(st.seasons.find((s) => s.season === 'autumn').shortfall, 5); // 10pt まであと5
+});
+
+test('交換所: canUnlock は exchangeable のときだけ true', () => {
+  assert.strictEqual(L.nigekireCanUnlockOutfit(5, [], OUTFIT_AVAIL, 'summer', OUTFIT_TH), true);
+  assert.strictEqual(L.nigekireCanUnlockOutfit(4, [], OUTFIT_AVAIL, 'summer', OUTFIT_TH), false);
+  // 取得済みは再交換できない
+  assert.strictEqual(L.nigekireCanUnlockOutfit(5, ['summer'], OUTFIT_AVAIL, 'summer', OUTFIT_TH), false);
+  // 未実装は交換できない
+  assert.strictEqual(L.nigekireCanUnlockOutfit(20, [], OUTFIT_AVAIL, 'autumn', OUTFIT_TH), false);
+});
+
+test('交換所: 解放の反映は非破壊・二重登録しない', () => {
+  const before = [{ characterId: 'tsukiko', season: 'summer', unlockedAt: 'A' }];
+  const after = L.nigekireApplyOutfitUnlock(before, 'shizuku', 'summer', 'B');
+  assert.strictEqual(before.length, 1); // 入力を書き換えない
+  assert.strictEqual(after.length, 2);
+  // 同じ組み合わせをもう一度 → 増えない（APIの alreadyUnlocked と対応）
+  const again = L.nigekireApplyOutfitUnlock(after, 'shizuku', 'summer', 'C');
+  assert.strictEqual(again.length, 2);
+});
+
+test('交換所[★核心]: 解放してもポイントは減らない', () => {
+  // ポイントを引数に取る関数はどれも state を持たない＝減算のしようがないことを、
+  // 「解放前後で allowance が下がらない」形で固定する。
+  const points = 15;
+  const before = L.nigekireOutfitState(points, [], OUTFIT_AVAIL, OUTFIT_TH);
+  const unlocks = L.nigekireApplyOutfitUnlock([], 'tsukiko', 'summer', 'X');
+  const seasons = L.nigekireUnlockedSeasons(unlocks, 'tsukiko');
+  const after = L.nigekireOutfitState(points, seasons, OUTFIT_AVAIL, OUTFIT_TH);
+
+  // 到達数（＝ランクと共通の閾値判定）は解放しても不変。
+  assert.strictEqual(before.allowance, 3);
+  assert.strictEqual(after.allowance, 3);
+  // 減るのは「残り枠」だけで、ポイント由来の allowance ではない。
+  assert.strictEqual(after.remaining, 2);
+});
