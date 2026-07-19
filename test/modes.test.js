@@ -1315,7 +1315,7 @@ test('nigekirePassFinalCheck: 非破壊（引数はプリミティブ・状態�
 // J群: ニゲキレ 通過ベースランク（rankStage・§10-2）
 //   ランクは「収集数の自動判定」→「通過した節目の数（rankStage 0〜4）」で決まる。
 //   閾値は ranks の min 由来（70/120/200 をハードコードしない）。
-//   確定値: selectFinalCheckCharacter（answer-final-check-rank-update.md）。
+//   ※節目キャラ選定（selectFinalCheckChar）は推し1人選択構造で廃止・削除済み。
 // ---------------------------------------------------------------------------
 
 // J群で使う曜日順キャラリスト（§10-2）
@@ -1429,56 +1429,6 @@ test('nigekirePassFinalCheckV2: 非破壊（引数プリミティブを書き換
   assert.strictEqual(out.nextRankStage, 3);
 });
 
-// ---- J4: selectFinalCheckChar（節目キャラ選定・ジュリ確定・タイブレーク） ----
-
-test('selectFinalCheckChar: 単独最多 → そのキャラ（tsukiko:5,you:3 → tsukiko）', () => {
-  assert.strictEqual(
-    L.selectFinalCheckChar({ tsukiko: 5, you: 3 }, NIGEKIRE_CHAR_ORDER, null),
-    'tsukiko'
-  );
-});
-
-test('selectFinalCheckChar: 同数で lastCollectedChar 優先（tsukiko:5,you:5,last=you → you）', () => {
-  assert.strictEqual(
-    L.selectFinalCheckChar({ tsukiko: 5, you: 5 }, NIGEKIRE_CHAR_ORDER, 'you'),
-    'you'
-  );
-});
-
-test('selectFinalCheckChar: 同数で last なし → 曜日順で先頭（tsukiko:5,you:5 → tsukiko）', () => {
-  assert.strictEqual(
-    L.selectFinalCheckChar({ tsukiko: 5, you: 5 }, NIGEKIRE_CHAR_ORDER, null),
-    'tsukiko'
-  );
-});
-
-test('selectFinalCheckChar: last が候補外なら曜日順先頭（tsukiko:5,you:5,last=shizuku → tsukiko）', () => {
-  assert.strictEqual(
-    L.selectFinalCheckChar({ tsukiko: 5, you: 5 }, NIGEKIRE_CHAR_ORDER, 'shizuku'),
-    'tsukiko'
-  );
-});
-
-test('selectFinalCheckChar: 全0（max=0・全員候補）→ 曜日順先頭 tsukiko', () => {
-  assert.strictEqual(
-    L.selectFinalCheckChar(
-      { tsukiko: 0, you: 0, shizuku: 0, rinka: 0, runa: 0, mahiru: 0, hiyori: 0 },
-      NIGEKIRE_CHAR_ORDER,
-      null
-    ),
-    'tsukiko'
-  );
-});
-
-test('selectFinalCheckChar: 空 charCounts → 曜日順先頭 tsukiko', () => {
-  assert.strictEqual(L.selectFinalCheckChar({}, NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
-});
-
-test('selectFinalCheckChar: 不正 charCounts（null/非オブジェクト）→ tsukiko', () => {
-  assert.strictEqual(L.selectFinalCheckChar(null, NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
-  assert.strictEqual(L.selectFinalCheckChar('x', NIGEKIRE_CHAR_ORDER, null), 'tsukiko');
-});
-
 // ============================================================================
 // K群: 記事一覧の日付表示（YYYY.MM.DD (曜)・JST基準・全モード共通）
 // ============================================================================
@@ -1531,4 +1481,373 @@ test('formatDateWithWeekday: パース不能・空は空文字', () => {
   assert.strictEqual(L.formatDateWithWeekday(null), '');
   assert.strictEqual(L.formatDateWithWeekday(undefined), '');
   assert.strictEqual(L.formatDateWithWeekday('not-a-date'), '');
+});
+
+// ============================================================================
+// M群: ニゲキレ 推し1人選択構造（answer-oshi-select-CONFIRMED.md 確定）
+//   推し1人・逃げ切り9本・3本ごとに最終確認3回 → rankStage 3（キャラ変更解禁）。
+//   2人目以降の初期試練では rankStage は動かず oshiCleared にだけ積む。
+//   収集の節目の閾値は ranks の min 由来（70/120/200 をハードコードしない）。
+// ============================================================================
+
+// 7段階ランク（確定値・rankStage 0..6）。min は 4/5/6 のみ参照される。
+const NIGEKIRE_RANKS_M = [
+  { stage: 0, min: 0, name: '言い訳見習い', key: 'nige1' },
+  { stage: 1, min: 0, name: '言い訳準備中', key: 'nige2' },
+  { stage: 2, min: 0, name: '生活立て直し中', key: 'nige3' },
+  { stage: 3, min: 0, name: '生活防衛中', key: 'nige4' },
+  { stage: 4, min: 70, name: '火種処理係', key: 'nige5' },
+  { stage: 5, min: 120, name: 'おはカノ生活継続者', key: 'nige6' },
+  { stage: 6, min: 200, name: 'おはカノ生活管理人', key: 'nige7' },
+];
+
+// label 付きキャラ配列（曜日順・称号の曜日連結に使う）
+const NIGEKIRE_CHARS_M = [
+  { key: 'tsukiko', weekday: 'mon', label: '月曜', name: '月子' },
+  { key: 'you', weekday: 'tue', label: '火曜', name: '陽' },
+  { key: 'shizuku', weekday: 'wed', label: '水曜', name: 'しずく' },
+  { key: 'rinka', weekday: 'thu', label: '木曜', name: '凛華' },
+  { key: 'runa', weekday: 'fri', label: '金曜', name: 'るな' },
+  { key: 'mahiru', weekday: 'sat', label: '土曜', name: 'まひる' },
+  { key: 'hiyori', weekday: 'sun', label: '日曜', name: '日和' },
+];
+
+// ---- M1: nigekireOshiEscapeRecord（逃げ切り記録 n/9・3本ごとの節目） ----
+
+test('nigekireOshiEscapeRecord: 0本 → count0・全未達・次の節目3', () => {
+  const out = L.nigekireOshiEscapeRecord({}, 'rinka');
+  assert.strictEqual(out.count, 0);
+  assert.strictEqual(out.need, 9);
+  assert.deepStrictEqual(out.cleared, [false, false, false]);
+  assert.strictEqual(out.nextMilestone, 3);
+});
+
+test('nigekireOshiEscapeRecord: 2本 → まだ節目未達・次は3', () => {
+  const out = L.nigekireOshiEscapeRecord({ rinka: 2 }, 'rinka');
+  assert.strictEqual(out.count, 2);
+  assert.deepStrictEqual(out.cleared, [false, false, false]);
+  assert.strictEqual(out.nextMilestone, 3);
+});
+
+test('nigekireOshiEscapeRecord: 3本 → 節目①到達・次は6', () => {
+  const out = L.nigekireOshiEscapeRecord({ rinka: 3 }, 'rinka');
+  assert.strictEqual(out.count, 3);
+  assert.deepStrictEqual(out.cleared, [true, false, false]);
+  assert.strictEqual(out.nextMilestone, 6);
+});
+
+test('nigekireOshiEscapeRecord: 6本 → 節目①②到達・次は9', () => {
+  const out = L.nigekireOshiEscapeRecord({ rinka: 6 }, 'rinka');
+  assert.deepStrictEqual(out.cleared, [true, true, false]);
+  assert.strictEqual(out.nextMilestone, 9);
+});
+
+test('nigekireOshiEscapeRecord: 9本 → 全節目到達・次はnull', () => {
+  const out = L.nigekireOshiEscapeRecord({ rinka: 9 }, 'rinka');
+  assert.strictEqual(out.count, 9);
+  assert.deepStrictEqual(out.cleared, [true, true, true]);
+  assert.strictEqual(out.nextMilestone, null);
+});
+
+test('nigekireOshiEscapeRecord: 9本超は9にクランプ', () => {
+  assert.strictEqual(L.nigekireOshiEscapeRecord({ rinka: 40 }, 'rinka').count, 9);
+});
+
+test('nigekireOshiEscapeRecord: 負数/非数/未選択は0扱い', () => {
+  assert.strictEqual(L.nigekireOshiEscapeRecord({ rinka: -5 }, 'rinka').count, 0);
+  assert.strictEqual(L.nigekireOshiEscapeRecord({ rinka: 'x' }, 'rinka').count, 0);
+  assert.strictEqual(L.nigekireOshiEscapeRecord(null, 'rinka').count, 0);
+  assert.strictEqual(L.nigekireOshiEscapeRecord({ rinka: 5 }, null).count, 0);
+});
+
+test('nigekireOshiEscapeRecord: 選択中キャラのぶんだけ見る（他キャラは無視）', () => {
+  const out = L.nigekireOshiEscapeRecord({ tsukiko: 9, rinka: 3 }, 'rinka');
+  assert.strictEqual(out.count, 3);
+});
+
+// ---- M2: nigekireOshiFinalCheckReady（節目判定・mode/passIndex） ----
+
+test('nigekireOshiFinalCheckReady: 1人目 通過0回・2本 → initial・未ready・n=1', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    0, { tsukiko: 2 }, {}, 'tsukiko', [], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.mode, 'initial');
+  assert.strictEqual(out.ready, false);
+  assert.strictEqual(out.passIndex, 1);
+});
+
+test('nigekireOshiFinalCheckReady: 1人目 通過0回・3本 → ready・n=1', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    0, { tsukiko: 3 }, {}, 'tsukiko', [], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 1);
+});
+
+test('nigekireOshiFinalCheckReady: 通過1回・3本 → 次は6本なので未ready・n=2', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    1, { tsukiko: 3 }, { tsukiko: 1 }, 'tsukiko', [], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, false);
+  assert.strictEqual(out.passIndex, 2);
+});
+
+test('nigekireOshiFinalCheckReady: 通過1回・6本 → ready・n=2', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    1, { tsukiko: 6 }, { tsukiko: 1 }, 'tsukiko', [], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 2);
+});
+
+test('nigekireOshiFinalCheckReady: 通過2回・9本 → ready・n=3', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    2, { tsukiko: 9 }, { tsukiko: 2 }, 'tsukiko', [], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 3);
+});
+
+test('nigekireOshiFinalCheckReady: 通過2回・8本（在庫不足キャラ）→ 未ready', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    2, { shizuku: 8 }, { shizuku: 2 }, 'shizuku', [], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, false);
+  assert.strictEqual(out.mode, 'initial');
+});
+
+test('nigekireOshiFinalCheckReady: 2人目の初期試練 rankStage3・通過0回・3本 → ready・n=1', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    3, { rinka: 3 }, { tsukiko: 3 }, 'rinka', ['tsukiko'], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.mode, 'initial');
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 1); // rankStage ではなく通過回数+1
+});
+
+test('nigekireOshiFinalCheckReady: 2人目 通過2回・9本 → n=3（rankStage 由来でない）', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    5, { rinka: 9 }, { rinka: 2 }, 'rinka', ['tsukiko'], 0, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 3);
+});
+
+test('nigekireOshiFinalCheckReady: collect rankStage3・収集69 → 未ready（ranks[4].min=70）', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    3, { tsukiko: 9 }, { tsukiko: 3 }, 'tsukiko', ['tsukiko'], 69, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.mode, 'collect');
+  assert.strictEqual(out.ready, false);
+  assert.strictEqual(out.passIndex, 4);
+});
+
+test('nigekireOshiFinalCheckReady: collect rankStage3・収集70 → ready・n=4', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    3, { tsukiko: 9 }, { tsukiko: 3 }, 'tsukiko', ['tsukiko'], 70, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 4);
+});
+
+test('nigekireOshiFinalCheckReady: collect rankStage4・収集120 → ready・n=5', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    4, { tsukiko: 9 }, { tsukiko: 3 }, 'tsukiko', ['tsukiko'], 120, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ready, true);
+  assert.strictEqual(out.passIndex, 5);
+});
+
+test('nigekireOshiFinalCheckReady: collect rankStage5・収集199/200 境界 → n=6', () => {
+  const ng = L.nigekireOshiFinalCheckReady(
+    5, { tsukiko: 9 }, { tsukiko: 3 }, 'tsukiko', ['tsukiko'], 199, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(ng.ready, false);
+  const ok = L.nigekireOshiFinalCheckReady(
+    5, { tsukiko: 9 }, { tsukiko: 3 }, 'tsukiko', ['tsukiko'], 200, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(ok.ready, true);
+  assert.strictEqual(ok.passIndex, 6);
+});
+
+test('nigekireOshiFinalCheckReady: 最終ランク到達済み → mode done・未ready', () => {
+  const out = L.nigekireOshiFinalCheckReady(
+    6, { tsukiko: 9 }, { tsukiko: 3 }, 'tsukiko', ['tsukiko'], 999, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.mode, 'done');
+  assert.strictEqual(out.ready, false);
+});
+
+// ---- M3: nigekireOshiPassLineKey（通過セリフのキー） ----
+
+test('nigekireOshiPassLineKey: 1..6 をそのまま連結', () => {
+  assert.strictEqual(L.nigekireOshiPassLineKey('tsukiko', 1), 'tsukiko_1');
+  assert.strictEqual(L.nigekireOshiPassLineKey('rinka', 4), 'rinka_4');
+  assert.strictEqual(L.nigekireOshiPassLineKey('hiyori', 6), 'hiyori_6');
+});
+
+test('nigekireOshiPassLineKey: 範囲外は 1..6 にクランプ', () => {
+  assert.strictEqual(L.nigekireOshiPassLineKey('runa', 0), 'runa_1');
+  assert.strictEqual(L.nigekireOshiPassLineKey('runa', -3), 'runa_1');
+  assert.strictEqual(L.nigekireOshiPassLineKey('runa', 9), 'runa_6');
+  assert.strictEqual(L.nigekireOshiPassLineKey('runa', 'x'), 'runa_1');
+});
+
+test('nigekireOshiPassLineKey: charKey 不正は空文字', () => {
+  assert.strictEqual(L.nigekireOshiPassLineKey('', 1), '');
+  assert.strictEqual(L.nigekireOshiPassLineKey(null, 1), '');
+});
+
+// ---- M4: nigekireRankTitleWithDays（称号に曜日を積む） ----
+
+test('nigekireRankTitleWithDays: 1人 → 生活防衛中〈月〉', () => {
+  assert.strictEqual(
+    L.nigekireRankTitleWithDays('生活防衛中', ['tsukiko'], NIGEKIRE_CHARS_M),
+    '生活防衛中〈月〉'
+  );
+});
+
+test('nigekireRankTitleWithDays: 3人・通過順に関係なく曜日順に並ぶ', () => {
+  assert.strictEqual(
+    L.nigekireRankTitleWithDays('生活防衛中', ['runa', 'tsukiko', 'shizuku'], NIGEKIRE_CHARS_M),
+    '生活防衛中〈月水金〉'
+  );
+});
+
+test('nigekireRankTitleWithDays: 7人コンプ → 〈月火水木金土日〉', () => {
+  assert.strictEqual(
+    L.nigekireRankTitleWithDays(
+      'おはカノ生活管理人',
+      ['hiyori', 'mahiru', 'runa', 'rinka', 'shizuku', 'you', 'tsukiko'],
+      NIGEKIRE_CHARS_M
+    ),
+    'おはカノ生活管理人〈月火水木金土日〉'
+  );
+});
+
+test('nigekireRankTitleWithDays: oshiCleared 空 → 括弧なし', () => {
+  assert.strictEqual(
+    L.nigekireRankTitleWithDays('言い訳見習い', [], NIGEKIRE_CHARS_M),
+    '言い訳見習い'
+  );
+});
+
+test('nigekireRankTitleWithDays: 不正入力は rankName をそのまま', () => {
+  assert.strictEqual(L.nigekireRankTitleWithDays('生活防衛中', null, NIGEKIRE_CHARS_M), '生活防衛中');
+  assert.strictEqual(L.nigekireRankTitleWithDays('生活防衛中', ['tsukiko'], null), '生活防衛中');
+  assert.strictEqual(L.nigekireRankTitleWithDays('生活防衛中', ['nazo'], NIGEKIRE_CHARS_M), '生活防衛中');
+});
+
+test('nigekireRankTitleWithDays: rankName 不正は空文字', () => {
+  assert.strictEqual(L.nigekireRankTitleWithDays(null, ['tsukiko'], NIGEKIRE_CHARS_M), '');
+});
+
+// ---- M5: nigekirePassOshiFinalCheck（通過処理・rankStage/cleared/passCounts） ----
+
+test('nigekirePassOshiFinalCheck: 1人目1回目 → rankStage 0→1・通過1回・未cleared', () => {
+  const out = L.nigekirePassOshiFinalCheck(0, 'tsukiko', [], {}, NIGEKIRE_RANKS_M);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextRankStage, 1);
+  assert.deepStrictEqual(out.nextCleared, []);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 1 });
+});
+
+test('nigekirePassOshiFinalCheck: 1人目3回目 → rankStage 2→3・cleared に追加', () => {
+  const out = L.nigekirePassOshiFinalCheck(2, 'tsukiko', [], { tsukiko: 2 }, NIGEKIRE_RANKS_M);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextRankStage, 3);
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 3 });
+});
+
+test('nigekirePassOshiFinalCheck: 2人目の初期試練は rankStage が動かない（1回目）', () => {
+  const out = L.nigekirePassOshiFinalCheck(3, 'rinka', ['tsukiko'], { tsukiko: 3 }, NIGEKIRE_RANKS_M);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextRankStage, 3); // 動かない
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 3, rinka: 1 });
+});
+
+test('nigekirePassOshiFinalCheck: 2人目3回目も rankStage は動かず cleared にだけ積む', () => {
+  const out = L.nigekirePassOshiFinalCheck(
+    5, 'rinka', ['tsukiko'], { tsukiko: 3, rinka: 2 }, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextRankStage, 5); // 動かない
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko', 'rinka']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 3, rinka: 3 });
+});
+
+test('nigekirePassOshiFinalCheck: 収集の節目（cleared済み）→ rankStage +1・cleared 据え置き', () => {
+  const out = L.nigekirePassOshiFinalCheck(
+    3, 'tsukiko', ['tsukiko'], { tsukiko: 3 }, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.nextRankStage, 4);
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+  assert.deepStrictEqual(out.nextPassCounts, { tsukiko: 3 });
+});
+
+test('nigekirePassOshiFinalCheck: 最終ランク（6）でこれ以上上がらない', () => {
+  const out = L.nigekirePassOshiFinalCheck(
+    6, 'tsukiko', ['tsukiko'], { tsukiko: 3 }, NIGEKIRE_RANKS_M
+  );
+  assert.strictEqual(out.ok, false);
+  assert.strictEqual(out.nextRankStage, 6);
+});
+
+test('nigekirePassOshiFinalCheck: cleared 重複追加しない（通過3回済みで再呼び出し）', () => {
+  const out = L.nigekirePassOshiFinalCheck(
+    5, 'rinka', ['tsukiko', 'rinka'], { tsukiko: 3, rinka: 3 }, NIGEKIRE_RANKS_M
+  );
+  // cleared 済み → collect 扱いで rankStage が上がるが cleared は増えない
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko', 'rinka']);
+  assert.strictEqual(out.nextRankStage, 6);
+});
+
+test('nigekirePassOshiFinalCheck: oshiChar 不正 → ok:false・state 据え置き', () => {
+  const out = L.nigekirePassOshiFinalCheck(1, null, ['tsukiko'], { tsukiko: 3 }, NIGEKIRE_RANKS_M);
+  assert.strictEqual(out.ok, false);
+  assert.strictEqual(out.nextRankStage, 1);
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+});
+
+test('nigekirePassOshiFinalCheck: 非破壊（入力の配列/マップを書き換えない）', () => {
+  const cleared = [];
+  const counts = { tsukiko: 2 };
+  const out = L.nigekirePassOshiFinalCheck(2, 'tsukiko', cleared, counts, NIGEKIRE_RANKS_M);
+  assert.deepStrictEqual(cleared, []); // 入力そのまま
+  assert.deepStrictEqual(counts, { tsukiko: 2 }); // 入力そのまま
+  assert.deepStrictEqual(out.nextCleared, ['tsukiko']);
+});
+
+// ---- M6: nigekirePassFinalCheckV3（段数を ranks から取る版） ----
+
+test('nigekirePassFinalCheckV3: 0 → 1', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(0, NIGEKIRE_RANKS_M), { ok: true, nextRankStage: 1 });
+});
+
+test('nigekirePassFinalCheckV3: 5 → 6（最終手前）', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(5, NIGEKIRE_RANKS_M), { ok: true, nextRankStage: 6 });
+});
+
+test('nigekirePassFinalCheckV3: 6（最終・ranks.length-1）→ ok:false', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(6, NIGEKIRE_RANKS_M), { ok: false });
+});
+
+test('nigekirePassFinalCheckV3: 段数は ranks 由来（5要素なら上限4）', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(4, NIGEKIRE_LIFE_RANKS_V2), { ok: false });
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(3, NIGEKIRE_LIFE_RANKS_V2), { ok: true, nextRankStage: 4 });
+});
+
+test('nigekirePassFinalCheckV3: ranks 不正/空 → ok:false', () => {
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(0, []), { ok: false });
+  assert.deepStrictEqual(L.nigekirePassFinalCheckV3(0, null), { ok: false });
+});
+
+test('nigekirePassFinalCheckV3: 非破壊（引数プリミティブを書き換えない）', () => {
+  var s = 2;
+  var out = L.nigekirePassFinalCheckV3(s, NIGEKIRE_RANKS_M);
+  assert.strictEqual(s, 2);
+  assert.strictEqual(out.nextRankStage, 3);
 });

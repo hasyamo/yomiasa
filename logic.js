@@ -808,31 +808,180 @@
     return { ok: true, nextRankStage: s + 1 };
   }
 
-  // 節目に立つキャラの選定（§10-2・ジュリ確定 selectFinalCheckCharacter の JS移植）。
-  //   その時点で最多収集のキャラを返す。同数タイブレーク:
-  //     1. 直近収集キャラ（lastCollectedChar）が候補にいれば優先。
-  //     2. でなければ characterOrder（曜日順）で先頭の候補。
-  //   charCounts 空/不正なら characterOrder[0]（tsukiko）。
-  //   characterOrder 空/不正なら '' を返す。副作用なし。
-  function selectFinalCheckChar(charCounts, characterOrder, lastCollectedChar) {
-    var order = Array.isArray(characterOrder) ? characterOrder : [];
-    if (order.length === 0) return '';
-    var cc = charCounts && typeof charCounts === 'object' ? charCounts : {};
-    // 各キャラの収集数（非数は0）で最大値を求める。空/全0でも max=0。
-    var max = 0;
-    for (var i = 0; i < order.length; i++) {
-      var n = typeof cc[order[i]] === 'number' ? cc[order[i]] : 0;
-      if (n > max) max = n;
+  // ===========================================================================
+  // M群: ニゲキレ 推し1人選択構造（answer-oshi-select-CONFIRMED.md 確定）
+  //   推しを1人選び、そのキャラの曜日の記事だけに試練が出る。逃げ切り9本・3本ごとに
+  //   最終確認（計3回）。3回通過で rankStage 3（生活防衛中）＝キャラ変更解禁。
+  //   2人目以降の初期試練では rankStage は動かず、oshiCleared（称号の曜日・カード解放）
+  //   にだけ積む。閾値は ranks の min 由来（ハードコードしない）。すべて非破壊。
+  // ===========================================================================
+
+  // 逃げ切り記録（選択中の推しのぶんだけ）。
+  //   count = min(escapeCounts[oshiChar] || 0, 9)（負数/非数は0）。
+  //   cleared = 3本ごとの節目3つ（3/6/9）それぞれの到達可否。
+  //   nextMilestone = 未達の最小の節目本数（3/6/9）。全達成なら null。
+  function nigekireOshiEscapeRecord(escapeCounts, oshiChar) {
+    var need = 9;
+    var map = escapeCounts && typeof escapeCounts === 'object' ? escapeCounts : {};
+    var raw = oshiChar ? map[oshiChar] : 0;
+    var count = typeof raw === 'number' && isFinite(raw) ? Math.floor(raw) : 0;
+    if (count < 0) count = 0;
+    if (count > need) count = need;
+    var cleared = [count >= 3, count >= 6, count >= 9];
+    var nextMilestone = null;
+    for (var i = 0; i < 3; i++) {
+      if (!cleared[i]) { nextMilestone = (i + 1) * 3; break; }
     }
-    var candidates = order.filter(function (id) {
-      var v = typeof cc[id] === 'number' ? cc[id] : 0;
-      return v === max;
-    });
-    if (candidates.length === 0) return order[0];
-    if (lastCollectedChar && candidates.indexOf(lastCollectedChar) !== -1) {
-      return lastCollectedChar;
+    return { count: count, need: need, cleared: cleared, nextMilestone: nextMilestone };
+  }
+
+  // 最終確認の見出しを出すべきか判定。
+  //   mode 'initial': そのキャラがまだ3回通過していない（oshiCleared に含まれない）。
+  //     ready = 逃げ切り本数が「そのキャラの通過回数+1 本目の節目」に届いている
+  //     （通過0回→3本、1回→6本、2回→9本）。在庫が8本しかないキャラは3回目が出せない
+  //     ＝ ready=false のまま（本数に依存しない判定にしてある）。
+  //   mode 'collect': そのキャラが3回通過済み かつ rankStage>=3。
+  //     ready = totalCollected >= ranks[rankStage+1].min。
+  //   mode 'done': 最終ランク到達済み（rankStage >= ranks.length-1）で収集の節目もない。
+  //   passIndex = 通過セリフの n（1..6）。
+  //     initial: 1人目（rankStage<3）は rankStage+1、2人目以降は通過回数+1（1..3）。
+  //     collect: rankStage+1（3→4, 4→5, 5→6）。
+  //   ※設計メモとの差分: oshiPassCounts（キャラ別の通過回数マップ）を引数に追加した。
+  //     2人目以降は rankStage が動かないため、rankStage だけでは通過回数を判定できない。
+  function nigekireOshiFinalCheckReady(
+    rankStage, escapeCounts, oshiPassCounts, oshiChar, oshiCleared, totalCollected, ranks
+  ) {
+    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
+    if (s < 0) s = 0;
+    var tc = typeof totalCollected === 'number' && isFinite(totalCollected) ? totalCollected : 0;
+    var list = Array.isArray(ranks) ? ranks : [];
+    var maxStage = list.length > 0 ? list.length - 1 : 0;
+    var clearedList = Array.isArray(oshiCleared) ? oshiCleared : [];
+    var isCleared = !!oshiChar && clearedList.indexOf(oshiChar) !== -1;
+
+    if (!isCleared) {
+      // 初期試練（このキャラはまだ3回通過していない）
+      var passed = nigekireOshiPassCount(oshiPassCounts, oshiChar);
+      var rec = nigekireOshiEscapeRecord(escapeCounts, oshiChar);
+      var needEscape = (passed + 1) * 3; // 3 / 6 / 9
+      var n = s < 3 ? s + 1 : passed + 1;
+      if (n < 1) n = 1;
+      if (n > 6) n = 6;
+      return { ready: passed < 3 && rec.count >= needEscape, mode: 'initial', passIndex: n };
     }
-    return candidates[0];
+
+    // 収集の節目。最終ランク到達済みならもう節目はない。
+    if (s >= maxStage) {
+      return { ready: false, mode: 'done', passIndex: maxStage + 1 > 6 ? 6 : maxStage + 1 };
+    }
+    var next = list[s + 1];
+    var need = next && typeof next.min === 'number' ? next.min : Infinity;
+    var ci = s + 1;
+    if (ci > 6) ci = 6;
+    return { ready: tc >= need, mode: 'collect', passIndex: ci };
+  }
+
+  // キャラ別の通過回数（0..3）を取り出す内部ヘルパ。非数/負数は0・上限3。
+  function nigekireOshiPassCount(oshiPassCounts, oshiChar) {
+    var map = oshiPassCounts && typeof oshiPassCounts === 'object' ? oshiPassCounts : {};
+    var raw = oshiChar ? map[oshiChar] : 0;
+    var n = typeof raw === 'number' && isFinite(raw) ? Math.floor(raw) : 0;
+    if (n < 0) n = 0;
+    if (n > 3) n = 3;
+    return n;
+  }
+
+  // 通過セリフのキー（NIGEKIRE_PASS_LINES 用）。'<charKey>_<n>'（n は 1..6 にクランプ）。
+  //   charKey が空/不正なら '' を返す。
+  function nigekireOshiPassLineKey(charKey, passIndex) {
+    if (!charKey || typeof charKey !== 'string') return '';
+    var n = typeof passIndex === 'number' && isFinite(passIndex) ? Math.floor(passIndex) : 1;
+    if (n < 1) n = 1;
+    if (n > 6) n = 6;
+    return charKey + '_' + n;
+  }
+
+  // 称号に曜日を積む。'生活防衛中〈月水金〉'。
+  //   oshiCleared を characters の並び（曜日順）に整列し、各 label の1文字目を連結する。
+  //   oshiCleared が空/不正なら rankName のみ（括弧なし）。rankName が不正なら '' 。
+  function nigekireRankTitleWithDays(rankName, oshiCleared, characters) {
+    var name = typeof rankName === 'string' ? rankName : '';
+    if (!name) return '';
+    var list = Array.isArray(characters) ? characters : [];
+    var cleared = Array.isArray(oshiCleared) ? oshiCleared : [];
+    if (list.length === 0 || cleared.length === 0) return name;
+    var days = '';
+    for (var i = 0; i < list.length; i++) {
+      var ch = list[i];
+      if (!ch || typeof ch !== 'object') continue;
+      if (cleared.indexOf(ch.key) === -1) continue;
+      var label = typeof ch.label === 'string' ? ch.label : '';
+      if (label) days += label.charAt(0);
+    }
+    if (!days) return name;
+    return name + '〈' + days + '〉';
+  }
+
+  // 最終確認の通過処理（推し構造）。非破壊で次の state を返す。
+  //   - そのキャラの通過回数を +1（上限3）。
+  //   - 3回目の通過なら nextCleared に oshiChar を追加（重複しない）。
+  //   - rankStage は次の2つの場合だけ +1（上限 ranks.length-1）:
+  //       a) 1人目の初期試練（rankStage < 3）
+  //       b) 収集の節目（rankStage >= 3 かつ そのキャラが3回通過済み＝mode collect）
+  //     2人目以降の初期試練（rankStage>=3 で3回通過）では rankStage を動かさない。
+  //   - oshiChar が不正、または既に3回通過済みで最終ランクなら {ok:false}。
+  function nigekirePassOshiFinalCheck(rankStage, oshiChar, oshiCleared, oshiPassCounts, ranks) {
+    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
+    if (s < 0) s = 0;
+    var list = Array.isArray(ranks) ? ranks : [];
+    var maxStage = list.length > 0 ? list.length - 1 : 0;
+    if (s > maxStage) s = maxStage;
+    var clearedIn = Array.isArray(oshiCleared) ? oshiCleared : [];
+    var countsIn = oshiPassCounts && typeof oshiPassCounts === 'object' ? oshiPassCounts : {};
+    if (!oshiChar || typeof oshiChar !== 'string') {
+      return { ok: false, nextRankStage: s, nextCleared: clearedIn.slice(), nextPassCounts: Object.assign({}, countsIn) };
+    }
+
+    var isCleared = clearedIn.indexOf(oshiChar) !== -1;
+    var nextCleared = clearedIn.slice();
+    var nextPassCounts = Object.assign({}, countsIn);
+    var nextRankStage = s;
+
+    if (isCleared) {
+      // 収集の節目。最終ランクならこれ以上は上がらない。
+      if (s >= maxStage) {
+        return { ok: false, nextRankStage: s, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
+      }
+      nextRankStage = s + 1;
+      return { ok: true, nextRankStage: nextRankStage, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
+    }
+
+    // 初期試練。通過回数 +1（上限3）。
+    var passed = nigekireOshiPassCount(countsIn, oshiChar);
+    if (passed >= 3) {
+      return { ok: false, nextRankStage: s, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
+    }
+    var nextPassed = passed + 1;
+    nextPassCounts[oshiChar] = nextPassed;
+    if (nextPassed >= 3 && nextCleared.indexOf(oshiChar) === -1) {
+      nextCleared.push(oshiChar);
+    }
+    // 1人目の初期試練（rankStage<3）だけ rankStage を上げる。
+    if (s < 3) {
+      nextRankStage = s + 1 > maxStage ? maxStage : s + 1;
+    }
+    return { ok: true, nextRankStage: nextRankStage, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
+  }
+
+  // 節目通過で rankStage を1上げる（段数を ranks から取る版）。
+  //   上限は ranks.length-1。既に上限なら {ok:false}。ranks 不正なら {ok:false}。非破壊。
+  function nigekirePassFinalCheckV3(rankStage, ranks) {
+    if (!Array.isArray(ranks) || ranks.length === 0) return { ok: false };
+    var max = ranks.length - 1;
+    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
+    if (s < 0) s = 0;
+    if (s >= max) return { ok: false };
+    return { ok: true, nextRankStage: s + 1 };
   }
 
   // ---------------------------------------------------------------------------
@@ -961,7 +1110,12 @@
     nigekireRankByStage: nigekireRankByStage,
     nigekireFinalCheckReady: nigekireFinalCheckReady,
     nigekirePassFinalCheckV2: nigekirePassFinalCheckV2,
-    selectFinalCheckChar: selectFinalCheckChar,
+    nigekireOshiEscapeRecord: nigekireOshiEscapeRecord,
+    nigekireOshiFinalCheckReady: nigekireOshiFinalCheckReady,
+    nigekireOshiPassLineKey: nigekireOshiPassLineKey,
+    nigekireRankTitleWithDays: nigekireRankTitleWithDays,
+    nigekirePassOshiFinalCheck: nigekirePassOshiFinalCheck,
+    nigekirePassFinalCheckV3: nigekirePassFinalCheckV3,
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,

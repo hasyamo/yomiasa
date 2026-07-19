@@ -115,7 +115,8 @@
               <button id="nigekire-debug-add-all" class="debug-btn" type="button">収集+5（全）</button>
               <button id="nigekire-debug-add-tsukiko" class="debug-btn" type="button">収集+5（月子）</button>
               <button id="nigekire-debug-over200" class="debug-btn" type="button">200超注入</button>
-              <button id="nigekire-debug-escape" class="debug-btn" type="button">逃げ切り+1</button>
+              <button id="nigekire-debug-oshi" class="debug-btn" type="button">推しを選ぶ/変える</button>
+              <button id="nigekire-debug-escape" class="debug-btn" type="button">逃げ切き+1</button>
               <button id="nigekire-debug-pass" class="debug-btn" type="button">節目を通過</button>
               <button id="nigekire-debug-clear" class="debug-btn debug-btn-danger" type="button">クリア</button>
             </div>
@@ -343,6 +344,16 @@
       </div>
     </div>
 
+    <!-- ===================== システム確認（Yes/No の選択式） ===================== -->
+    <!-- システムメッセージと同じ見た目で、タップで閉じる代わりに選択肢を出す汎用部品。
+         文言とボタンは showSystemConfirm() から流し込む（用途を限定しない）。 -->
+    <div id="system-confirm" class="kitacore-system system-confirm hidden" role="dialog" aria-modal="true" aria-labelledby="system-confirm-text">
+      <div class="kitacore-system-window">
+        <p id="system-confirm-text" class="kitacore-system-text" aria-live="polite"></p>
+        <div id="system-confirm-actions" class="system-confirm-actions"></div>
+      </div>
+    </div>
+
     <!-- ===================== キタコレ：覚醒前クイズ（システム風） ===================== -->
     <div id="kitacore-quiz" class="kitacore-quiz hidden" role="dialog" aria-modal="true" aria-labelledby="kitacore-quiz-q">
       <div class="kitacore-quiz-window">
@@ -410,6 +421,16 @@
         <p id="nigekire-final-title" class="nigekire-final-title"></p>
         <p id="nigekire-final-line" class="nigekire-final-line"></p>
         <button id="nigekire-final-pass" class="nigekire-final-pass" type="button">確認を通過する</button>
+      </div>
+    </div>
+
+    <!-- ============= ニゲキレ：推し選択モーダル（7人から1人・初回選択とキャラ変更で共用） ============= -->
+    <div id="nigekire-oshi" class="kitacore-quiz nigekire-oshi hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-oshi-title">
+      <div class="kitacore-quiz-window nigekire-oshi-window">
+        <p id="nigekire-oshi-title" class="nigekire-oshi-title"></p>
+        <p id="nigekire-oshi-note" class="nigekire-oshi-note"></p>
+        <div id="nigekire-oshi-grid" class="nigekire-oshi-grid"></div>
+        <button id="nigekire-oshi-cancel" class="nigekire-oshi-cancel hidden" type="button">やめる</button>
       </div>
     </div>
 
