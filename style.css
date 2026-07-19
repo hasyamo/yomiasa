@@ -2217,6 +2217,24 @@ button.kitacore-rank-text:focus-visible {
   margin-bottom: 16px;
 }
 
+/* ニゲキレの生活カード：7人一覧が長いので、窓を画面内に収めて一覧だけスクロールさせる。
+   （キタコレのランクカードには影響させない＝.nigekire-card が付くときだけ効かせる） */
+.kitacore-rank-card-window.is-nigekire {
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  min-height: 0;
+}
+.kitacore-rank-card-content.nigekire-card {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* プロフィールとサマリは縮めない（一覧だけが伸縮する） */
+.kitacore-rank-card-content.nigekire-card > .rank-card-player,
+.kitacore-rank-card-content.nigekire-card > .nigekire-card-summary {
+  flex: 0 0 auto;
+}
+
 .rank-card-player {
   display: flex;
   align-items: center;
@@ -2313,21 +2331,16 @@ button.kitacore-rank-text:focus-visible {
    段階が上がるほどネイビー→華やかに。 */
 /* 7段階（言い訳見習い→おはカノ生活管理人）。既存の色調（グレー→ネイビー→金〜ローズ）は
    そのまま活かし、段階が増えたぶんだけ中間を足して最終段を最も華やかにする。 */
-.kitacore-rank-text.rank-nige1 { background: linear-gradient(145deg, #475569, #64748b); }
-.kitacore-rank-text.rank-nige2 { background: linear-gradient(145deg, #3f4c63, #566b8c); }
-.kitacore-rank-text.rank-nige3 { background: linear-gradient(145deg, #334155, #4a5b82); }
-.kitacore-rank-text.rank-nige4 { background: linear-gradient(145deg, #1e2a4a, #3a4a72); }
-.kitacore-rank-text.rank-nige5 { background: linear-gradient(145deg, #1e2a4a, #5b6b8c); }
-/* 火種処理係の次（おはカノ生活継続者）＝金の兆しが出る中間段。 */
-.kitacore-rank-text.rank-nige6 {
-  background: linear-gradient(145deg, #4a3a2a, #b45309 70%, #d97706);
-  color: #fff7ed;
-}
-/* 最終ランク（おはカノ生活管理人）＝最も華やか（金〜ローズの立ち上がり）。 */
-.kitacore-rank-text.rank-nige7 {
-  background: linear-gradient(145deg, #b45309, #f59e0b 55%, #f472b6);
-  color: #fff7ed;
-}
+/* ニゲキレ生活ランク（7段階）。キタコレのランク色階調（E→D→C→B→A→S→national）に
+   1対1で合わせる＝両モードで「段階が上がった」見え方を揃える。 */
+.kitacore-rank-text.rank-nige1 { background: linear-gradient(145deg, #4b5563, #6b7280); } /* 言い訳見習い＝E級 */
+.kitacore-rank-text.rank-nige2 { background: linear-gradient(145deg, #475569, #64748b); } /* 言い訳準備中＝D級 */
+.kitacore-rank-text.rank-nige3 { background: linear-gradient(145deg, #2563eb, #60a5fa); } /* 生活立て直し中＝C級 */
+.kitacore-rank-text.rank-nige4 { background: linear-gradient(145deg, #0891b2, #67e8f9); } /* 生活防衛中＝B級 */
+.kitacore-rank-text.rank-nige5 { background: linear-gradient(145deg, #059669, #34d399); } /* 火種処理係＝A級 */
+.kitacore-rank-text.rank-nige6 { background: linear-gradient(145deg, #d97706, #fbbf24); } /* おはカノ生活継続者＝S級 */
+.kitacore-rank-text.rank-nige7 { background: linear-gradient(145deg, #fde68a, #fb923c); } /* おはカノ生活管理人＝national */
+
 .nigekire-top-char {
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -2338,8 +2351,15 @@ button.kitacore-rank-text:focus-visible {
 .nigekire-rank-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
+  min-width: 0;
+}
+/* ランクバッジは折り返さない（「おはカノ生活管理人〈月水金〉」まで入る）。
+   幅が足りないときは右の推しバッジ側を縮める。※キタコレのバッジには効かせない。 */
+.nigekire-rank-row > .kitacore-rank-text {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* 推しバッジ。ランクバッジ（.kitacore-rank-text）と同じ質感に揃える。
@@ -2349,6 +2369,12 @@ button.kitacore-rank-text:focus-visible {
   appearance: none;
   border: none;
   display: inline-block;
+  /* 幅が足りないときはこちらが縮む（ランク名を優先して折り返させない）。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif;
   font-weight: 800;
   font-size: 12px;
@@ -2524,62 +2550,40 @@ button.kitacore-rank-text:focus-visible {
   margin-bottom: 4px;
   border-bottom: 1px solid rgba(56, 189, 248, 0.2);
 }
-.nigekire-card-rank {
-  color: #e0f2fe;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
 
-.nigekire-carousel {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.nigekire-carousel-nav {
-  appearance: none;
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid rgba(56, 189, 248, 0.4);
-  background: rgba(2, 6, 23, 0.6);
-  color: #e0f2fe;
-  font-size: 20px;
-  line-height: 1;
-  font-family: inherit;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.12s, border-color 0.12s;
-}
-.nigekire-carousel-nav:hover,
-.nigekire-carousel-nav:active {
-  background: rgba(56, 189, 248, 0.18);
-}
-.nigekire-carousel-stage {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.nigekire-char-card {
+/* ── 生活カード：7人の一覧（縦スクロール）──
+   カルーセルは一覧性が落ちるので廃止。各行は「左に画像・右にステータス」。
+   窓の高さに収まらない分はここでスクロールさせる（上部サマリは残す）。 */
+.nigekire-char-list {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 8px;
-  padding: 12px;
+  /* 高さは窓の残りぶん（固定 vh だとヘッダー＋閉じるを足して画面を超える）。
+     .kitacore-rank-card-content.nigekire-card 側で flex の伸縮を効かせる。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+
+/* 1人ぶんの明細行（横並び）。 */
+.nigekire-char-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
   border-radius: 10px;
   border: 1px solid rgba(56, 189, 248, 0.3);
   background: rgba(2, 6, 23, 0.5);
 }
-/* カルーセルは1枚ずつ見せるので、キタコレのスリム縦長（並べる用）ではなく
-   元画像（正方形バストアップ）をそのまま大きく表示する。 */
+
+/* 左：キャラ画像（正方形）。絵が主役なので大きめに取る。バッジは重ねない。 */
 .nigekire-char-thumb {
-  width: 100%;
-  max-width: 240px;
+  flex: 0 0 auto;
+  width: 92px;
   aspect-ratio: 1 / 1;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   position: relative;
   display: flex;
@@ -2593,17 +2597,27 @@ button.kitacore-rank-text:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: top center;
   display: block;
 }
 .nigekire-char-thumb-fallback {
   position: relative;
   z-index: 1;
-  font-size: 34px;
+  font-size: 30px;
   font-weight: 700;
   color: rgba(186, 230, 253, 0.6);
 }
-/* v2 生活カード4段階の見た目（§10-1）。
-   未観測(0)：画像グレースケール・透明度低め。観測(1+)以降でカラーに戻る。 */
+
+/* 右：ステータス（名前・称号・収集数）。 */
+.nigekire-char-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 未通過（3回通過していない）＝画像を影に、文字も落とす。 */
 .nigekire-char-card.is-unobserved .nigekire-char-thumb img {
   filter: grayscale(1);
   opacity: 0.4;
@@ -2612,68 +2626,45 @@ button.kitacore-rank-text:focus-visible {
 .nigekire-char-card.is-unobserved .nigekire-char-title {
   color: rgba(186, 230, 253, 0.45);
 }
-/* 中核(10+)：解放対象の小バッジ（キャラカラー・サムネ右上）。 */
-.nigekire-char-badge {
-  position: absolute;
-  z-index: 2;
-  top: 4px;
-  right: 4px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: #fff;
-  background: rgba(56, 189, 248, 0.85); /* inline のキャラカラーで上書き */
-  box-shadow: 0 0 0 1px rgba(2, 6, 23, 0.5);
+/* ラベル＋値の行（称号・収集）。ランクカード上部の rank-card-row と同じ読み口にする。 */
+.nigekire-char-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
+.nigekire-char-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(186, 230, 253, 0.55);
+}
+/* キャラ名。キャラカラーのままだと月子(ネイビー)や凛華(ボルドー)が暗背景に沈むので、
+   白を混ぜて明度を確保する（推し選択の .nigekire-oshi-name と同じ対応）。 */
 .nigekire-char-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #e0f2fe;
+  color: color-mix(in srgb, var(--char-color, #e0f2fe) 45%, #ffffff);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nigekire-char-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: rgba(186, 230, 253, 0.85);
-}
-.nigekire-char-stats {
-  display: flex;
-  gap: 14px;
-  align-items: baseline;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nigekire-char-points {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #e0f2fe;
   font-variant-numeric: tabular-nums;
-}
-.nigekire-char-stage {
-  font-size: 12px;
-  color: rgba(186, 230, 253, 0.6);
-  letter-spacing: 0.04em;
-}
-
-.nigekire-carousel-dots {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-.nigekire-carousel-dot {
-  appearance: none;
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(56, 189, 248, 0.5);
-  background: transparent;
-  cursor: pointer;
-}
-.nigekire-carousel-dot.is-active {
-  background: #38bdf8; /* アクティブ時は inline のキャラカラーで上書きされる */
-  border-color: transparent;
 }
 
 /* ===================== ニゲキレ 節目イベント（最終確認） =====================
@@ -2823,7 +2814,7 @@ button.kitacore-rank-text:focus-visible {
    段階ごとの見た目の強さは下の CSS 変数だけで決まる（ハードコードしない）。
      --tint    背景に混ぜるキャラカラーの濃さ（中央）
      --tint2   背景に混ぜるキャラカラーの濃さ（周縁）
-     --dark    背景の下地の暗さ（1に近いほど暗い＝低い段階ほど暗く冷たい）
+     --dark    背景の下地の暗さ（全段階で固定。薄めると後ろの画面が透けるため）
      --glow    枠の外側発光の広がり(px)
      --glow-a  枠の外側発光の濃さ
      --ring    二重枠の太さ(px)・0 なら二重枠なし
@@ -2849,6 +2840,8 @@ button.kitacore-rank-text:focus-visible {
   --char-rgb: 148, 163, 184;
   --tint: 0.06;
   --tint2: 0.02;
+  /* 暗転は段階で薄めない（薄めると後ろの記事一覧が透けて散らかる）。
+     段階の明るさはキャラカラーの光（--tint / --glow / --rays / --motes）だけで出す。 */
   --dark: 0.95;
   --glow: 22px;
   --glow-a: 0.3;
@@ -2901,44 +2894,44 @@ button.kitacore-rank-text:focus-visible {
 
 /* 段階 1: まだ疑われている。暗い・冷たい・キャラカラーはほとんど出さない。 */
 .nigekire-cutin.stage-1 {
-  --tint: 0.05; --tint2: 0.02; --dark: 0.95;
-  --glow: 20px; --glow-a: 0.28;
+  --tint: 0.04; --tint2: 0.01;
+  --glow: 16px; --glow-a: 0.25;
 }
-/* 段階 2: 少し認められた。わずかに明るく。 */
+/* 段階 2: 少し認められた。背景がわずかに色づく。 */
 .nigekire-cutin.stage-2 {
-  --tint: 0.11; --tint2: 0.04; --dark: 0.92;
-  --glow: 30px; --glow-a: 0.4;
+  --tint: 0.14; --tint2: 0.05;
+  --glow: 34px; --glow-a: 0.42;
 }
-/* 段階 3: 初期試練クリア＝第一の山。二重枠が出てはっきり変わる。 */
+/* 段階 3: 初期試練クリア＝第一の山。放射光と足元の光だまりが出る。 */
 .nigekire-cutin.stage-3 {
-  --tint: 0.2; --tint2: 0.07; --dark: 0.89;
-  --glow: 46px; --glow-a: 0.55;
-  --ring: 1px; --ring-a: 0.4;
-  --rays: 0.16;
+  --tint: 0.30; --tint2: 0.11;
+  --glow: 56px; --glow-a: 0.58;
+  --ring: 2px; --ring-a: 0.40;
+  --rays: 0.20;
 }
-/* 段階 4: 生活が回り始める。落ち着いた明るさ＋粒が出る。 */
+/* 段階 4: 生活が回り始める。光の粒が加わる。 */
 .nigekire-cutin.stage-4 {
-  --tint: 0.26; --tint2: 0.1; --dark: 0.87;
-  --glow: 56px; --glow-a: 0.62;
-  --ring: 2px; --ring-a: 0.48;
-  --rays: 0.22;
-  --motes: 0.3;
+  --tint: 0.46; --tint2: 0.18;
+  --glow: 80px; --glow-a: 0.70;
+  --ring: 4px; --ring-a: 0.54;
+  --rays: 0.34;
+  --motes: 0.36;
 }
-/* 段階 5: 安定している。 */
+/* 段階 5: 安定している。粒と放射がはっきり増える。 */
 .nigekire-cutin.stage-5 {
-  --tint: 0.33; --tint2: 0.13; --dark: 0.85;
-  --glow: 68px; --glow-a: 0.7;
-  --ring: 3px; --ring-a: 0.56;
-  --rays: 0.3;
-  --motes: 0.45;
+  --tint: 0.64; --tint2: 0.26;
+  --glow: 108px; --glow-a: 0.82;
+  --ring: 7px; --ring-a: 0.68;
+  --rays: 0.50;
+  --motes: 0.60;
 }
 /* 段階 6: 最終。最大。ここだけ軽いアニメーションを足す。 */
 .nigekire-cutin.stage-6 {
-  --tint: 0.42; --tint2: 0.17; --dark: 0.82;
-  --glow: 84px; --glow-a: 0.8;
-  --ring: 4px; --ring-a: 0.66;
-  --rays: 0.4;
-  --motes: 0.62;
+  --tint: 0.84; --tint2: 0.36;
+  --glow: 140px; --glow-a: 0.95;
+  --ring: 11px; --ring-a: 0.85;
+  --rays: 0.68;
+  --motes: 0.85;
 }
 /* 最終段のみの動き（ごく緩い呼吸と、放射のゆっくりした回転）。派手にしない。 */
 .nigekire-cutin.stage-6 .nigekire-cutin-card {
@@ -2978,27 +2971,37 @@ button.kitacore-rank-text:focus-visible {
   align-items: center;
   min-height: 0;
 }
+/* カットインのキャラ。初期状態の枠（キャラカラーの細い縁＋外側発光）は残す。
+   段階が上がるほど発光を強く広くする。グレーの二重枠は使わない（カード感が出るため）。 */
 .nigekire-cutin-card {
   position: relative;
   border-radius: 14px;
   overflow: hidden;
-  border: 2px solid var(--char-color);
-  /* 外側発光は段階変数から作る（旧 inline 指定は JS 側で撤去済み）。 */
+  border: 1px solid var(--char-color);
   box-shadow:
     0 0 var(--glow) rgba(var(--char-rgb), var(--glow-a)),
     0 0 12px rgba(var(--char-rgb), var(--glow-a));
   transition: box-shadow 0.35s ease, border-color 0.35s ease;
 }
 /* 二重枠（段階3以降・--ring が 0 のときは見えない）。画像自体は加工しない。 */
+/* 段階が上がると、キャラの足元に光だまりが広がる（枠の代わりの「格」の表現）。 */
 .nigekire-cutin-card::after {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  left: 50%;
+  bottom: -6px;
+  width: calc(60% + var(--ring, 0px) * 12);
+  height: 26px;
+  transform: translateX(-50%);
   pointer-events: none;
-  border: var(--ring) solid rgba(226, 232, 240, var(--ring-a));
-  box-shadow: inset 0 0 calc(var(--glow) / 2) rgba(var(--char-rgb), calc(var(--glow-a) * 0.6));
-  transition: border-width 0.35s ease, border-color 0.35s ease;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--char-rgb), calc(var(--glow-a) * 0.55)) 0%,
+    rgba(var(--char-rgb), 0) 70%
+  );
+  opacity: var(--ring-a, 0.25);
+  transition: width 0.35s ease, opacity 0.35s ease;
 }
 .nigekire-cutin-img {
   display: block;
@@ -3013,7 +3016,10 @@ button.kitacore-rank-text:focus-visible {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: #e2e8f0; /* inline でキャラカラーに上書き */
+  /* キャラカラーに白を混ぜて明度を確保（段階が上がると背景が明るくなるため）。 */
+  color: #e2e8f0;
+  color: color-mix(in srgb, var(--char-color, #e2e8f0) 40%, #ffffff);
+  text-shadow: 0 1px 3px rgba(2, 6, 23, 0.8);
 }
 .nigekire-cutin-text-wrap {
   margin-top: 12px;

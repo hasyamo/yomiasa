@@ -755,6 +755,7 @@
     var el = els.kitacoreRankCardContent;
     el.innerHTML = '';
     el.classList.remove('nigekire-card'); // ニゲキレ描画の残りクラスを落とす（キタコレ表示は無改変）
+    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.remove('is-nigekire');
 
     // アイコン + 表示名 + ID
     var playerRow = document.createElement('div');
@@ -851,10 +852,7 @@
     if (els.kitacoreRankCard) els.kitacoreRankCard.classList.add('hidden');
   }
 
-  // ニゲキレ詳細カードで今表示しているキャラの index（0..6・曜日順）。左右ボタンで動かす。
-  var nigekireCardIndex = 0;
-
-  // ニゲキレ：詳細カード（上部サマリ＋7人カルーセル）。#kitacore-rank-card を流用し中身だけ差し替える。
+  // ニゲキレ：詳細カード（上部サマリ＋7人の一覧）。#kitacore-rank-card を流用し中身だけ差し替える。
   //   上部: 生活ランク・総ニゲキレ成功数・一発ニゲキレ数。
   //   下部: 7人カルーセル（曜日順固定・左右ボタンで1人ずつ）。各キャラは
   //         画像(assets/ohakano/<img>・無ければプレースホルダ)・曜日｜キャラ名(色強調)・
@@ -864,24 +862,61 @@
     var el = els.kitacoreRankCardContent;
     el.innerHTML = '';
     el.classList.add('nigekire-card');
+    // 窓側にも印を付ける（7人一覧を画面内に収めてスクロールさせるため・CSS で使う）。
+    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.add('is-nigekire');
 
     var m = ensureMode('nigekire');
     // v2：ランクは通過ベース（rankStage・§10-2）。収集数は次の節目トリガーで、ランク名は決めない。
-    //   キャラ別カードは charCounts で育つ（収集数表示は別途 totalCollected）。
+    //   キャラ別カードは charCounts で育つ（収集数は各キャラの明細行に出す）。
     var counts = m.charCounts && typeof m.charCounts === 'object' ? m.charCounts : {};
-    var totalCollected = L.nigekireTotalCollected(counts);
     var life = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
     var totalSuccess = typeof m.totalSuccess === 'number' ? m.totalSuccess : 0;
     var firstTry = typeof m.firstTrySuccess === 'number' ? m.firstTrySuccess : 0;
 
+    // 上部：プロフィール（アイコン＋表示名＋@ID）。キタコレのランクカードと同じ構成にする。
+    var player = mc().player;
+    if (player) {
+      var playerRow = document.createElement('div');
+      playerRow.className = 'rank-card-player';
+      var avatar = document.createElement('div');
+      avatar.className = 'add-preview-avatar rank-card-avatar';
+      if (player.iconUrl) {
+        var pimg = document.createElement('img');
+        pimg.src = player.iconUrl;
+        pimg.alt = '';
+        pimg.addEventListener('error', function () {
+          if (pimg.parentNode) avatar.removeChild(pimg);
+          avatar.textContent = (player.displayName || player.id).charAt(0);
+        });
+        avatar.appendChild(pimg);
+      } else {
+        avatar.textContent = (player.displayName || player.id).charAt(0);
+      }
+      var playerInfo = document.createElement('div');
+      var playerName = document.createElement('div');
+      playerName.className = 'add-preview-name';
+      playerName.textContent = player.displayName || player.id;
+      var playerId = document.createElement('div');
+      playerId.className = 'add-preview-id';
+      playerId.textContent = '@' + player.id;
+      playerInfo.appendChild(playerName);
+      playerInfo.appendChild(playerId);
+      playerRow.appendChild(avatar);
+      playerRow.appendChild(playerInfo);
+      el.appendChild(playerRow);
+    }
+
     // 上部サマリ（生活ランク・総ニゲキレ成功=逃げ切り数・一発・キャラ名収集数）。§12。
+    //   ランクはキタコレと同じくバッジ（.kitacore-rank-text rank-XX）で出す。
     var summary = document.createElement('div');
     summary.className = 'nigekire-card-summary';
     var rankRow = document.createElement('div');
     rankRow.className = 'rank-card-row';
     rankRow.innerHTML =
-      '<span class="rank-card-label">生活ランク</span>' +
-      '<span class="nigekire-card-rank">' + escapeHtml(life.name || '---') + '</span>';
+      '<span class="rank-card-label">ランク</span>' +
+      '<span class="kitacore-rank-text rank-' + escapeHtml(life.key || 'nige1') + '">' +
+      escapeHtml(L.nigekireRankTitleWithDays(life.name || '---', m.oshiCleared, NIGEKIRE_CHARACTERS)) +
+      '</span>';
     summary.appendChild(rankRow);
     var succRow = document.createElement('div');
     succRow.className = 'rank-card-row';
@@ -895,67 +930,17 @@
       '<span class="rank-card-label">一発ニゲキレ</span>' +
       '<span class="rank-card-value">' + firstTry + '</span>';
     summary.appendChild(ftRow);
-    var collRow = document.createElement('div');
-    collRow.className = 'rank-card-row';
-    collRow.innerHTML =
-      '<span class="rank-card-label">キャラ名収集数</span>' +
-      '<span class="rank-card-value">' + totalCollected + '</span>';
-    summary.appendChild(collRow);
+    // キャラ名収集数はサマリに出さない（各キャラの明細行に「N 収集」として出る）。
     el.appendChild(summary);
 
-    // カルーセル本体。表示中の1人を描く（index は保持・範囲外は丸める）。
-    var n = NIGEKIRE_CHARACTERS.length;
-    if (nigekireCardIndex < 0) nigekireCardIndex = 0;
-    if (nigekireCardIndex > n - 1) nigekireCardIndex = n - 1;
-
-    var carousel = document.createElement('div');
-    carousel.className = 'nigekire-carousel';
-
-    var prevBtn = document.createElement('button');
-    prevBtn.type = 'button';
-    prevBtn.className = 'nigekire-carousel-nav nigekire-carousel-prev';
-    prevBtn.setAttribute('aria-label', '前のキャラ');
-    prevBtn.textContent = '‹';
-    prevBtn.addEventListener('click', function () {
-      nigekireCardIndex = (nigekireCardIndex - 1 + n) % n;
-      renderNigekireCard();
+    // 7人の一覧（縦スクロール）。カルーセルは一覧性が落ちるので廃止した。
+    //   各行は「左にキャラ画像・右にステータス」の横並び（nigekireCharCardEl）。
+    var list = document.createElement('div');
+    list.className = 'nigekire-char-list';
+    NIGEKIRE_CHARACTERS.forEach(function (ch) {
+      list.appendChild(nigekireCharCardEl(ch, counts));
     });
-
-    var nextBtn = document.createElement('button');
-    nextBtn.type = 'button';
-    nextBtn.className = 'nigekire-carousel-nav nigekire-carousel-next';
-    nextBtn.setAttribute('aria-label', '次のキャラ');
-    nextBtn.textContent = '›';
-    nextBtn.addEventListener('click', function () {
-      nigekireCardIndex = (nigekireCardIndex + 1) % n;
-      renderNigekireCard();
-    });
-
-    var stage = document.createElement('div');
-    stage.className = 'nigekire-carousel-stage';
-    stage.appendChild(nigekireCharCardEl(NIGEKIRE_CHARACTERS[nigekireCardIndex], counts));
-
-    carousel.appendChild(prevBtn);
-    carousel.appendChild(stage);
-    carousel.appendChild(nextBtn);
-    el.appendChild(carousel);
-
-    // ドット（現在位置・曜日順）。キャラカラーで点灯。タップで直接移動。
-    var dots = document.createElement('div');
-    dots.className = 'nigekire-carousel-dots';
-    NIGEKIRE_CHARACTERS.forEach(function (ch, i) {
-      var dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'nigekire-carousel-dot' + (i === nigekireCardIndex ? ' is-active' : '');
-      dot.setAttribute('aria-label', ch.label + '｜' + ch.name);
-      if (i === nigekireCardIndex && ch.color) dot.style.background = ch.color;
-      dot.addEventListener('click', function () {
-        nigekireCardIndex = i;
-        renderNigekireCard();
-      });
-      dots.appendChild(dot);
-    });
-    el.appendChild(dots);
+    el.appendChild(list);
 
     els.kitacoreRankCard.classList.remove('hidden');
   }
@@ -973,8 +958,7 @@
     //   未通過は影（グレー）＝コンプは7人ぶん通過すること。
     var nm = ensureMode('nigekire');
     var unobserved = nm.oshiCleared.indexOf(ch.key) < 0;
-    var focus = stageInfo.stage >= 3;      // 定着(5+)以上＝枠をキャラ色に
-    var core = stageInfo.stage >= 4;       // 中核(10+)＝バッジ
+    var focus = stageInfo.stage >= 3;      // 定着(5+)以上＝枠をキャラ色に（段階は文字にしない）
 
     var card = document.createElement('div');
     card.className = 'nigekire-char-card is-stage-' + stageInfo.stage +
@@ -999,41 +983,48 @@
       thumb.appendChild(ph);
     });
     thumb.appendChild(img);
-    // 中核(10+)は小バッジ（解放対象の印）。
-    if (core) {
-      var badge = document.createElement('span');
-      badge.className = 'nigekire-char-badge';
-      badge.textContent = '中核';
-      if (ch.color) badge.style.background = ch.color;
-      thumb.appendChild(badge);
-    }
     card.appendChild(thumb);
 
-    // 曜日｜キャラ名（キャラカラー強調・未観測はグレー）。
+    // 右側：ステータス（名前・称号・収集数）をまとめる。行は「左に画像・右に情報」。
+    var info = document.createElement('div');
+    info.className = 'nigekire-char-info';
+
+    // 曜日｜キャラ名（キャラカラー強調・未通過はグレー）。
+    //   段階（未観測/観測/定着/中核）は文字で出さない＝カード枠の色と画像の解放で表す。
     var nameEl = document.createElement('div');
     nameEl.className = 'nigekire-char-name';
     nameEl.textContent = ch.label + '｜' + ch.name;
-    if (!unobserved && ch.color) nameEl.style.color = ch.color;
-    card.appendChild(nameEl);
+    // 色は CSS 側で --char-color に白を混ぜて出す（月子のネイビー等が暗背景に沈むため）。
+    if (!unobserved && ch.color) nameEl.style.setProperty('--char-color', ch.color);
+    info.appendChild(nameEl);
 
-    // キャラ別称号（未観測は段階名「未観測」を出す）。
-    var titleEl = document.createElement('div');
+    // キャラ別称号（ラベル＋値）。未通過は「未観測」。
+    var titleRow = document.createElement('div');
+    titleRow.className = 'nigekire-char-row';
+    var titleLabel = document.createElement('span');
+    titleLabel.className = 'nigekire-char-label';
+    titleLabel.textContent = '称号';
+    var titleEl = document.createElement('span');
     titleEl.className = 'nigekire-char-title';
     titleEl.textContent = unobserved ? '未観測' : (title.name || '---');
-    card.appendChild(titleEl);
+    titleRow.appendChild(titleLabel);
+    titleRow.appendChild(titleEl);
+    info.appendChild(titleRow);
 
-    // 収集数＋段階名（未観測/観測/定着/中核）。
+    // 収集数（ラベル＋値）。
     var statRow = document.createElement('div');
-    statRow.className = 'nigekire-char-stats';
+    statRow.className = 'nigekire-char-row';
+    var cntLabel = document.createElement('span');
+    cntLabel.className = 'nigekire-char-label';
+    cntLabel.textContent = '収集';
     var cntEl = document.createElement('span');
     cntEl.className = 'nigekire-char-points';
-    cntEl.textContent = cnt + ' 収集';
-    var stageEl = document.createElement('span');
-    stageEl.className = 'nigekire-char-stage';
-    stageEl.textContent = stageInfo.name;
+    cntEl.textContent = cnt;
+    statRow.appendChild(cntLabel);
     statRow.appendChild(cntEl);
-    statRow.appendChild(stageEl);
-    card.appendChild(statRow);
+    info.appendChild(statRow);
+
+    card.appendChild(info);
 
     return card;
   }
@@ -2425,15 +2416,27 @@
 
   // '#1f3a5f' -> '31, 58, 95'。CSS 側で rgba(var(--char-rgb), a) の形で
   //   キャラカラーを任意の透明度で混ぜられるようにするため。#RGB 短縮形も許容する。
+  //   ★演出用に明度を底上げする：月子(#1f3a5f ネイビー)や凛華(#7b1e2b ボルドー)は
+  //     そのまま暗転に混ぜても暗いままで、段階が上がった実感が出ないため。
+  //     色相は保ったまま、暗い色ほど強く白へ寄せる（明るい色はほぼ素通り）。
   function nigekireHexToRgbTriple(hex) {
     var h = typeof hex === 'string' ? hex.replace('#', '').trim() : '';
     if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
     if (!/^[0-9a-fA-F]{6}$/.test(h)) return '148, 163, 184'; // フォールバック（既定のスレート）
-    return [
-      parseInt(h.slice(0, 2), 16),
-      parseInt(h.slice(2, 4), 16),
-      parseInt(h.slice(4, 6), 16),
-    ].join(', ');
+    var r = parseInt(h.slice(0, 2), 16);
+    var g = parseInt(h.slice(2, 4), 16);
+    var b = parseInt(h.slice(4, 6), 16);
+    // 知覚輝度（0..255）。低いほど暗い色。
+    var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    var TARGET = 165; // 演出に必要な明るさの目安
+    if (lum < TARGET) {
+      // 白へ寄せる割合。暗いほど大きく（上限 0.72 で色相を完全には飛ばさない）。
+      var mix = Math.min(0.72, (TARGET - lum) / TARGET);
+      r = Math.round(r + (255 - r) * mix);
+      g = Math.round(g + (255 - g) * mix);
+      b = Math.round(b + (255 - b) * mix);
+    }
+    return [r, g, b].join(', ');
   }
 
   function openNigekireFinalCutin(charKey) {
@@ -2467,7 +2470,10 @@
     }
     if (els.nigekireCutinName) {
       els.nigekireCutinName.textContent = ch.label + '｜' + ch.name;
-      els.nigekireCutinName.style.color = ch.color || '';
+      // 色は CSS 側で --char-color に白を混ぜて出す（段階が上がると背景が明るくなり、
+      //   暗いキャラカラーのままだと名前が埋もれるため）。
+      els.nigekireCutinName.style.removeProperty('color');
+      if (ch.color) els.nigekireCutinName.style.setProperty('--char-color', ch.color);
     }
     if (els.nigekireCutinLine) {
       var line = NIGEKIRE_CUTIN_LINES[charKey] || ('〈' + ch.name + '〉が待っている。');
@@ -3828,7 +3834,7 @@
     rank.type = 'button';
     rank.className = 'kitacore-rank-text rank-' + (life.key || 'nigekire');
     // 称号に通過済みキャラの曜日を積む（曜日順固定）。例: 生活防衛中〈月水金〉
-    rank.textContent = 'おはカノ生活ランク ' +
+    rank.textContent = 'ランク ' +
       L.nigekireRankTitleWithDays(life.name || '---', m.oshiCleared, NIGEKIRE_CHARACTERS);
     rank.addEventListener('click', function () { openRankCard(); });
     rankRow.appendChild(rank);
