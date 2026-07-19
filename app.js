@@ -242,8 +242,15 @@
   //   = ['tsukiko','you','shizuku','rinka','runa','mahiru','hiyori']（NIGEKIRE_CHARACTERS の key 順）。
   var NIGEKIRE_CHAR_ORDER = NIGEKIRE_CHARACTERS.map(function (ch) { return ch.key; });
 
-  // 生活ランク（総収集数判定・5段階・§10.4）。min 昇順。logic.js の nigekireLifeRankV2 に渡す。
-  //   v2：最終段（min:200・key nige5）を追加。totalCollected=7人の収集数合算。
+  // 生活ランク定義（5段階・§10-2 通過ベース）。min 昇順。
+  //   ランクは収集数では決まらない。rankStage（通過した節目の数・0〜4）で決まる。
+  //   この配列は logic.js の nigekireRankByStage（rankStage→ランク名）と
+  //   nigekireFinalCheckReady（次の節目の閾値＝ranks[s+1].min）に渡す。
+  //   min は「次の節目を出すトリガー」であってランク境界ではない。
+  //   使われる min は 70/120/200 のみ（rankStage 1→2→3→4）。
+  //   min:30 は v1（収集数判定）の名残で、通過ベースでは参照されない
+  //   ＝ rankStage 0→1 の節目トリガーは逃げ切り記録 3/3（収集数ではない）。
+  //   totalCollected=7人の収集数合算。
   var NIGEKIRE_LIFE_RANKS = [
     { stage: 1, min: 0,   name: '言い訳見習い',        key: 'nige1' },
     { stage: 2, min: 30,  name: '生活防衛中',          key: 'nige2' },
