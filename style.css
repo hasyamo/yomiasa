@@ -2658,17 +2658,40 @@ button.kitacore-rank-text:focus-visible {
   line-height: 1.9;
   color: #f1f5f9;
 }
+/* 通過ボタン。この画面はキタコレのシステム窓（等幅・シアン発光・ブラウン管風）の
+   世界観なので、ボタンも「端末のコマンド」として見せる：角丸を切り、文字を発光させ、
+   字間を開け、[ ] で囲む。丸いWebボタンだと世界観から浮く。 */
 .nigekire-final-pass {
-  padding: 10px 22px;
+  appearance: none;
+  display: block;
+  margin: 0 auto; /* 中央寄せ */
+  font-family: inherit;
   font-size: 14px;
-  border-radius: 8px;
+  letter-spacing: 0.12em;
+  padding: 10px 8px;
+  min-height: 44px;
+  border: 0; /* 枠なし＝[ ] 自体が境界。端末のコマンド行に見せる */
+  background: transparent;
+  color: #e0f2fe;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.55); /* システム文と同じ発光 */
   cursor: pointer;
-  color: #f8fafc;
-  background: rgba(51, 65, 85, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.7);
+  transition: color 0.12s, text-shadow 0.12s;
+}
+/* [ ラベル ] のブラケット。HTML の文言は変えずに端末コマンドらしく囲う。 */
+.nigekire-final-pass::before {
+  content: '[ ';
+  color: rgba(186, 230, 253, 0.75);
+}
+.nigekire-final-pass::after {
+  content: ' ]';
+  color: rgba(186, 230, 253, 0.75);
+}
+.nigekire-final-pass:hover {
+  color: #fff;
+  text-shadow: 0 0 10px rgba(56, 189, 248, 0.9);
 }
 .nigekire-final-pass:active {
-  background: rgba(71, 85, 105, 0.9);
+  text-shadow: 0 0 4px rgba(56, 189, 248, 0.5);
 }
 
 /* ニゲキレ debug ボタン群（5個・キタコレと排他・.debug-btns / .debug-btn を流用しつつ折り返す）。 */
