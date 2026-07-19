@@ -1288,6 +1288,34 @@
       "successLine": "うん、並べて気づけたならそれでいいの。ちゃんと見れてたよ。",
       "failureLine": "だいじょうぶ、まだ間に合うよ。もう一度だけ、そっと見比べてみようね。"
     },
+    "nadb04c620231": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "全部作ったら戻れなくなるから、ここで止めた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "他のキャラでは案が出せなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "凛華だけ作れば十分だと思った",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "4つも思いついたのに、ぜんぶ止めちゃったんだね。",
+      "successLine": "うん、止めるのも判断だよ。ゆっくりでいいから、やりたくなったらやろう。",
+      "failureLine": "……ううん、それだと少し違うかな。急がなくていいから、もう一度だけ。"
+    },
     "na31406839eb4": {
       "weekday": "thu",
       "character": "凛華",
@@ -1540,6 +1568,34 @@
       "successLine": "あー、方向と道は別って言い方はズルいけど分かる！次は石ころも先に見といてねっ！",
       "failureLine": "それ、設計書のおかげ感出しすぎー！もう一回！"
     },
+    "nb63200971510": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "諦めたって聞いたら、勢いで放っておけなくなった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "本職の技術力を見せたかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "書くネタがなくて手順書に逃げた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえねえ、コメント一個で記事まるごと書いちゃったの？",
+      "successLine": "だよねっ！ 諦めた人がいたら、ほっとけないもんね！",
+      "failureLine": "んー、それはちょっと違うかなー。もう一回考えてみて！"
+    },
     "n8b9608b6623d": {
       "weekday": "sat",
       "character": "まひる",
@@ -1623,6 +1679,34 @@
       "promptLine": "最初のやつ、自分では悪くないって思ってたでしょ。でも、なんか足りなかったよね。",
       "successLine": "うん、それでいいよ。指摘されて直せたなら、それで十分だよ。",
       "failureLine": "んー、それはちょっと逃げてるかな。ゆっくりでいいから、もう一回。"
+    },
+    "nd58ee84ee70e": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "せっかくのキリ番だったから、そこは開けたくなった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "迷っている過程はもう書くことがなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "200人まで自力で集めたと言いたかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "迷ってる話のほうが読まれるって、自分で書いてたよね。",
+      "successLine": "うん、キリ番は開けたくなるよね。急がなくていいよ。",
+      "failureLine": "……んー、ちょっと違うかも。ゆっくりでいいから、もう一回ね。"
     },
     "n62fb37041209": {
       "weekday": "sun",
