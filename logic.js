@@ -407,19 +407,6 @@
     return null;
   }
 
-  // 生活ランク（総ポイントの4段階・§10.5）。
-  //   ranks = [{ stage, name, min }, ...]（min 昇順）。total 以下で最大 min の段階を返す。
-  //   戻り値 { stage, name }。ranks 未指定/空なら { stage:0, name:'' }。
-  function nigekireLifeRank(totalPoints, ranks) {
-    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '', key: '' };
-    var t = typeof totalPoints === 'number' ? totalPoints : 0;
-    var cur = ranks[0];
-    for (var i = 0; i < ranks.length; i++) {
-      if (t >= ranks[i].min) cur = ranks[i];
-    }
-    return { stage: cur.stage, name: cur.name, key: cur.key };
-  }
-
   // キャラ別称号（キャラ別ポイントの4段階・§10.6）。
   //   charPoints = キャラ別ポイントマップ、charKey = 対象キャラのキー、
   //   titleTable = { thresholds:[0,10,25,45], names:{ [charKey]: [段階1..4名] } }。
@@ -438,189 +425,12 @@
     return { stage: stage, name: name };
   }
 
-  // 現在トップ（最大ポイントのキャラ）。同点は characters の並び（曜日順）で先を採る。
-  //   全0/未蓄積でも characters が非空なら先頭を返す（トップ表示は常に1人）。
-  //   characters 空/不正なら null。
-  function nigekireTopCharacter(charPoints, characters) {
-    if (!Array.isArray(characters) || characters.length === 0) return null;
-    var pts = charPoints && typeof charPoints === 'object' ? charPoints : {};
-    var top = characters[0];
-    var topPts = typeof pts[top.key] === 'number' ? pts[top.key] : 0;
-    for (var i = 1; i < characters.length; i++) {
-      var c = characters[i];
-      var p = typeof pts[c.key] === 'number' ? pts[c.key] : 0;
-      // 厳密に大きいときだけ更新 → 同点は先（曜日順で早い方）が残る。
-      if (p > topPts) {
-        top = c;
-        topPts = p;
-      }
-    }
-    return top;
-  }
-
-  // 総ポイント（全キャラ合算）。charPoints の数値を足す。
-  function nigekireTotalPoints(charPoints) {
-    if (!charPoints || typeof charPoints !== 'object') return 0;
-    return Object.keys(charPoints).reduce(function (sum, k) {
-      var v = charPoints[k];
-      return sum + (typeof v === 'number' ? v : 0);
-    }, 0);
-  }
-
-  // 試練成功時のポイント（火種ランク×通常/一発・§10.2）。
-  //   pointTable = { light:[通常,一発], medium:[...], heavy:[...] }。未定義ランクは 0。
-  function nigekireTrialPoints(fireRank, isFirstTry, pointTable) {
-    var row = pointTable && pointTable[fireRank];
-    if (!Array.isArray(row)) return 0;
-    return isFirstTry ? (row[1] || 0) : (row[0] || 0);
-  }
-
-  // 試練通過の状態遷移（非破壊）。§10.2/§10.5
-  //   passed[articleId] があれば二重取り防止で { ok:false }。
-  //   通過なら awardedPoints を担当キャラの財布に足し、成功数/一発数を更新した
-  //   次状態を返す。lifeRankBefore/After は総ポイントのランク、rankUpdated は段階が上がったか。
-  //   引数:
-  //     charPoints, totalSuccess, firstTrySuccess, passed : 現在状態
-  //     charKey    : 担当キャラのキー（付与先の財布）
-  //     articleId  : 記事キー（二重取り防止の単位）
-  //     fireRank   : 'light'|'medium'|'heavy'
-  //     isFirstTry : 一発成功か
-  //     pointTable : ポイント表、lifeRanks : 生活ランク閾値テーブル
-  function nigekireSuccessOutcome(
-    charPoints, totalSuccess, firstTrySuccess, passed,
-    charKey, articleId, fireRank, isFirstTry, pointTable, lifeRanks
-  ) {
-    passed = passed && typeof passed === 'object' ? passed : {};
-    if (passed[articleId]) return { ok: false }; // 二重取り防止
-    var pts = charPoints && typeof charPoints === 'object' ? charPoints : {};
-    var awarded = nigekireTrialPoints(fireRank, isFirstTry, pointTable);
-    var totalBefore = nigekireTotalPoints(pts);
-    var lifeBefore = nigekireLifeRank(totalBefore, lifeRanks);
-
-    var nextCharPoints = Object.assign({}, pts);
-    var cur = typeof nextCharPoints[charKey] === 'number' ? nextCharPoints[charKey] : 0;
-    nextCharPoints[charKey] = cur + awarded;
-
-    var nextPassed = Object.assign({}, passed);
-    nextPassed[articleId] = true;
-
-    var ts = typeof totalSuccess === 'number' ? totalSuccess : 0;
-    var fts = typeof firstTrySuccess === 'number' ? firstTrySuccess : 0;
-    var nextTotalSuccess = ts + 1;
-    var nextFirstTrySuccess = isFirstTry ? fts + 1 : fts;
-
-    var lifeAfter = nigekireLifeRank(totalBefore + awarded, lifeRanks);
-
-    return {
-      ok: true,
-      nextCharPoints: nextCharPoints,
-      nextTotalSuccess: nextTotalSuccess,
-      nextFirstTrySuccess: nextFirstTrySuccess,
-      nextPassed: nextPassed,
-      awardedPoints: awarded,
-      lifeRankBefore: lifeBefore,
-      lifeRankAfter: lifeAfter,
-      rankUpdated: lifeAfter.stage > lifeBefore.stage,
-    };
-  }
-
-  // 回収型のタップ回収（+1pt・§10.4）。ニゲキレ専用（キタコレの collectWaiOutcome とは別）。
-  //   collected[articleId] があれば二重取り防止で { ok:false }。
-  //   回収なら担当キャラの財布に +1 し、collected を立てた次状態を返す（非破壊）。
-  //   lifeRankBefore/After・rankUpdated も返す。
-  function nigekireCollectOutcome(charPoints, collected, charKey, articleId, lifeRanks) {
-    collected = collected && typeof collected === 'object' ? collected : {};
-    if (collected[articleId]) return { ok: false }; // 二重取り防止
-    var pts = charPoints && typeof charPoints === 'object' ? charPoints : {};
-    var awarded = 1;
-    var totalBefore = nigekireTotalPoints(pts);
-    var lifeBefore = nigekireLifeRank(totalBefore, lifeRanks);
-
-    var nextCharPoints = Object.assign({}, pts);
-    var cur = typeof nextCharPoints[charKey] === 'number' ? nextCharPoints[charKey] : 0;
-    nextCharPoints[charKey] = cur + awarded;
-
-    var nextCollected = Object.assign({}, collected);
-    nextCollected[articleId] = true;
-
-    var lifeAfter = nigekireLifeRank(totalBefore + awarded, lifeRanks);
-
-    return {
-      ok: true,
-      nextCharPoints: nextCharPoints,
-      nextCollected: nextCollected,
-      awardedPoints: awarded,
-      lifeRankBefore: lifeBefore,
-      lifeRankAfter: lifeAfter,
-      rankUpdated: lifeAfter.stage > lifeBefore.stage,
-    };
-  }
-
   // ===========================================================================
   // ニゲキレ v2 純ロジック（一言チップ収集・1本ゲージ・生活カード）
-  //   参照: nigekire-quiz-and-points-spec.md §10.4 ランク5段階 / §10.5 称号閾値 /
+  //   参照: nigekire-quiz-and-points-spec.md §10.5 称号閾値 /
   //         §10.7 ホワイトリスト / nigekire-mode-ui-spec.md §5,§6,§10
-  //   v1（nigekireLifeRank 等・ポイント制）は非破壊で残し、v2 を別名で新規追加。
+  //   旧v1（総ポイント制）は推し1人選択構造で廃止・削除済み。
   // ===========================================================================
-
-  // 生活ランク v2（総収集数の5段階判定・§10.4）。
-  //   ranks = [{ stage, min, name, key }, ...]（min 昇順・0/30/70/120/200）。
-  //   totalCollected 以下で最大 min の段階を返す。空/不正は { stage:0, name:'', key:'' }。
-  function nigekireLifeRankV2(totalCollected, ranks) {
-    if (!Array.isArray(ranks) || ranks.length === 0) return { stage: 0, name: '', key: '' };
-    var t = typeof totalCollected === 'number' ? totalCollected : 0;
-    var cur = ranks[0];
-    for (var i = 0; i < ranks.length; i++) {
-      if (t >= ranks[i].min) cur = ranks[i];
-    }
-    return { stage: cur.stage, name: cur.name, key: cur.key };
-  }
-
-  // 1本ゲージの進行率＋オーバー値表示（§5,§6）。
-  //   cur = totalCollected。現ランクの min = curMin、次ランクの min = nextMin。
-  //   pct = 最終ランクなら 100、それ以外 (cur-curMin)/(nextMin-curMin)*100（0-100クランプ）。
-  //   over = cur > 200（上限200超）。display = cur + ' / 200'（実数/200）。
-  //   ranks 空/不正なら全ゼロ・display '0 / 200'。
-  function nigekireGaugeProgress(totalCollected, ranks) {
-    var cur = typeof totalCollected === 'number' ? totalCollected : 0;
-    if (!Array.isArray(ranks) || ranks.length === 0) {
-      return { cur: cur, curMin: 0, nextMin: 0, pct: 0, over: cur > 200, display: cur + ' / 200' };
-    }
-    // 現ランク（cur 以下で最大 min）と、その次ランクを求める。
-    var curIdx = 0;
-    for (var i = 0; i < ranks.length; i++) {
-      if (cur >= ranks[i].min) curIdx = i;
-    }
-    var curMin = typeof ranks[curIdx].min === 'number' ? ranks[curIdx].min : 0;
-    var isLast = curIdx >= ranks.length - 1;
-    var nextMin = isLast ? curMin : (typeof ranks[curIdx + 1].min === 'number' ? ranks[curIdx + 1].min : curMin);
-    var pct;
-    if (isLast) {
-      pct = 100;
-    } else {
-      var span = nextMin - curMin;
-      pct = span > 0 ? ((cur - curMin) / span) * 100 : 0;
-      if (pct < 0) pct = 0;
-      if (pct > 100) pct = 100;
-    }
-    return {
-      cur: cur,
-      curMin: curMin,
-      nextMin: nextMin,
-      pct: pct,
-      over: cur > 200,
-      display: cur + ' / 200',
-    };
-  }
-
-  // 総収集数（7人のキャラ別収集数を合算）。非オブジェクトは 0。
-  function nigekireTotalCollected(charCounts) {
-    if (!charCounts || typeof charCounts !== 'object') return 0;
-    return Object.keys(charCounts).reduce(function (sum, k) {
-      var v = charCounts[k];
-      return sum + (typeof v === 'number' ? v : 0);
-    }, 0);
-  }
 
   // 最推し（最多収集キャラ）。同数は characters の並び（曜日順）で先を採る。
   //   characters = [{ key, ... }, ...]。全0はキャラが1人でも最多が0＝先頭が残るが、
@@ -722,36 +532,12 @@
     return { stage: 1, name: '未観測' };
   }
 
-  // 逃げ切り記録 n/3 と「最終確認見出しを出すべきか」を判定（節目イベント・§6/§8）。
-  //   count = min(totalSuccess, 3)（0未満・非数は 0）。need は常に 3。
-  //   ready = 逃げ切りが 3 以上そろい、かつ最終確認をまだ通過していない状態。
-  //   done  = 最終確認を通過済みか。副作用なし。
-  function nigekireEscapeRecord(totalSuccess, finalCheckDone) {
-    var ts = typeof totalSuccess === 'number' && totalSuccess > 0 ? totalSuccess : 0;
-    var count = ts >= 3 ? 3 : Math.floor(ts);
-    var done = !!finalCheckDone;
-    return {
-      count: count,
-      need: 3,
-      ready: ts >= 3 && !done,
-      done: done,
-    };
-  }
-
-  // 最終確認の通過（節目1回きり・二重通過防止・§10）。
-  //   既に通過済み（finalCheckDone=true）なら {ok:false}。
-  //   未通過なら {ok:true, nextFinalCheckDone:true}。非破壊。
-  function nigekirePassFinalCheck(finalCheckDone) {
-    if (finalCheckDone) return { ok: false }; // 二重通過防止
-    return { ok: true, nextFinalCheckDone: true };
-  }
-
   // ===========================================================================
   // ニゲキレ 通過ベースランク 純ロジック（rankStage・§10-2）
   //   参照: nigekire-final-check-spec.md §10-2 / answer-final-check-rank-update.md
-  //   ランクは「収集数の自動判定」ではなく「通過した節目の数（rankStage 0〜4）」で
-  //   決まる（キタコレの撃破ベース準拠）。収集数は次の節目を出すトリガーにすぎない。
-  //   既存の nigekireLifeRankV2 / nigekirePassFinalCheck は非破壊で残す。
+  //   ランクは「収集数の自動判定」ではなく rankStage（0〜6・全7段）で決まる
+  //   （キタコレの撃破ベース準拠）。rankStage は N群の「閾値への初到達」で上がる。
+  //   旧5段階版（総収集 70/120/200）は廃止・削除済み。
   // ===========================================================================
 
   // 通過ベースのランク名解決（§10-2）。
@@ -772,41 +558,6 @@
       key: typeof r.key === 'string' ? r.key : '',
       grade: typeof r.grade === 'string' ? r.grade : '', // 等級記号（E..SS）。表示で名前に前置する
     };
-  }
-
-  // 次の節目（最終確認見出し）を出すべきか判定（§10-2・通過ベース）。
-  //   rankStage 0: ready = totalSuccess >= 3（初期試練の逃げ切り記録）。needCollected=null。
-  //   rankStage 1: ready = totalCollected >= ranks[2].min（=70）。needCollected=ranks[2].min。
-  //   rankStage 2: ready = totalCollected >= ranks[3].min（=120）。needCollected=ranks[3].min。
-  //   rankStage 3: ready = totalCollected >= ranks[4].min（=200）。needCollected=ranks[4].min。
-  //   rankStage 4: ready=false（最終・もう節目なし）。needCollected=null。
-  //   閾値は ranks の min を使う（ハードコードしない）。副作用なし。
-  function nigekireFinalCheckReady(rankStage, totalSuccess, totalCollected, ranks) {
-    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
-    var ts = typeof totalSuccess === 'number' && isFinite(totalSuccess) ? totalSuccess : 0;
-    var tc = typeof totalCollected === 'number' && isFinite(totalCollected) ? totalCollected : 0;
-    if (s <= 0) {
-      return { ready: ts >= 3, needCollected: null };
-    }
-    // rankStage 1〜3 は次段（ranks[s+1]）の min を閾値に使う。
-    if (Array.isArray(ranks) && s >= 1 && s <= 3) {
-      var next = ranks[s + 1];
-      var need = next && typeof next.min === 'number' ? next.min : Infinity;
-      return { ready: tc >= need, needCollected: need };
-    }
-    // rankStage 4（最終）以降は節目なし。
-    return { ready: false, needCollected: null };
-  }
-
-  // 節目通過で rankStage を 1 上げる（§10-2・通過ベース）。
-  //   最大は ranks 最終 index（=4）。既に 4 なら {ok:false}（これ以上上がらない）。
-  //   未到達なら {ok:true, nextRankStage: rankStage+1}。非破壊。
-  //   旧 nigekirePassFinalCheck(finalCheckDone) は残す（消さない）が、これが新版。
-  function nigekirePassFinalCheckV2(rankStage) {
-    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
-    if (s < 0) s = 0;
-    if (s >= 4) return { ok: false }; // 最終ランク・これ以上上がらない
-    return { ok: true, nextRankStage: s + 1 };
   }
 
   // ===========================================================================
@@ -834,52 +585,6 @@
       if (!cleared[i]) { nextMilestone = (i + 1) * 3; break; }
     }
     return { count: count, need: need, cleared: cleared, nextMilestone: nextMilestone };
-  }
-
-  // 最終確認の見出しを出すべきか判定。
-  //   mode 'initial': そのキャラがまだ3回通過していない（oshiCleared に含まれない）。
-  //     ready = 逃げ切り本数が「そのキャラの通過回数+1 本目の節目」に届いている
-  //     （通過0回→3本、1回→6本、2回→9本）。在庫が8本しかないキャラは3回目が出せない
-  //     ＝ ready=false のまま（本数に依存しない判定にしてある）。
-  //   mode 'collect': そのキャラが3回通過済み かつ rankStage>=3。
-  //     ready = totalCollected >= ranks[rankStage+1].min。
-  //   mode 'done': 最終ランク到達済み（rankStage >= ranks.length-1）で収集の節目もない。
-  //   passIndex = 通過セリフの n（1..6）。
-  //     initial: 1人目（rankStage<3）は rankStage+1、2人目以降は通過回数+1（1..3）。
-  //     collect: rankStage+1（3→4, 4→5, 5→6）。
-  //   ※設計メモとの差分: oshiPassCounts（キャラ別の通過回数マップ）を引数に追加した。
-  //     2人目以降は rankStage が動かないため、rankStage だけでは通過回数を判定できない。
-  function nigekireOshiFinalCheckReady(
-    rankStage, escapeCounts, oshiPassCounts, oshiChar, oshiCleared, totalCollected, ranks
-  ) {
-    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
-    if (s < 0) s = 0;
-    var tc = typeof totalCollected === 'number' && isFinite(totalCollected) ? totalCollected : 0;
-    var list = Array.isArray(ranks) ? ranks : [];
-    var maxStage = list.length > 0 ? list.length - 1 : 0;
-    var clearedList = Array.isArray(oshiCleared) ? oshiCleared : [];
-    var isCleared = !!oshiChar && clearedList.indexOf(oshiChar) !== -1;
-
-    if (!isCleared) {
-      // 初期試練（このキャラはまだ3回通過していない）
-      var passed = nigekireOshiPassCount(oshiPassCounts, oshiChar);
-      var rec = nigekireOshiEscapeRecord(escapeCounts, oshiChar);
-      var needEscape = (passed + 1) * 3; // 3 / 6 / 9
-      var n = s < 3 ? s + 1 : passed + 1;
-      if (n < 1) n = 1;
-      if (n > 6) n = 6;
-      return { ready: passed < 3 && rec.count >= needEscape, mode: 'initial', passIndex: n };
-    }
-
-    // 収集の節目。最終ランク到達済みならもう節目はない。
-    if (s >= maxStage) {
-      return { ready: false, mode: 'done', passIndex: maxStage + 1 > 6 ? 6 : maxStage + 1 };
-    }
-    var next = list[s + 1];
-    var need = next && typeof next.min === 'number' ? next.min : Infinity;
-    var ci = s + 1;
-    if (ci > 6) ci = 6;
-    return { ready: tc >= need, mode: 'collect', passIndex: ci };
   }
 
   // キャラ別の通過回数（0..3）を取り出す内部ヘルパ。非数/負数は0・上限3。
@@ -934,76 +639,13 @@
     return name + '〈' + days + '〉';
   }
 
-  // 最終確認の通過処理（推し構造）。非破壊で次の state を返す。
-  //   - そのキャラの通過回数を +1（上限3）。
-  //   - 3回目の通過なら nextCleared に oshiChar を追加（重複しない）。
-  //   - rankStage は次の2つの場合だけ +1（上限 ranks.length-1）:
-  //       a) 1人目の初期試練（rankStage < 3）
-  //       b) 収集の節目（rankStage >= 3 かつ そのキャラが3回通過済み＝mode collect）
-  //     2人目以降の初期試練（rankStage>=3 で3回通過）では rankStage を動かさない。
-  //   - oshiChar が不正、または既に3回通過済みで最終ランクなら {ok:false}。
-  function nigekirePassOshiFinalCheck(rankStage, oshiChar, oshiCleared, oshiPassCounts, ranks) {
-    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
-    if (s < 0) s = 0;
-    var list = Array.isArray(ranks) ? ranks : [];
-    var maxStage = list.length > 0 ? list.length - 1 : 0;
-    if (s > maxStage) s = maxStage;
-    var clearedIn = Array.isArray(oshiCleared) ? oshiCleared : [];
-    var countsIn = oshiPassCounts && typeof oshiPassCounts === 'object' ? oshiPassCounts : {};
-    if (!oshiChar || typeof oshiChar !== 'string') {
-      return { ok: false, nextRankStage: s, nextCleared: clearedIn.slice(), nextPassCounts: Object.assign({}, countsIn) };
-    }
-
-    var isCleared = clearedIn.indexOf(oshiChar) !== -1;
-    var nextCleared = clearedIn.slice();
-    var nextPassCounts = Object.assign({}, countsIn);
-    var nextRankStage = s;
-
-    if (isCleared) {
-      // 収集の節目。最終ランクならこれ以上は上がらない。
-      if (s >= maxStage) {
-        return { ok: false, nextRankStage: s, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
-      }
-      nextRankStage = s + 1;
-      return { ok: true, nextRankStage: nextRankStage, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
-    }
-
-    // 初期試練。通過回数 +1（上限3）。
-    var passed = nigekireOshiPassCount(countsIn, oshiChar);
-    if (passed >= 3) {
-      return { ok: false, nextRankStage: s, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
-    }
-    var nextPassed = passed + 1;
-    nextPassCounts[oshiChar] = nextPassed;
-    if (nextPassed >= 3 && nextCleared.indexOf(oshiChar) === -1) {
-      nextCleared.push(oshiChar);
-    }
-    // 1人目の初期試練（rankStage<3）だけ rankStage を上げる。
-    if (s < 3) {
-      nextRankStage = s + 1 > maxStage ? maxStage : s + 1;
-    }
-    return { ok: true, nextRankStage: nextRankStage, nextCleared: nextCleared, nextPassCounts: nextPassCounts };
-  }
-
-  // 節目通過で rankStage を1上げる（段数を ranks から取る版）。
-  //   上限は ranks.length-1。既に上限なら {ok:false}。ranks 不正なら {ok:false}。非破壊。
-  function nigekirePassFinalCheckV3(rankStage, ranks) {
-    if (!Array.isArray(ranks) || ranks.length === 0) return { ok: false };
-    var max = ranks.length - 1;
-    var s = typeof rankStage === 'number' && isFinite(rankStage) ? Math.floor(rankStage) : 0;
-    if (s < 0) s = 0;
-    if (s >= max) return { ok: false };
-    return { ok: true, nextRankStage: s + 1 };
-  }
-
   // ===========================================================================
   // N群: ニゲキレ キャラ単位ポイント＋閾値初到達ランク
   //   参照: nigekire-percharacter-points.md
   //   ポイントは charCounts[charKey]（キャラ単位）。節目は 1キャラにつき6回
   //   （逃げ切き 3/6/9 → ポイント 5/10/15）。ランクは「閾値への初到達」でだけ上がる。
   //   2人目以降は節目のカットインは出るが reachedThresholds に既にあるのでランクは動かない。
-  //   M群の旧関数（nigekireOshiFinalCheckReady / nigekirePassOshiFinalCheck）は
-  //   非破壊で残す（app.js からは呼ばなくなる）。すべて副作用なし。
+  //   M群の旧・節目関数（総収集ベース）は廃止・削除済み。すべて副作用なし。
   // ===========================================================================
 
   // 通過回数（0..6）を取り出す内部ヘルパ。M群の nigekireOshiPassCount は上限3なので別に持つ。
@@ -1244,35 +886,19 @@
     weekdayLabelJa: weekdayLabelJa,
     formatDateWithWeekday: formatDateWithWeekday,
     weekdayCharOf: weekdayCharOf,
-    nigekireLifeRank: nigekireLifeRank,
     nigekireCharTitle: nigekireCharTitle,
-    nigekireTopCharacter: nigekireTopCharacter,
-    nigekireTotalPoints: nigekireTotalPoints,
-    nigekireTrialPoints: nigekireTrialPoints,
-    nigekireSuccessOutcome: nigekireSuccessOutcome,
-    nigekireCollectOutcome: nigekireCollectOutcome,
     // ---- ニゲキレモード v2 純ロジック（一言収集・1本ゲージ・生活カード） ----
-    nigekireLifeRankV2: nigekireLifeRankV2,
-    nigekireGaugeProgress: nigekireGaugeProgress,
-    nigekireTotalCollected: nigekireTotalCollected,
     nigekireTopChar: nigekireTopChar,
     detectHitokotoChar: detectHitokotoChar,
     nigekireCollectV2: nigekireCollectV2,
     nigekireTrialV2: nigekireTrialV2,
     nigekireCardStage: nigekireCardStage,
-    nigekireEscapeRecord: nigekireEscapeRecord,
-    nigekirePassFinalCheck: nigekirePassFinalCheck,
     // ---- ニゲキレ 通過ベースランク（rankStage・§10-2） ----
     nigekireRankByStage: nigekireRankByStage,
-    nigekireFinalCheckReady: nigekireFinalCheckReady,
-    nigekirePassFinalCheckV2: nigekirePassFinalCheckV2,
     nigekireOshiEscapeRecord: nigekireOshiEscapeRecord,
-    nigekireOshiFinalCheckReady: nigekireOshiFinalCheckReady,
     nigekireOshiPassLineKey: nigekireOshiPassLineKey,
     nigekireRankLabel: nigekireRankLabel,
     nigekireRankTitleWithDays: nigekireRankTitleWithDays,
-    nigekirePassOshiFinalCheck: nigekirePassOshiFinalCheck,
-    nigekirePassFinalCheckV3: nigekirePassFinalCheckV3,
 
     // N群: キャラ単位ポイント＋閾値初到達ランク
     nigekireThresholdKey: nigekireThresholdKey,
