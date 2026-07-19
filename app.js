@@ -2563,10 +2563,13 @@
       lines.push('おはカノ生活ランクが更新されました。');
       lines.push((lifeBefore.name || '---') + ' → ' + (lifeAfter.name || '---'));
     }
-    // 3回通過（oshiCleared に積まれた）＝そのキャラの生活カードが開く。
+    // 3回通過（oshiCleared に積まれた）＝そのキャラの立ち絵が生活カードで見えるようになる。
+    //   「生活カードが開きました」だけだと何が起きたか伝わらないので、
+    //   どこで何が見られるようになったかを書く。
     if (m.oshiCleared.length > clearedBefore) {
       lines.push('');
-      lines.push(name + 'の生活カードが開きました。');
+      lines.push(name + 'の姿が見えるようになりました。');
+      lines.push('ランクをタップすると確認できます。');
       // 1人目の完了（rankStage 3 到達）でだけキャラ変更の解禁を知らせる。
       if (stageBefore < 3 && m.rankStage >= 3) {
         lines.push('');
