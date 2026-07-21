@@ -2207,17 +2207,6 @@
   // 最終確認カットイン／最終確認画面で扱っている曜日キャラ key（タップ遷移の受け渡し用）。
   var activeNigekireFinalChar = null;
 
-  // 試練成功後に出すシステムメッセージ列（成功→一発→ランク更新）をまとめて出す。
-  //   showSystemMessage は1枚しか出せないため、§17/§18/§20 を1メッセージに連結する。
-  //   （キタコレの覚醒メッセージと同じく複数節を1枚に流し込む方式）
-  function showNigekireSuccessMessage(char, isFirstTry, rankUpdated, rankName) {
-    linesModeKey = 'nigekire';
-    var lines = nigekireSuccessLines(char);
-    if (isFirstTry) lines = lines.concat(nigekireFirstTryLines(char));
-    if (rankUpdated && rankName) lines = lines.concat(nigekireRankUpdateLines(rankName));
-    linesModeKey = null;
-    showSystemMessage(lines);
-  }
 
   // 試練モーダルを開く（ニゲキレ・モードON・試練型記事のとき）。
   //   促し文（promptLine）を上部に、4択（choices）をシャッフルして並べる。
@@ -2353,12 +2342,12 @@
     }
     saveState();
 
-    // 記事チップ（逃げ切り済み表示）とヘッダーへ反映。
+    // 記事チップ（逃げ切り済み表示）とヘッダーへ反映（クイズモーダルは別レイヤーで残る）。
     renderArticles();
     updateReadStatsHeader();
-
-    // §17 成功 ＋（一発なら §18）を1メッセージで（ランク更新は試練では起きない）。
-    showNigekireSuccessMessage(t.char, isFirstTry, false, null);
+    // successLine はクイズ画面内（kitacoreQuizResult）に上で出している。キタコレの
+    //   answerQuiz と揃え、別レイヤーのシステムメッセージ（showNigekireSuccessMessage）は
+    //   出さない＝二重表示にしない。閉じるまで正解の緑ハイライトが見える。
   }
 
   // ニゲキレ試練モーダルを閉じる（DOM 共有のため hidden 付与＋文脈クリア）。
