@@ -453,48 +453,63 @@
     return top;
   }
 
-  // 本文HTMLから一言キャラを抽出（§10.7 ホワイトリスト照合・純関数）。
-  //   見出し（h1〜h6）「◯◯の一言…」の最初のものの ◯◯ を取り、nameToKey で照合。
-  //   実データは回によって見出しの体裁がバラつく（初期は <h3>「凛華の一言:」コロン付き、
-  //   途中から <h2>「月子の一言」）。タグレベルも後続の記号も固定できないため、
-  //   ・見出しタグは h1〜h6 のどれでも可
+  // 本文HTMLから一言キャラを「すべて」抽出（§10.7 ホワイトリスト照合・純関数）。
+  //   本文中の見出し（h1〜h6）「◯◯の一言…」を全部拾い、7人に該当するものを配列で返す。
+  //   ・見出しタグは h1〜h6 のどれでも可（実データは <h3>「凛華の一言:」～<h2>「月子の一言」）
   //   ・「◯◯の一言」の後ろ（コロン・空白・</hN>）は問わない
+  //   ・1見出しに複数名（「るな・陽の一言」）は区切り（・、,／&）で分割してそれぞれ照合
+  //   ・複数の見出しに別々のキャラ（「日和の一言」「しずくの一言」）があれば全部拾う
+  //   返り値: charKey の配列（本文の出現順・重複除去）。該当なし/非文字列は []。
   //   nameToKey = { '月子':'tsukiko', ... }（7人ホワイトリスト）。
-  //   完全一致すれば charKey を返す。一致しない（例「KITAさん」）/見出しなし/非文字列は null。
-  function detectHitokotoChar(bodyHtml, nameToKey) {
-    if (typeof bodyHtml !== 'string') return null;
-    // <hN ...>◯◯の一言 まで取れれば良い（N=1..6・後続の記号/コロンや </hN> は問わない）。
-    var m = bodyHtml.match(/<h[1-6][^>]*>([^<]*?)の一言/);
-    if (!m) return null;
-    var name = m[1];
+  function detectHitokotoChars(bodyHtml, nameToKey) {
+    if (typeof bodyHtml !== 'string') return [];
     var map = nameToKey && typeof nameToKey === 'object' ? nameToKey : {};
-    // ホワイトリストに完全一致するときだけ charKey を返す。
-    if (Object.prototype.hasOwnProperty.call(map, name) && map[name]) {
-      return map[name];
+    var out = [];
+    var seen = {};
+    // 見出し（hN）内の「◯◯の一言」を全部走査する。◯◯ は次の「の一言」まで。
+    var re = /<h[1-6][^>]*>([^<]*?)の一言/g;
+    var m;
+    while ((m = re.exec(bodyHtml)) !== null) {
+      // 「るな・陽」のような複数名を区切りで分割（・、，,／/＆&・全角/半角）。
+      var parts = m[1].split(/[・､、，,／/＆&]/);
+      for (var i = 0; i < parts.length; i++) {
+        var name = parts[i].trim();
+        if (!name) continue;
+        if (Object.prototype.hasOwnProperty.call(map, name) && map[name]) {
+          var key = map[name];
+          if (!seen[key]) { seen[key] = true; out.push(key); } // 重複除去（出現順は保つ）
+        }
+      }
     }
-    return null;
+    return out;
   }
 
-  // 一言チップのタップ回収 v2（収集数 +1・§10・非破壊）。
-  //   counts[articleId].char が無い → { ok:false }（未取得）。
-  //   collected[articleId] あり → { ok:false }（二重取り防止）。
-  //   回収可: charKey = counts[articleId].char、nextCharCounts[charKey] +1、
-  //           nextCollected[articleId] = true の次状態を返す（非破壊）。
-  function nigekireCollectV2(counts, collected, charCounts, articleId) {
+  // 一言チップのタップ回収 v2（キャラ別・収集数 +1・§10・非破壊）。
+  //   1記事に複数キャラの一言チップが出るため、どの charKey を回収するかを受ける。
+  //   counts[articleId].chars に charKey が含まれない → { ok:false }（この記事の対象でない）。
+  //   collected[articleId][charKey] あり → { ok:false }（そのキャラは回収済み・二重取り防止）。
+  //   回収可: nextCharCounts[charKey] +1、nextCollected[articleId][charKey]=true を返す（非破壊）。
+  //   collected はキャラ別（{ [articleId]: { [charKey]: true } }）＝チップごとに独立回収。
+  function nigekireCollectV2(counts, collected, charCounts, articleId, charKey) {
     counts = counts && typeof counts === 'object' ? counts : {};
     collected = collected && typeof collected === 'object' ? collected : {};
+    if (!charKey || typeof charKey !== 'string') return { ok: false };
     var entry = counts[articleId];
-    if (!entry || !entry.char) return { ok: false }; // 未取得（一言キャラ未判定）
-    if (collected[articleId]) return { ok: false }; // 二重取り防止
-    var charKey = entry.char;
-    var cc = charCounts && typeof charCounts === 'object' ? charCounts : {};
+    var chars = entry && Array.isArray(entry.chars) ? entry.chars : [];
+    if (chars.indexOf(charKey) < 0) return { ok: false }; // この記事の一言キャラでない
 
+    var prevArticle = collected[articleId] && typeof collected[articleId] === 'object'
+      ? collected[articleId] : {};
+    if (prevArticle[charKey]) return { ok: false }; // そのキャラは回収済み
+
+    var cc = charCounts && typeof charCounts === 'object' ? charCounts : {};
     var nextCharCounts = Object.assign({}, cc);
     var cur = typeof nextCharCounts[charKey] === 'number' ? nextCharCounts[charKey] : 0;
     nextCharCounts[charKey] = cur + 1;
 
     var nextCollected = Object.assign({}, collected);
-    nextCollected[articleId] = true;
+    nextCollected[articleId] = Object.assign({}, prevArticle);
+    nextCollected[articleId][charKey] = true;
 
     return {
       ok: true,
@@ -1026,7 +1041,7 @@
     nigekireCharTitle: nigekireCharTitle,
     // ---- ニゲキレモード v2 純ロジック（一言収集・1本ゲージ・生活カード） ----
     nigekireTopChar: nigekireTopChar,
-    detectHitokotoChar: detectHitokotoChar,
+    detectHitokotoChars: detectHitokotoChars,
     nigekireCollectV2: nigekireCollectV2,
     nigekireTrialV2: nigekireTrialV2,
     nigekireCardStage: nigekireCardStage,

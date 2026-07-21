@@ -105,7 +105,7 @@
     //   共通型（mode/collected/player）はそのまま流用し、7人財布・通過・成功数だけ足す。
     if (modeKey === 'nigekire') {
       // ── v2：一言チップ収集（実行時取得）──
-      if (!m.counts || typeof m.counts !== 'object') m.counts = {};             // { [articleId]: { char: charKey } } 本文取得で判定した一言キャラ
+      if (!m.counts || typeof m.counts !== 'object') m.counts = {};             // { [articleId]: { chars: [charKey,...] } } 本文取得で判定した一言キャラ（複数可）
       if (!m.charCounts || typeof m.charCounts !== 'object') m.charCounts = {};  // { [charKey]: number } キャラ別収集数
       // ── 試練（曜日キャラ・逃げ切り）＋既存共通 ──
       if (!m.passed || typeof m.passed !== 'object') m.passed = {};             // { [articleId]: true } 試練通過
@@ -254,7 +254,7 @@
   ];
 
   // 一言見出し「◯◯の一言」の名前 → charKey 照合マップ（§10.7 ホワイトリスト・7人限定）。
-  //   L.detectHitokotoChar に渡す。NIGEKIRE_CHARACTERS の name から機械生成（二重定義しない）。
+  //   L.detectHitokotoChars に渡す。NIGEKIRE_CHARACTERS の name から機械生成（二重定義しない）。
   //   「KITAさんの一言」等はこのマップに無い＝ null（収集対象外）になる。
   var NIGEKIRE_NAME_TO_KEY = NIGEKIRE_CHARACTERS.reduce(function (map, ch) {
     map[ch.name] = ch.key;
@@ -2130,10 +2130,12 @@
       .then(function (json) {
         var body = json && json.data ? json.data.body : null;
         if (typeof body !== 'string') return; // 形式不正は未検出のまま握りつぶす
-        var charKey = L.detectHitokotoChar(body, NIGEKIRE_NAME_TO_KEY);
-        if (!charKey) return; // 一言見出しなし / 7人ホワイトリスト外（例「KITAさん」）は収集対象外
+        // 本文中の「◯◯の一言」を全部拾い、7人に該当するキャラを配列で得る。
+        //   1記事に複数キャラ（「日和の一言」「しずくの一言」）があれば全員ぶんチップを出す。
+        var chars = L.detectHitokotoChars(body, NIGEKIRE_NAME_TO_KEY);
+        if (!chars.length) return; // 一言見出しなし / 7人ホワイトリスト外（例「KITAさん」）は収集対象外
         var m = ensureMode('nigekire');
-        m.counts[article.id] = { char: charKey };
+        m.counts[article.id] = { chars: chars };
         saveState();
         // ニゲキレ表示中なら該当クリエイターの一覧を作り直して一言チップを出す。
         if (currentRoute() === 'read' && state.selectedCreatorId === creatorId) {
@@ -2880,14 +2882,14 @@
     showSystemMessage(lines);
   }
 
-  // 一言チップのタップ回収 v2（+1・§10）。読了自動ではなくチップタップで回収する。
-  //   回収キャラは counts[articleId].char（本文取得で検出済み）。二重取りは logic 側で防ぐ。
+  // 一言チップのタップ回収 v2（キャラ別・+1・§10）。読了自動ではなくチップタップで回収する。
+  //   1記事に複数キャラの一言があるため、どの charKey を回収するかを受ける。
+  //   回収キャラは counts[articleId].chars に含まれるもの。二重取りは logic 側で防ぐ。
   //   回収→収集モーダル（§17-1「気配を見つけた」語彙・ポイント文言なし）。
-  //   生活ランクが上がったら §20 更新メッセージを続けて出す。
-  function nigekireCollect(articleId) {
+  function nigekireCollect(articleId, charKey) {
     var m = ensureMode('nigekire');
     // 収集ロックは撤去（推し選択構造では rankStage による回収拒否をしない）。
-    var out = L.nigekireCollectV2(m.counts, m.collected, m.charCounts, articleId);
+    var out = L.nigekireCollectV2(m.counts, m.collected, m.charCounts, articleId, charKey);
     if (!out.ok) return; // 未検出 / 二重取り防止（回収済み）
     m.collected = out.nextCollected;
     m.charCounts = out.nextCharCounts;
@@ -3994,16 +3996,16 @@
     }
 
     // ── ニゲキレ：記事チップ（v2・二層）＋タップ動作 ──
-    //   試練対象（nigekire_quiz.json に載っている記事）＝曜日キャラの「ニゲキレ試練」。
-    //   収集対象（本文取得で一言検出済み＝counts[id].char あり）＝見出しキャラの「一言チップ」。
-    //   どちらでもない（未取得）＝チップなし（記事タップで本文取得→次回表示でチップが出る）。
-    //   ※JSONL に載っていれば試練を優先（載っていない＆一言検出済みが収集）。
+    //   試練対象（nigekire_quiz.json に載っている推しの曜日の記事）＝「ニゲキレ試練」。
+    //   収集対象（本文取得で一言検出済み＝counts[id].chars あり）＝見出しキャラの「一言チップ」（複数可）。
+    //   ★試練と収集は独立に出す（else if にしない）。試練の途中でも最新記事の一言チップを
+    //     出して回収できるようにする＝あとで記事を二度読む羽目を避けるため（はしゃもさん）。
+    //     同じ記事に試練と一言が両方あれば、試練チップと一言チップが並んで出る。
     if (isModeOnFor(creatorId) && activeModeKey(creatorId) === 'nigekire') {
       var nrec = nigekireQuizForArticle(article);
       var nm = ensureMode('nigekire');
 
-      // 試練は推しの曜日の記事にだけ出す。曜日が一致しなければ（クイズがあっても）
-      //   試練チップは出さず、収集チップの判定へ落とす。
+      // 試練は推しの曜日の記事にだけ出す。曜日が一致しなければ（クイズがあっても）試練チップは出さない。
       var ntchar = nrec ? nigekireCharForArticle(article, nrec) : null;
       var isOshiDay = !!(ntchar && nm.oshiChar && ntchar.key === nm.oshiChar);
 
@@ -4026,12 +4028,19 @@
           }
           meta.appendChild(trial);
         }
-      } else if (nm.counts && nm.counts[article.id] && nm.counts[article.id].char) {
-        // 収集対象：本文取得で検出した一言キャラ。タップで回収（+1）。回収済みは非活性。
-        var cKey = nm.counts[article.id].char;
-        var cchar = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === cKey; })[0];
-        if (cchar) {
-          var already = !!(nm.collected && nm.collected[article.id]);
+      }
+
+      // 一言チップ：試練の有無と独立に、検出済みなら常に出す。
+      if (nm.counts && nm.counts[article.id] && Array.isArray(nm.counts[article.id].chars)) {
+        // 収集対象：本文取得で検出した一言キャラ。1記事に複数キャラの一言があれば
+        //   キャラごとにチップを出し、それぞれ独立にタップ回収（+1）する。回収済みは非活性。
+        var articleId = article.id;
+        var collectedMap = (nm.collected && nm.collected[articleId] &&
+          typeof nm.collected[articleId] === 'object') ? nm.collected[articleId] : {};
+        nm.counts[articleId].chars.forEach(function (cKey) {
+          var cchar = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === cKey; })[0];
+          if (!cchar) return;
+          var already = !!collectedMap[cKey];
           // 収集ロックは撤去（rankStage による回収拒否をしない）。
           // 見た目はキタコレのワイチップ（.article-wai）と同じにする＝両モードで
           //   「回収できるチップ」の見え方を揃える（曜日・キャラ色では分けない）。
@@ -4044,11 +4053,11 @@
           chip.disabled = already;
           if (!already) {
             chip.addEventListener('click', function () {
-              nigekireCollect(article.id);
+              nigekireCollect(articleId, cKey);
             });
           }
           meta.appendChild(chip);
-        }
+        });
       }
     }
 

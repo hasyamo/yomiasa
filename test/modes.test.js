@@ -844,99 +844,121 @@ test('nigekireTopChar: characters 空/不正は null', () => {
   assert.strictEqual(L.nigekireTopChar({ tsukiko: 5 }, null), null);
 });
 
-// ---- H5: detectHitokotoChar（一言抽出＋ホワイトリスト） ----
+// ---- H5: detectHitokotoChars（一言抽出＝全部拾う＋ホワイトリスト） ----
 
-test('detectHitokotoChar: <h2 name="x">陽の一言</h2> → you', () => {
-  assert.strictEqual(L.detectHitokotoChar('<h2 name="x">陽の一言</h2>', NAME_TO_KEY), 'you');
+test('detectHitokotoChars: 単一見出し → [charKey]', () => {
+  assert.deepStrictEqual(L.detectHitokotoChars('<h2 name="x">陽の一言</h2>', NAME_TO_KEY), ['you']);
+  assert.deepStrictEqual(L.detectHitokotoChars('前置き<h2>月子の一言</h2>本文', NAME_TO_KEY), ['tsukiko']);
 });
 
-test('detectHitokotoChar: 素の <h2>月子の一言</h2> → tsukiko', () => {
-  assert.strictEqual(L.detectHitokotoChar('前置き<h2>月子の一言</h2>本文', NAME_TO_KEY), 'tsukiko');
+test('detectHitokotoChars: 複数見出しは全員拾う（出現順）', () => {
+  // 「日和の一言」「しずくの一言」が別々の見出しで並ぶケース。
+  const html = '<h3>日和の一言</h3>中略<h2>しずくの一言</h2>';
+  assert.deepStrictEqual(L.detectHitokotoChars(html, NAME_TO_KEY), ['hiyori', 'shizuku']);
 });
 
-test('detectHitokotoChar: KITAさんはホワイトリスト外 → null', () => {
-  assert.strictEqual(L.detectHitokotoChar('<h2>KITAさんの一言</h2>', NAME_TO_KEY), null);
+test('detectHitokotoChars: 1見出しに複数名（「るな・陽の一言」）を分解する', () => {
+  assert.deepStrictEqual(L.detectHitokotoChars('<h2>るな・陽の一言</h2>', NAME_TO_KEY), ['runa', 'you']);
+  // 区切りは ・、，,／/＆& を許容。
+  assert.deepStrictEqual(L.detectHitokotoChars('<h3>月子、日和の一言:</h3>', NAME_TO_KEY), ['tsukiko', 'hiyori']);
 });
 
-test('detectHitokotoChar: 見出しなし → null', () => {
-  assert.strictEqual(L.detectHitokotoChar('<p>一言も見出しもない</p>', NAME_TO_KEY), null);
-  assert.strictEqual(L.detectHitokotoChar('<h2>ただの見出し</h2>', NAME_TO_KEY), null);
+test('detectHitokotoChars: 重複は除去（出現順は保つ）', () => {
+  const html = '<h2>陽の一言</h2>...<h3>陽の一言:</h3>';
+  assert.deepStrictEqual(L.detectHitokotoChars(html, NAME_TO_KEY), ['you']);
 });
 
-test('detectHitokotoChar: 非文字列 body は null', () => {
-  assert.strictEqual(L.detectHitokotoChar(null, NAME_TO_KEY), null);
-  assert.strictEqual(L.detectHitokotoChar(undefined, NAME_TO_KEY), null);
-  assert.strictEqual(L.detectHitokotoChar(123, NAME_TO_KEY), null);
+test('detectHitokotoChars: 対象外は混ざっても除外（ジュリ＋日和 → 日和だけ）', () => {
+  // 2/22 の実データ相当（ジュリの一言＝対象外・日和の一言＝対象）。
+  const html = '<h2>ジュリの一言</h2>中略<h3>日和の一言</h3>';
+  assert.deepStrictEqual(L.detectHitokotoChars(html, NAME_TO_KEY), ['hiyori']);
 });
 
-test('detectHitokotoChar: 最初の一言見出しを採る（複数あっても先頭）', () => {
-  const html = '<h2>しずくの一言</h2>中略<h2>凛華の一言</h2>';
-  assert.strictEqual(L.detectHitokotoChar(html, NAME_TO_KEY), 'shizuku');
+test('detectHitokotoChars: 見出しタグ h1〜h6・末尾コロンでも引ける（実データの回）', () => {
+  // 2/19 凛華・2/20 るなは <h3>「凛華の一言:」（コロン付き）。
+  assert.deepStrictEqual(L.detectHitokotoChars('<h3 id="x">凛華の一言:</h3>', NAME_TO_KEY), ['rinka']);
+  assert.deepStrictEqual(L.detectHitokotoChars('<h3>るなの一言：</h3>', NAME_TO_KEY), ['runa']);
 });
 
-test('detectHitokotoChar: 見出しタグが h3・末尾コロン付きでも引ける（実データの回）', () => {
-  // 実データ: 2/19 凛華・2/20 るなは <h3>「凛華の一言:」（コロン付き）。
-  //   <h2>+</h2> 決め打ちだと初期の一言記事を全部取りこぼしていた。
-  assert.strictEqual(L.detectHitokotoChar('<h3 id="x">凛華の一言:</h3>', NAME_TO_KEY), 'rinka');
-  assert.strictEqual(L.detectHitokotoChar('<h3>るなの一言：</h3>', NAME_TO_KEY), 'runa');
-  assert.strictEqual(L.detectHitokotoChar('<h3>日和の一言</h3>', NAME_TO_KEY), 'hiyori');
-  // 途中から <h2> に変わった回も引ける。
-  assert.strictEqual(L.detectHitokotoChar('<h2>月子の一言</h2>', NAME_TO_KEY), 'tsukiko');
+test('detectHitokotoChars: 該当なし・見出しなし・非文字列は []', () => {
+  assert.deepStrictEqual(L.detectHitokotoChars('<h2>KITAさんの一言</h2>', NAME_TO_KEY), []);
+  assert.deepStrictEqual(L.detectHitokotoChars('<p>一言も見出しもない</p>', NAME_TO_KEY), []);
+  assert.deepStrictEqual(L.detectHitokotoChars('<h2>ただの見出し</h2>', NAME_TO_KEY), []);
+  assert.deepStrictEqual(L.detectHitokotoChars(null, NAME_TO_KEY), []);
+  assert.deepStrictEqual(L.detectHitokotoChars(undefined, NAME_TO_KEY), []);
+  assert.deepStrictEqual(L.detectHitokotoChars(123, NAME_TO_KEY), []);
 });
 
-test('detectHitokotoChar: タグ/記号が変わってもホワイトリスト外は null', () => {
-  // ガードは「◯◯」部分の完全一致なので、タグや後続を許しても対象外は弾く。
-  assert.strictEqual(L.detectHitokotoChar('<h2>ジュリの一言</h2>', NAME_TO_KEY), null);
-  assert.strictEqual(L.detectHitokotoChar('<h3>KITAさんの一言:</h3>', NAME_TO_KEY), null);
-});
-
-test('detectHitokotoChar: 7人ホワイトリスト全員が引ける', () => {
+test('detectHitokotoChars: 7人ホワイトリスト全員が引ける', () => {
   const cases = [
     ['月子', 'tsukiko'], ['陽', 'you'], ['しずく', 'shizuku'], ['凛華', 'rinka'],
     ['るな', 'runa'], ['まひる', 'mahiru'], ['日和', 'hiyori'],
   ];
   cases.forEach(([name, key]) => {
-    assert.strictEqual(L.detectHitokotoChar('<h2>' + name + 'の一言</h2>', NAME_TO_KEY), key);
+    assert.deepStrictEqual(L.detectHitokotoChars('<h2>' + name + 'の一言</h2>', NAME_TO_KEY), [key]);
   });
 });
 
-// ---- H6: nigekireCollectV2（一言回収・二重取り防止・非破壊） ----
+// ---- H6: nigekireCollectV2（キャラ別回収・二重取り防止・非破壊） ----
 
-test('nigekireCollectV2: 回収で charCounts+1・collected 立つ・charKey 返る', () => {
-  const counts = { a1: { char: 'you' } };
+test('nigekireCollectV2: 回収で charCounts+1・collected[id][char] 立つ・charKey 返る', () => {
+  const counts = { a1: { chars: ['you'] } };
   const collected = {};
   const charCounts = { you: 2 };
-  const out = L.nigekireCollectV2(counts, collected, charCounts, 'a1');
+  const out = L.nigekireCollectV2(counts, collected, charCounts, 'a1', 'you');
   assert.strictEqual(out.ok, true);
   assert.strictEqual(out.charKey, 'you');
   assert.strictEqual(out.nextCharCounts.you, 3);
-  assert.strictEqual(out.nextCollected.a1, true);
+  assert.strictEqual(out.nextCollected.a1.you, true);
 });
 
 test('nigekireCollectV2: 初回収集キャラは 0→1', () => {
-  const out = L.nigekireCollectV2({ a1: { char: 'runa' } }, {}, {}, 'a1');
+  const out = L.nigekireCollectV2({ a1: { chars: ['runa'] } }, {}, {}, 'a1', 'runa');
   assert.strictEqual(out.ok, true);
   assert.strictEqual(out.nextCharCounts.runa, 1);
 });
 
-test('nigekireCollectV2: 未取得（counts に char なし）は {ok:false}', () => {
-  assert.deepStrictEqual(L.nigekireCollectV2({}, {}, {}, 'a1'), { ok: false });
-  assert.deepStrictEqual(L.nigekireCollectV2({ a1: {} }, {}, {}, 'a1'), { ok: false });
+test('nigekireCollectV2: 複数キャラは片方ずつ独立に回収できる', () => {
+  const counts = { a1: { chars: ['hiyori', 'shizuku'] } };
+  // 日和だけ回収 → しずくはまだ未回収
+  const first = L.nigekireCollectV2(counts, {}, {}, 'a1', 'hiyori');
+  assert.strictEqual(first.ok, true);
+  assert.strictEqual(first.nextCollected.a1.hiyori, true);
+  assert.strictEqual(first.nextCollected.a1.shizuku, undefined);
+  // 続けてしずくを回収 → 日和の回収済みは保たれる
+  const second = L.nigekireCollectV2(counts, first.nextCollected, first.nextCharCounts, 'a1', 'shizuku');
+  assert.strictEqual(second.ok, true);
+  assert.strictEqual(second.nextCollected.a1.hiyori, true);
+  assert.strictEqual(second.nextCollected.a1.shizuku, true);
+  assert.strictEqual(second.nextCharCounts.hiyori, 1);
+  assert.strictEqual(second.nextCharCounts.shizuku, 1);
 });
 
-test('nigekireCollectV2: 二重取り（collected 済み）は {ok:false}', () => {
-  const out = L.nigekireCollectV2({ a1: { char: 'you' } }, { a1: true }, { you: 1 }, 'a1');
-  assert.deepStrictEqual(out, { ok: false });
+test('nigekireCollectV2: この記事の一言キャラでない charKey は {ok:false}', () => {
+  assert.deepStrictEqual(L.nigekireCollectV2({}, {}, {}, 'a1', 'you'), { ok: false });
+  assert.deepStrictEqual(L.nigekireCollectV2({ a1: { chars: ['runa'] } }, {}, {}, 'a1', 'you'), { ok: false });
+  // charKey 未指定も false
+  assert.deepStrictEqual(L.nigekireCollectV2({ a1: { chars: ['you'] } }, {}, {}, 'a1'), { ok: false });
+});
+
+test('nigekireCollectV2: 同じキャラの二重取りは {ok:false}（別キャラは可）', () => {
+  const counts = { a1: { chars: ['you', 'runa'] } };
+  const collected = { a1: { you: true } };
+  // you は回収済み → false
+  assert.deepStrictEqual(L.nigekireCollectV2(counts, collected, { you: 1 }, 'a1', 'you'), { ok: false });
+  // runa はまだ → 可
+  assert.strictEqual(L.nigekireCollectV2(counts, collected, { you: 1 }, 'a1', 'runa').ok, true);
 });
 
 test('nigekireCollectV2: 非破壊（入力 collected/charCounts を書き換えない）', () => {
-  const counts = { a1: { char: 'you' } };
-  const collected = {};
+  const counts = { a1: { chars: ['you'] } };
+  const collected = { a1: {} };
   const charCounts = { you: 2 };
   const before = JSON.stringify({ collected, charCounts });
-  const out = L.nigekireCollectV2(counts, collected, charCounts, 'a1');
+  const out = L.nigekireCollectV2(counts, collected, charCounts, 'a1', 'you');
   assert.strictEqual(JSON.stringify({ collected, charCounts }), before);
   assert.notStrictEqual(out.nextCollected, collected);
+  assert.notStrictEqual(out.nextCollected.a1, collected.a1);
   assert.notStrictEqual(out.nextCharCounts, charCounts);
 });
 
