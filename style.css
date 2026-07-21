@@ -1122,6 +1122,17 @@ select.field {
   min-height: 60px;
 }
 
+/* アバターの隣に来る情報ラッパ（名前＋ID）。flex アイテムは既定で min-width:auto=
+   中身より縮まないため、長い表示名がモーダル幅を突き破る。min-width:0 で縮められる
+   ようにして、.add-preview-name / -id の ellipsis を発火させる。
+   クリエイター追加モーダル（.add-preview）とプレイヤー認証モーダル
+   （.kitacore-player-preview・名前/IDのクラスだけ流用）の両方で崩れていた。 */
+.add-preview > div:not(.add-preview-avatar),
+.kitacore-player-preview > div:not(.add-preview-avatar) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .add-preview-avatar {
   flex: 0 0 auto;
   width: 40px;
@@ -1156,6 +1167,9 @@ select.field {
 .add-preview-id {
   font-size: 12px;
   color: var(--ink-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .add-preview-loading {
