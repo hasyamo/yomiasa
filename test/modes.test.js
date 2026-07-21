@@ -874,6 +874,22 @@ test('detectHitokotoChar: 最初の一言見出しを採る（複数あっても
   assert.strictEqual(L.detectHitokotoChar(html, NAME_TO_KEY), 'shizuku');
 });
 
+test('detectHitokotoChar: 見出しタグが h3・末尾コロン付きでも引ける（実データの回）', () => {
+  // 実データ: 2/19 凛華・2/20 るなは <h3>「凛華の一言:」（コロン付き）。
+  //   <h2>+</h2> 決め打ちだと初期の一言記事を全部取りこぼしていた。
+  assert.strictEqual(L.detectHitokotoChar('<h3 id="x">凛華の一言:</h3>', NAME_TO_KEY), 'rinka');
+  assert.strictEqual(L.detectHitokotoChar('<h3>るなの一言：</h3>', NAME_TO_KEY), 'runa');
+  assert.strictEqual(L.detectHitokotoChar('<h3>日和の一言</h3>', NAME_TO_KEY), 'hiyori');
+  // 途中から <h2> に変わった回も引ける。
+  assert.strictEqual(L.detectHitokotoChar('<h2>月子の一言</h2>', NAME_TO_KEY), 'tsukiko');
+});
+
+test('detectHitokotoChar: タグ/記号が変わってもホワイトリスト外は null', () => {
+  // ガードは「◯◯」部分の完全一致なので、タグや後続を許しても対象外は弾く。
+  assert.strictEqual(L.detectHitokotoChar('<h2>ジュリの一言</h2>', NAME_TO_KEY), null);
+  assert.strictEqual(L.detectHitokotoChar('<h3>KITAさんの一言:</h3>', NAME_TO_KEY), null);
+});
+
 test('detectHitokotoChar: 7人ホワイトリスト全員が引ける', () => {
   const cases = [
     ['月子', 'tsukiko'], ['陽', 'you'], ['しずく', 'shizuku'], ['凛華', 'rinka'],

@@ -454,12 +454,17 @@
   }
 
   // 本文HTMLから一言キャラを抽出（§10.7 ホワイトリスト照合・純関数）。
-  //   <h2>◯◯の一言</h2> 形式の最初の見出しの ◯◯ を取り、nameToKey で照合。
+  //   見出し（h1〜h6）「◯◯の一言…」の最初のものの ◯◯ を取り、nameToKey で照合。
+  //   実データは回によって見出しの体裁がバラつく（初期は <h3>「凛華の一言:」コロン付き、
+  //   途中から <h2>「月子の一言」）。タグレベルも後続の記号も固定できないため、
+  //   ・見出しタグは h1〜h6 のどれでも可
+  //   ・「◯◯の一言」の後ろ（コロン・空白・</hN>）は問わない
   //   nameToKey = { '月子':'tsukiko', ... }（7人ホワイトリスト）。
   //   完全一致すれば charKey を返す。一致しない（例「KITAさん」）/見出しなし/非文字列は null。
   function detectHitokotoChar(bodyHtml, nameToKey) {
     if (typeof bodyHtml !== 'string') return null;
-    var m = bodyHtml.match(/<h2[^>]*>([^<]*?)の一言<\/h2>/);
+    // <hN ...>◯◯の一言 まで取れれば良い（N=1..6・後続の記号/コロンや </hN> は問わない）。
+    var m = bodyHtml.match(/<h[1-6][^>]*>([^<]*?)の一言/);
     if (!m) return null;
     var name = m[1];
     var map = nameToKey && typeof nameToKey === 'object' ? nameToKey : {};
