@@ -859,8 +859,15 @@ test('detectHitokotoChars: 複数見出しは全員拾う（出現順）', () =>
 
 test('detectHitokotoChars: 1見出しに複数名（「るな・陽の一言」）を分解する', () => {
   assert.deepStrictEqual(L.detectHitokotoChars('<h2>るな・陽の一言</h2>', NAME_TO_KEY), ['runa', 'you']);
-  // 区切りは ・、，,／/＆& を許容。
+  // 区切りは記号（・、，,／/＆&）を許容。
   assert.deepStrictEqual(L.detectHitokotoChars('<h3>月子、日和の一言:</h3>', NAME_TO_KEY), ['tsukiko', 'hiyori']);
+});
+
+test('detectHitokotoChars: 並列助詞「と」「や」区切りも分解する（実データ 5/5「月子と陽の一言」）', () => {
+  assert.deepStrictEqual(L.detectHitokotoChars('<h2>月子と陽の一言</h2>', NAME_TO_KEY), ['tsukiko', 'you']);
+  assert.deepStrictEqual(L.detectHitokotoChars('<h3>しずくや凛華の一言:</h3>', NAME_TO_KEY), ['shizuku', 'rinka']);
+  // 7人名に「と」「や」を含む名前は無いので、名前自体は壊れない。
+  assert.deepStrictEqual(L.detectHitokotoChars('<h2>まひるの一言</h2>', NAME_TO_KEY), ['mahiru']);
 });
 
 test('detectHitokotoChars: 重複は除去（出現順は保つ）', () => {
