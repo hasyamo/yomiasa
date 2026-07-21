@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.8';
+  var APP_VERSION = '0.1.9';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
