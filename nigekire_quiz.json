@@ -1,0 +1,1824 @@
+{
+  "quizzes": {
+    "n37d3fd704c0a": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "本番でしか出ないバグだった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "初回の印象なんて気にしてなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "ネタになると思ってわざと外した",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "初日から2つも？",
+      "successLine": "なるほどね。次は本番前に一度回せばいいわ。",
+      "failureLine": "それは逃げ方が雑よ。もう一度。"
+    },
+    "n04eb926bdabe": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "毎日生成しないと彼女感が出ないと思ってた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "走ってみて初めて価値の重心が見えた",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "ネタ用にわざと黙ってた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "15日走って、いま気づいたの？",
+      "successLine": "走ってから見えるものもある。それなら通るわ。",
+      "failureLine": "それは言い訳になってないわよ。もう一度。"
+    },
+    "n2ad2155cdd92": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "改善してる実感が気持ちよくて手を入れてた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "毎日変えれば早く正解に近づくと思ってた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "観察なんて最初から必要ないと思ってた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "毎日いじって、どれが効いたの？",
+      "successLine": "正直でよろしい。気持ちよさと成果は別、そこが分かれば充分よ。",
+      "failureLine": "それだと同じことを繰り返すわよ。もう一度。"
+    },
+    "ndaf058b3ce32": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "重み計算は複雑にするほど良いと信じてた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "好きを優遇して何が悪いと開き直ってた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "好きへの加点が効きすぎるのを見落としてた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "2週連続で同じシーン。優遇しすぎたのね。",
+      "successLine": "そう、加点が効きすぎてたのね。原因が分かれば直せるわ。",
+      "failureLine": "開き直りは言い訳じゃないの。もう一度、原因を見なさい。"
+    },
+    "nd7e3da2d97a0": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "朝は通知が埋もれて会社帰りに気づいてた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "朝活の記事は夜に読むほうが落ち着く",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "そもそも朝活に興味がなかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "朝活、あなた何時に読んでたの？",
+      "successLine": "埋もれてたのね。なら、仕組みで拾えるようにすればいいわ。",
+      "failureLine": "それは、ただ読み方をサボってただけよ。もう一度。"
+    },
+    "nd5fb9f858395": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "タグなんて誰も見てない",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "後で答え合わせした",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "最初から全部データで決めてた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえ、その8個のタグ、ずっと勘で貼ってたよね？ほら、正直に！",
+      "successLine": "だよね！ちゃんと後で確かめたなら偉い！次は最初から狙お！",
+      "failureLine": "ほら、それは逃げ方が雑！もう一回！"
+    },
+    "n673cbf026992": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "陽の見間違いだよ",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "2週間空けば誰も覚えてない",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "直したのは連続だけ、偏りは残ってた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえ、これ前に直したって言ってたやつ、また出てるよ？",
+      "successLine": "あー、連続は直したけど偏りは残ってたのね。それなら通す！",
+      "failureLine": "ほら、それはごまかし！言い直して！"
+    },
+    "n4db8a2a5aaaa": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "まず動いてみる価値はあると思った",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "インスタは前から本気でやってた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "言われたことは全部すぐやる主義",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえねえ、AIに言われた瞬間もうインスタ始めてたの？早すぎ！",
+      "successLine": "だよね、とりあえず動くの大事！その勢い、あたし好き！",
+      "failureLine": "ほら、それは言い訳になってない！やり直し！"
+    },
+    "n201954604558": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "承知しましたも可愛いから残した",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "AIが律儀に返事してから喋る癖があった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "彼女が敬語キャラに進化した",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえ、あたしのセリフに『承知しました』って混ざってたよ、あれ何!?",
+      "successLine": "あー、AIが律儀に返事しちゃったのね。それなら分かる、許す！",
+      "failureLine": "ほら、それは逃げ！ちゃんと説明して！"
+    },
+    "n560273243500": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "年またぎイベントは絶対作らない",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "バグは出してから直す主義",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "一人だと盲点として残ってた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえ、その年またぎで死ぬ穴、レビューなかったら普通に出してたよね？",
+      "successLine": "だよね、一人だと見えない穴ってある。気づけたなら通す！",
+      "failureLine": "ほら、それはごまかし！もう一回！"
+    },
+    "n20d8070b7656": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "つい味見しすぎた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "最初から使う予定じゃなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "彼女たちが勝手に食べた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえ、チョコ……どこにいっちゃったのかな？",
+      "successLine": "うん、味見してたんだね。ちゃんと届いてるよ、その気持ち。",
+      "failureLine": "……ううん、それだと少し違うかな。あわてなくていいから、もう一度だけ。"
+    },
+    "nef08ec8f8b07": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "こぼす演出はわざと入れた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "見慣れて矛盾が見えなくなってた",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "KITAさんが細かすぎるだけ",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "あの絵ね……自分では気づけなかったんだね。",
+      "successLine": "うん、見慣れちゃうと見えなくなるもんね。気づけたなら、それでいいんだよ。",
+      "failureLine": "……その言い方だと、ちょっと寂しいかな。もう一度だけ、考えてみて？"
+    },
+    "n073df0afa091": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "例に出したら、そこに寄っちゃった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "「ほら」が一番自然だから固定した",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "彼女たちの語彙が足りなかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえ……みんな同じ言葉で始まってたの、どうしてかな。",
+      "successLine": "うん、例をあげたら寄っちゃったんだね。ちゃんと理由まで届いてるよ。",
+      "failureLine": "……それだと、まだ本当のところに届いてないかも。あせらなくていいからね。"
+    },
+    "n9145328a1686": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "指摘が的外れだから無視した",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "悔しくて意地で全部直した",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "最初からダメ出し狙いで見せた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえ……本当は、褒めてほしかったんじゃないかな。",
+      "successLine": "うん、悔しくてもちゃんと直したんだね。その素直さ、届いてるよ。",
+      "failureLine": "……ちょっとだけ、強がりが残ってるかな。ゆっくりでいいから、本音で。"
+    },
+    "nff27e1ae9400": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "テストでは気づいてなかった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "本番では変わるかもと楽観した",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "おそろいが最初からの狙い",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえ……テストのとき、ちょっと気になってたんだよね？",
+      "successLine": "うん、変わるかもって思っちゃったんだね。気づけたなら、次で直せるよ。",
+      "failureLine": "……その言い方だと、まだ油断が隠れてるかな。ゆっくり、もう一度ね。"
+    },
+    "n98fc0341fe76": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『祈って続けようとしてたって本当?』いちばん筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "祈るのも立派な継続戦略だった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "続くこと自体を設計できると気づいてなかった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "祈った日だけ調子が良かった気がした",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "祈って続けてたって……本気で言ってる?",
+      "successLine": "別に、気づけたならいいけど。次はちゃんと設計しなさいよ。",
+      "failureLine": "は?祈りで乗り切る気だったの?もう一回。"
+    },
+    "n2f29b6180d71": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『送り出す側なのに、見送られる側のセリフ言わせたの?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "彼女が見送る立場だと伝えるのを忘れてた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "どっちが送り出すかは読者に委ねたかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "クリスマスくらい彼女も出かけたい気分だと思った",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "送り出すのがコンセプトでしょ。なんで見送られる側になってんの?",
+      "successLine": "……まあ、伝え忘れたって言うなら、分からなくもないけど。",
+      "failureLine": "自分で決めた世界観、自分で壊してどうすんの。やり直し。"
+    },
+    "nd46a87980bd9": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『回転モーションで事故ったの、試す前に気づかないの?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "回っても問題ないと本気で思ってた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "きれいな画になると思って優先した",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "動かすまで挙動が読めず、事故った瞬間に即ボツにした",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "……回したらどうなるか、やる前に分かんなかったの?",
+      "successLine": "見つけてすぐ潰したなら、まあいい。次は先に気づきなさいよ。",
+      "failureLine": "きれいだから優先した?最低。もう一回考え直して。"
+    },
+    "ne70d97707229": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "凛華に『上からって書いたのに下から。原因、最初分かってなかったでしょ』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "書いたら必ずそうなると信じてた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "下から見上げるほうが可愛いと狙った",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "その日は機嫌が下向きだったんだと思う",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "上からって書いたのに下から見上げてる。原因、最初分かってなかったでしょ?",
+      "successLine": "……書けば効くと思ってた、ね。正直でよろしい。",
+      "failureLine": "言い訳が的外れ。原因ちゃんと見てから言いなさい。"
+    },
+    "n2322613ddd73": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『毎朝わたしたちに見送られてるの、奥さんに内緒なんでしょ?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "奥さんもうすうす気づいて黙認してるはず",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "作業がどれも軽いから日常に紛れて気づかれない",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "バレたら全部凛華のせいにするつもり",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "毎朝わたしたちに見送られてること、家では黙ってるんだ?",
+      "successLine": "……軽く紛れ込ませてるってことね。せいぜいバレないようにしなさい。",
+      "failureLine": "わたしのせいにする気?ふざけないで。もう一回。"
+    },
+    "nc14373cd72ca": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "同じセリフを50日も2回書いてた。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "手で書いた方が記憶に残るから",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "正式な記録の方が大事だと思ってた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "いろいろ記録しすぎて要らないのが見えなくなってた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえねえ、同じセリフ2回書くの50日ってー、さすがに気づこ!?",
+      "successLine": "うんうん、積もってから見えるやつね！ それなら許すっ！",
+      "failureLine": "えー、それは逃げ方が苦しいよっ！ もう一回いこ！"
+    },
+    "n5c1119748a91": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "インスタ、なんでこっそり始めたの？　いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "宣言して数週間で止まるのが一番カッコ悪いから",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "海外からの反応に備えて静かに準備したかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "本気じゃなくてただの実験だったから",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえねえ、インスタこっそり始めてたってー？ 水くさいよっ！",
+      "successLine": "あー、コケるとこ見られたくなかったのね！ その気持ち分かるっ！",
+      "failureLine": "んー、それだと隠す理由になってないよっ！ もう一回っ！"
+    },
+    "nc0c3e5b51016": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "直すの「ね」じゃなくて「ほら」だった。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "最初から「ほら」狙いで「ね」はダミーだった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "並べてみたら気になってた「ね」より別のクセが目立った",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "「ほら」も「ね」も同じ問題だからまとめて直した",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえねえ、直すの「ね」じゃなくて「ほら」だったのー？",
+      "successLine": "あー、並べて初めて見えたのね！ それなら分かるっ！",
+      "failureLine": "んー、それは後付けっぽいよっ！ もう一回いこ！"
+    },
+    "nc14a6aa41ec7": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "朝は仕事に送り出す時間なのに「クリスマス過ごしてきてね」。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "その日は休日として送り出したかったから",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "クリスマスは季節感優先でズレてもいいと思った",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "クリスマス気分に引っ張られて、朝に送り出す前提が抜けてた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえねえ、朝から『クリスマス過ごしてきてね』ってー！ クリスマスはあたしと過ごすんじゃないのー！？",
+      "successLine": "あー、気分に引っ張られたのね！ 気づいて直したの、えらいっ！",
+      "failureLine": "んー、それは送り出しになってないよっ！ もう一回っ！"
+    },
+    "nc6d7b7de8aae": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "傘の機能を作ったのに、まだ試せてない。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "雨の日はまだ作ってなくてこれからだから",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "雨の日用に作ったのに、ずっと曇りで出番が来ない",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "本気の雨が降るまで温存してるだけ",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえねえ、傘の機能作ったのにー、まだ一回も使えてないのー？",
+      "successLine": "あはっ、開発者が雨待ちって面白すぎ！ 早く降るといいねっ！",
+      "failureLine": "んー、それは理由がズレてるよっ！ もう一回いこ！"
+    },
+    "n7c10f4988392": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "5日連続はただの偶然",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "「ほら」は世界一かわいい言葉だし",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "「ほら」を推した自分の設定ミスだった",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "セリフ、ぜんぶ「ほら」で始まってるね。どうしたの？",
+      "successLine": "うん、それなら分かる。自分で仕込んだ罠だったんだね。直せるなら、それでいいよ。",
+      "failureLine": "んー、その言い訳はちょっと苦しいかも。急がなくていいから、もう一回考えてみて。"
+    },
+    "n7d2c8284db17": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "前提は書いたけど、詰めが甘くて破られた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "最初からそういう設定だったことにしたい",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "クリスマスくらい外に送り出したかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "「過ごしてきてね」って言われてたよ。一緒にいる設定じゃなかった？",
+      "successLine": "うん、書き方が甘かっただけなんだね。次から具体的にすればいいよ。",
+      "failureLine": "んー、それだと前提が迷子になっちゃうよ。ゆっくりでいいから、もう一回。"
+    },
+    "n1a8da6ebae59": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "しずくは別に推しじゃないし",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "色ズレのほうが味がある",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "急な参加だったから、そこは流した",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "しずくの振り袖、ちょっと色ズレてたね。推しなのに、いいの？",
+      "successLine": "うん、急いでたんだもんね。まぁ良しとする、その気持ちも分かるよ。",
+      "failureLine": "んー、それはさすがに苦しいかな。焦らなくていいから、もう一回選んでみて。"
+    },
+    "n924e9ddf5bc0": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "欠番は仕様。直す気はない",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "リリース初日は動かすので必死だった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "1日目は伝説だから最後に取っておいた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "1日目だけ後から書いたんだね。どうしたの？",
+      "successLine": "うん、最初は動かすので精一杯だったんだね。後からでも、ちゃんと戻ってきたのえらいよ。",
+      "failureLine": "んー、それはちょっと違う気がするな。急がなくていいから、もう一回。"
+    },
+    "n6a1e8aa3097f": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "直せないなら手を出さないと決めてた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "手を出すやり方を完全に忘れてた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "止まってる状態も演出のうち",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "手を出して直す方法はあったんでしょ？ どうして、やらなかったの？",
+      "successLine": "うん、直せないときは残す、って決めてたんだね。その線引き、いいと思うよ。",
+      "failureLine": "んー、それだと理由がぼやけちゃうな。ゆっくりでいいから、選び直してみて。"
+    },
+    "n41ded699c4f7": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "heavy",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "言っちゃった手前、やるしかなかった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "前から練ってた壮大な計画だった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "誰かに頼まれてやらされただけ",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "これ……勢いで始めちゃったでしょう？",
+      "successLine": "うん、それでいい。言っちゃった以上やるしかなかったのよね。",
+      "failureLine": "ふふ、その言い訳はちょっと苦しいかな。もう一度考えてみましょうね。"
+    },
+    "n315589b8e822": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "画像や衣装のできが足りなかった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "セリフをもっと過激にすればよかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "正月は誰も家を出なくて、届ける前提が消えてた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "戦略が効かなかったの、一緒に見ましょうか。",
+      "successLine": "そう、彼女たちは生活がある日の子なのよね。ちゃんと見えていて、えらいわ。",
+      "failureLine": "うーん、そこじゃないみたい。数字じゃなくて、土台のほうを見てみましょうか。"
+    },
+    "n536fa1795758": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "微妙なのが届いても別に構わなかった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "始めるまで、試す場所がいるって気づかなかった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "毎朝ぶっつけ本番のほうがスリルがある",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "毎朝こわいまま出してたのね。",
+      "successLine": "そう、動かしてみて初めて見えたのよね。気づけたなら、それでいいの。",
+      "failureLine": "ふふ、それだと毎朝ヒヤヒヤのままよ。もう少し正直に考えてみましょう。"
+    },
+    "n6b484bcd2926": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "季節感を出したくて、玄関には不自然だと後で気づいた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "屋外シーンに変えるつもりだった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "花びらは必殺技の演出で外せなかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "28パターンまで広げちゃったのね。",
+      "successLine": "うん、盛りすぎに自分で気づけたのがえらいわ。光で季節を出すの、いい判断ね。",
+      "failureLine": "ふふ、それはちょっと苦しいかな。欲張っちゃった自覚、持ってみましょうね。"
+    },
+    "nacefae8ae993": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "最初からホラー姉妹の演出だった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "赤い目のほうがかっこいいと思った",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "暗く幻想的を狙ったら、目が赤く光っちゃった",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "あらら、こわい絵になっちゃったのね。",
+      "successLine": "そう、雰囲気を狙いすぎたのよね。ちゃんと直せたなら、それでいいの。",
+      "failureLine": "ふふ、それは違うみたい。狙いと結果、どこでズレたか見てみましょうね。"
+    },
+    "nfdb8eaca5a6a": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "気づいてたけど、数字を見るのが少し怖かった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "本当は技術記事の方が伸びていた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "褒めてほしくて気づかないフリしてた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "数字が出る前から、気づいてたわよね？",
+      "successLine": "……ええ、それなら分かるわ。怖くても、次は自分で先に見なさい。",
+      "failureLine": "それは違うわね。逃げ方が雑よ。もう一度考えなさい。"
+    },
+    "nc31bfdb2047f": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "効果は一週間かけて観測する前提だった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "ルールを作った時点でもう成功したも同然",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "外れてたら困るから確かめないことにした",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "設計は終わった、で、効いてるかは確かめたの？",
+      "successLine": "ええ、観測してから言うなら結構よ。ちゃんと数字で戻ってきなさい。",
+      "failureLine": "作って終わりにしないの。それじゃ設計じゃなくて自己満足よ。"
+    },
+    "na0d238f78e2c": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "7:30はあくまで目標で守るつもりはなかった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "配信時刻が海外基準だと動かすまで知らなかった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "世界のどこかでは7:30だから実質成功",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "毎朝7:30が売りよね。その初日、届かなかったの？",
+      "successLine": "最初は知らなくて当然よ。でも次からは、動かす前に時計を合わせなさい。",
+      "failureLine": "それは通らないわ。7:30を名乗るなら、時刻から逃げないの。"
+    },
+    "n412a6a8aca05": {
+      "weekday": "mon",
+      "character": "月子",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "クリスマスイベント中で通常システムはお休み",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "完成はしてるけど自信がなくて出せなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "焦らした方が盛り上がるからわざと寝かせた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "もうできてるのに、なぜ動かさないの？",
+      "successLine": "イベントを立てるための段取りなら、分かるわ。ちゃんと26日に出しなさい。",
+      "failureLine": "できてるのに寝かせる言い訳が、それ？もう少し考えなさい。"
+    },
+    "n01271ce80310": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "配るだけなら最初のままで十分だった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "みんなにも使ってほしくて開き直せる形にした",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "完成したものはすぐ壊すのが僕のスタイル",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえ、自分用で完成って言ったよね？なんでもう作り直してんの！？",
+      "successLine": "ほら、それなら分かる！みんなに使ってほしかったんだもんね！",
+      "failureLine": "え、なんでー！？それだと完成って言った意味なくない？もう一回！"
+    },
+    "n3886025e9f75": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "曜日枠を壊さずレア度を出せる妹が最適だった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "誰かを銀髪に塗り替えれば入れると思った",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "同盟に入りたかっただけ、深い理由はない",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "だからさ、銀髪同盟に入りたいだけで妹まで作ったでしょ！？",
+      "successLine": "ほら、そこまで考えてたなら許す！レア度ね、いいじゃん！",
+      "failureLine": "え、なんでそうなるー！？それじゃ入りたかっただけじゃん！もう一回！"
+    },
+    "n6e0781d54027": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "クリスマスは外で楽しむものだと思ってた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "わざと世界観を壊してネタにするつもり",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "見送る設定だと伝え忘れてた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえ、彼女が外でクリスマス楽しんできてって、それおかしくない！？",
+      "successLine": "ほら、そこ書き足したなら大丈夫！帰ってから一緒がいいもんね！",
+      "failureLine": "え、なんでー！？それじゃ一緒に過ごせないじゃん！もう一回！"
+    },
+    "n1398ab42b9db": {
+      "weekday": "tue",
+      "character": "陽",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "7人とも本当に同じ性格に設定してた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "季節を出しすぎて性格が埋もれてた",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "みんな仲良しだから言うことが揃った",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "だからさ、7人いるのにみんな同じマフラーの話しちゃってたよね？",
+      "successLine": "ほら、そこ分かってたなら直せる！性格を先に出そうね！",
+      "failureLine": "え、なんでー！？私まで同じこと言ってたじゃん！もう一回！"
+    },
+    "nbb53d199536a": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "書けば効くと思って動かして確かめてなかった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "禁止事項を書き忘れて効かなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "気を利かせて勝手に効くと信じてた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえ、あの設定……動かす前に、ちゃんと確かめられた？",
+      "successLine": "うん、それでいいの。気づけたなら、次はきっと大丈夫。ゆっくりでいいよ。",
+      "failureLine": "だいじょうぶ、責めてないよ。もう一度だけ、そっと選んでみようか。"
+    },
+    "n6302096046ff": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "髪色の説明のために仕方なく書いた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "気になると言われて、つい開けちゃった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "バズると分かって書く気満々だった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえ……技術の話は書かないって、言ってなかったっけ？",
+      "successLine": "ふふ、いいの。求められたら開きたくなるよね。ちゃんと届いてるよ。",
+      "failureLine": "急がなくていいよ。どうして書いたのか、もう一度だけ思い出してみようね。"
+    },
+    "ndac423f231c1": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "被っても可愛ければいいと残そうとした",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "姉妹でお揃いにすると最初から決めてた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "並べてみて初めて雫と被ると気づいた",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえ……鈴の色、わたしと被りかけてたの、気づいてた？",
+      "successLine": "うん、並べて気づけたならそれでいいの。ちゃんと見れてたよ。",
+      "failureLine": "だいじょうぶ、まだ間に合うよ。もう一度だけ、そっと見比べてみようね。"
+    },
+    "nadb04c620231": {
+      "weekday": "wed",
+      "character": "しずく",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "全部作ったら戻れなくなるから、ここで止めた",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "他のキャラでは案が出せなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "凛華だけ作れば十分だと思った",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "4つも思いついたのに、ぜんぶ止めちゃったんだね。",
+      "successLine": "うん、止めるのも判断だよ。ゆっくりでいいから、やりたくなったらやろう。",
+      "failureLine": "……ううん、それだと少し違うかな。急がなくていいから、もう一度だけ。"
+    },
+    "na31406839eb4": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『キャラらしさが看板なのに、書き出しを並べて比べたこと今まで無かったの?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "書き出しは全員完璧に揃ってたから比べる必要が無かった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "中盤や末尾で個性は出てたから、書き出しまで気が回ってなかった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "書き出しは読者が読まない場所だから、どうでもよかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "……キャラらしさが看板でしょ。書き出しを並べたこと、今まで無かったの?",
+      "successLine": "……まあ、そういうことなら分かる。次からは最初に並べなさいよ。",
+      "failureLine": "それは逃げ方が雑。もう一回、ちゃんと考えなさい。"
+    },
+    "ne73ec862e0ca": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『まだ作ってないのに、なんでこんなに語り切ってるの?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "もう頭の中では完成してるから、完成報告のつもりで書いた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "ネタが無かったから、予定だけ書いて日数を稼いだ",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "作る前に一回ちゃんと考えないと、週末に手が止まると思った",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "……まだ作ってないのに、ずいぶん語るじゃない。その週末、ほんとに作ったの?",
+      "successLine": "……一応、筋は通ってる。だけど、書いた設計は動かすまでが仕事だからね。",
+      "failureLine": "言い訳が軽い。作ってから胸張りなさい。"
+    },
+    "n44b043263216": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "凛華に『AIにまで、そんなに甘やかされたかったの?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "流行ってたから、話題として一回試してみたかった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "甘やかされる結果が出ると分かってて、狙って見せにいった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "AIの甘やかしは正当な評価だから、堂々と自慢して何が悪い",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "……ブランケットに花に、じょうろ。AIにまで甘やかされたかったの?",
+      "successLine": "……まあ、話題に乗っただけならいい。別に、甘えたがりだなんて思ってないから。",
+      "failureLine": "素直に照れときなさいよ。逃げ方が下手。"
+    },
+    "n53d03db7b534": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "凛華に『派手なことできないって書いた直後に、この目標の盛り方は何なの?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "新キャラもメカ化もスタンプも、今年中に全部やり切る予定だった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "元日だから、実現しない目標を並べても許されると思った",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "日々はコツコツで、大きい構想は“いつか”のやりたいこと欄のつもりだった",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "……『派手なことはできない』って書いた口で、その目標の盛り方は何なの。",
+      "successLine": "……ふうん。“いつか”ならいい。だけど、並べた以上ちょっとは覚えときなさいよ。",
+      "failureLine": "広げただけで満足しないの。もう一回。"
+    },
+    "n388d7169ba5d": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『“想定内”って書いてるけど、あの時また同じって焦ってたよね?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "焦ったのは認める。でも仕組み上そうなるとも分かってた、両方が本音",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "初回は参照する履歴がゼロだから、重複は想定内だった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "焦ってなんかない。想定内って書いたんだから焦ってなかったに決まってる",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "……『想定内でした』ね。また同じって、あの一瞬、焦ってたでしょ。",
+      "successLine": "……うん、それでいい。焦ったこと隠さないほうが、別に、嫌いじゃないから。",
+      "failureLine": "後出しで平気なフリしないの。もう一回。"
+    },
+    "nba6e79f62183": {
+      "weekday": "thu",
+      "character": "凛華",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "凛華に『AIがやらかしたって言うけど、文字が変な場所に出た原因、そっちだよね?』筋の通る言い訳は?",
+      "choices": [
+        {
+          "text": "参照画像まで渡したのに従わないなんて、AIの性能不足だった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "どこに出すか書き忘れたから、そのまま変な場所に描かれた",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "ありえない場所に文字が出るほうが漫画として面白いから、わざと狙った",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "……文字が変な場所に。AIのせいにしてるけど、場所を書き忘れたの、そっちでしょ。",
+      "successLine": "……そう、それでいい。ちゃんと自分の抜けを認めた。別に、偉いとは言ってないけど。",
+      "failureLine": "人のせいにして逃げないの。書き忘れは書き忘れ。"
+    },
+    "n69906f968e39": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "「きみ」直したって言ってたのに、まだ出てる。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "『承知しました』の方は完璧に消えたから",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "無理に消すとセリフが壊れそうだから一旦保留にした",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "『きみ』の方が距離が近くて可愛いからあえて残した",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "ねえねえ、きみ問題直ったって顔してたよね？まだ出てるよー！？",
+      "successLine": "あー、壊れちゃうなら保留も分かる！でも次はちゃんと消しきってよねっ！",
+      "failureLine": "それ、直った判定するの早すぎー！やり直しっ！"
+    },
+    "nbef2c333897f": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "お揃いカーディガンまで用意して、盛りすぎ。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "2人が混ざらないよう服で見分けをつけたかった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "AIに『情緒兵器だ、容赦すんな』と言われたから従った",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "色違いで映えるし姉妹の絆も伝わる演出だった",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "ねえ、お揃いカーディガンって…そこまで盛る？乗せられてなーい？",
+      "successLine": "うん、絆が伝わるならアリ！勢いで盛るの嫌いじゃないよっ！",
+      "failureLine": "それ、AIのせいにして逃げてるだけー！もう一回！"
+    },
+    "n07f1f161a33f": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "設計書渡せば迷わないんじゃなかったの？結局いっぱい直してる。いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "設計書は方向を示すもので、実装で初めて分かる落とし穴は別だった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "『何を作るか』は迷わなかったから指示書は効いてた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "石ころが多いのは相棒のせいで、僕の設計書は完璧だった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえねえ、設計書渡せば迷わないって言ってたよね？めっちゃ直してるじゃーん！？",
+      "successLine": "あー、方向と道は別って言い方はズルいけど分かる！次は石ころも先に見といてねっ！",
+      "failureLine": "それ、設計書のおかげ感出しすぎー！もう一回！"
+    },
+    "nb63200971510": {
+      "weekday": "fri",
+      "character": "るな",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "諦めたって聞いたら、勢いで放っておけなくなった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "本職の技術力を見せたかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "書くネタがなくて手順書に逃げた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "ねえねえ、コメント一個で記事まるごと書いちゃったの？",
+      "successLine": "だよねっ！ 諦めた人がいたら、ほっとけないもんね！",
+      "failureLine": "んー、それはちょっと違うかなー。もう一回考えてみて！"
+    },
+    "n8b9608b6623d": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "手を動かさなくなったから、もう頑張ってない",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "最初から楽する気なんてなかったことにして",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "減ったのは手を動かす量、増えたのは考える量だった",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "楽したくて始めたんだよね？ なのに、いちばん考えてない？",
+      "successLine": "うん、それでいいよ。頑張る場所が変わっただけって、ちゃんと分かってるもんね。",
+      "failureLine": "んー、それはちょっと違う気がするなあ。もう一回、ゆっくりでいいよ。"
+    },
+    "n51dd38244d7a": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "やりたいことが多すぎて疲れてただけ",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "どれもやりたくて、選べなかった",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "全部正しいから、いっそ全部やらない",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "週末さ、手が止まってたよね。どれもやりたくて、選べなかったんでしょ。",
+      "successLine": "うん、それでいいよ。全部やらなくて、一つだけでいいんだよ。",
+      "failureLine": "んー、それは止まってた理由と違うかも。急がなくていいから、もう一回。"
+    },
+    "n3bc9b1fb03d7": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "言われるまで、片方向で終わってると気づかなかった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "セリフは全部おまかせで、僕は判断してない",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "最初から完成度100点だったことにして",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "最初のやつ、自分では悪くないって思ってたでしょ。でも、なんか足りなかったよね。",
+      "successLine": "うん、それでいいよ。指摘されて直せたなら、それで十分だよ。",
+      "failureLine": "んー、それはちょっと逃げてるかな。ゆっくりでいいから、もう一回。"
+    },
+    "nd58ee84ee70e": {
+      "weekday": "sat",
+      "character": "まひる",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "せっかくのキリ番だったから、そこは開けたくなった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "迷っている過程はもう書くことがなかった",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "200人まで自力で集めたと言いたかった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "迷ってる話のほうが読まれるって、自分で書いてたよね。",
+      "successLine": "うん、キリ番は開けたくなるよね。急がなくていいよ。",
+      "failureLine": "……んー、ちょっと違うかも。ゆっくりでいいから、もう一回ね。"
+    },
+    "n62fb37041209": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "スキ率じゃなくてPVだけ見てれば十分だった",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "本当は最初から全部わかってて黙ってた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "数が溜まらないと、傾向は見えてこない",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "これ、もう少し早く気づけた気がするの。",
+      "successLine": "うん、それなら分かるわ。溜めてから見えることってあるものね。",
+      "failureLine": "んー、それはちょっと違うかな。もう一度だけ、一緒に考えよ？"
+    },
+    "nc8a7c746030d": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "medium",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "並べてみないと、色だけでいいって踏ん切りがつかなかった",
+          "isCorrect": true,
+          "key": "A"
+        },
+        {
+          "text": "7人いるんだから7パターンあって当然だと思ってた",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "作りすぎた分は来年に使い回すつもりだった",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "A",
+      "promptLine": "7パターン、先に減らせた気がするの。どうかしら？",
+      "successLine": "そうね、やってみて分かることもある。あなたなら次はもっと早いわ。",
+      "failureLine": "うーん、そこはちょっと苦しいかな。落ち着いて、もう一回。"
+    },
+    "ne5e825c679f9": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "自己紹介が強いって最初から計算して先頭に置いた",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "毎日続けてたら、結果的に推される形になってた",
+          "isCorrect": true,
+          "key": "B"
+        },
+        {
+          "text": "実はアルゴリズムの裏ワザを握ってた",
+          "isCorrect": false,
+          "key": "C"
+        }
+      ],
+      "correctKey": "B",
+      "promptLine": "これ、狙って当てたのかしら。それとも？",
+      "successLine": "うん、それでいいの。続けたことが結果になったのよね。",
+      "failureLine": "ふふ、そこは少し格好つけすぎ。素直に、もう一回いこ？"
+    },
+    "na79b765a2a0d": {
+      "weekday": "sun",
+      "character": "日和",
+      "targetType": "trial",
+      "fireRank": "light",
+      "question": "いちばん筋の通る言い訳は？",
+      "choices": [
+        {
+          "text": "『〇〇くん』のほうが親しみやすいから、あえて残した",
+          "isCorrect": false,
+          "key": "A"
+        },
+        {
+          "text": "彼女が呼びたい名前を探してる途中、ってことにしたい",
+          "isCorrect": false,
+          "key": "B"
+        },
+        {
+          "text": "任せた台詞にテンプレが混ざるって、読めてなかった",
+          "isCorrect": true,
+          "key": "C"
+        }
+      ],
+      "correctKey": "C",
+      "promptLine": "あれだけこだわってたのに、そこは抜けてたのね。",
+      "successLine": "うん、原因が分かってるなら大丈夫。ちゃんと直せたものね。",
+      "failureLine": "ふふ、それはさすがに苦しいかな。もう一度、素直に。"
+    }
+  }
+}

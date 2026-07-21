@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.8';
+  var APP_VERSION = '0.1.9';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -68,34 +68,131 @@
       //   defeatedBosses[id] : 撃破済みボス key の配列（覚醒前ランク・覚醒の導出元）
       //   player          : プレイヤー自身の note 情報 {id, displayName, iconUrl}（発動時に入力）
       //   quizTaps        : クイズ選択肢を押した累計回数（ランクカードの指標）
-      kitacore: { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {} },
+      // モード state 名前空間。各モードの進行データは state.modes[modeKey] に載る。
+      //   キタコレは state.modes.kitacore（旧 state.kitacore から migrateModes で移行済み）。
+      modes: {},
     };
   }
 
-  // state.kitacore とその各キーの遅延初期化。読み書き前に必ず通す。
-  function ensureKitacore() {
-    if (!state.kitacore || typeof state.kitacore !== 'object') state.kitacore = {};
-    var k = state.kitacore;
-    if (!k.mode || typeof k.mode !== 'object') k.mode = {};
-    if (!k.counts || typeof k.counts !== 'object') k.counts = {};
-    if (!k.collected || typeof k.collected !== 'object') k.collected = {};
-    if (typeof k.totalWai !== 'number') k.totalWai = 0;
-    if (!k.keys || typeof k.keys !== 'object') k.keys = {};
-    if (!k.defeatedBosses || typeof k.defeatedBosses !== 'object') k.defeatedBosses = {};
-    if (!k.quizCleared || typeof k.quizCleared !== 'object') k.quizCleared = {};
-    if (k.player !== null && typeof k.player !== 'object') k.player = null;
-    if (typeof k.quizTaps !== 'number') k.quizTaps = 0;
-    if (!k.pendingPostBoss || typeof k.pendingPostBoss !== 'object') k.pendingPostBoss = {};
-    return k;
+  // モード1個分の空 state（defaultState の旧 kitacore リテラルと同一形）。
+  function blankModeState() {
+    return { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {} };
+  }
+
+  // state.modes 名前空間の遅延初期化。
+  function ensureModes() {
+    if (!state.modes || typeof state.modes !== 'object') state.modes = {};
+    return state.modes;
+  }
+
+  // state.modes[modeKey] とその各キーの遅延初期化。読み書き前に必ず通す。
+  //   旧 ensureKitacore と1対1で同一のサブキー型チェック（player は null 許容の特殊ガード）。
+  function ensureMode(modeKey) {
+    ensureModes();
+    var m = state.modes[modeKey];
+    if (!m || typeof m !== 'object') m = state.modes[modeKey] = blankModeState();
+    if (!m.mode || typeof m.mode !== 'object') m.mode = {};
+    if (!m.counts || typeof m.counts !== 'object') m.counts = {};
+    if (!m.collected || typeof m.collected !== 'object') m.collected = {};
+    if (typeof m.totalWai !== 'number') m.totalWai = 0;
+    if (!m.keys || typeof m.keys !== 'object') m.keys = {};
+    if (!m.defeatedBosses || typeof m.defeatedBosses !== 'object') m.defeatedBosses = {};
+    if (!m.quizCleared || typeof m.quizCleared !== 'object') m.quizCleared = {};
+    if (m.player !== null && typeof m.player !== 'object') m.player = null;
+    if (typeof m.quizTaps !== 'number') m.quizTaps = 0;
+    if (!m.pendingPostBoss || typeof m.pendingPostBoss !== 'object') m.pendingPostBoss = {};
+    // ── ニゲキレ固有サブキー（キタコレでは触らない）──
+    //   共通型（mode/collected/player）はそのまま流用し、7人財布・通過・成功数だけ足す。
+    if (modeKey === 'nigekire') {
+      // ── v2：一言チップ収集（実行時取得）──
+      if (!m.counts || typeof m.counts !== 'object') m.counts = {};             // { [articleId]: { chars: [charKey,...] } } 本文取得で判定した一言キャラ（複数可）
+      if (!m.charCounts || typeof m.charCounts !== 'object') m.charCounts = {};  // { [charKey]: number } キャラ別収集数
+      // ── 試練（曜日キャラ・逃げ切り）＋既存共通 ──
+      if (!m.passed || typeof m.passed !== 'object') m.passed = {};             // { [articleId]: true } 試練通過
+      if (typeof m.totalSuccess !== 'number') m.totalSuccess = 0;               // 総ニゲキレ成功数（逃げ切り数）
+      if (typeof m.firstTrySuccess !== 'number') m.firstTrySuccess = 0;         // 一発成功数
+      // ── 節目イベント（最終確認・閾値初到達ベース）──
+      //   rankStage = 到達済み閾値の数（0〜6）＝現ランク段。reachedThresholds から導出する。
+      if (typeof m.rankStage !== 'number' || !isFinite(m.rankStage)) m.rankStage = 0;
+      else {
+        m.rankStage = Math.floor(m.rankStage);
+        if (m.rankStage < 0) m.rankStage = 0;
+        if (m.rankStage > 6) m.rankStage = 6;
+      }
+      // reachedThresholds: 到達済み閾値キーの配列（'escape3'..'point15'）。ランクの源泉。
+      //   既存データ（この配列を持たない）は rankStage から順番どおりに復元する。
+      if (!Array.isArray(m.reachedThresholds)) {
+        m.reachedThresholds = NIGEKIRE_THRESHOLD_ORDER.slice(0, m.rankStage);
+      }
+      // rankStage は毎回 reachedThresholds.length から導出して代入（既存コードが参照するため）。
+      m.rankStage = L.nigekireRankStageFromReached(
+        m.reachedThresholds, NIGEKIRE_LIFE_RANKS.length - 1
+      );
+      // ── 推し1人選択構造 ──
+      //   oshiChar: 選択中の推し charKey（null=未選択＝推し選択モーダルを出す）
+      //   oshiCleared: 初期試練を3回通過したキャラの charKey 配列（称号の曜日・カード解放）
+      //   escapeCounts: { [charKey]: number } キャラ別の逃げ切き数（0..9）。キャラ変更で消えない
+      //   oshiPassCounts: { [charKey]: number } キャラ別の節目 通過回数（0..6・初期試練3＋収集3）
+      if (m.oshiChar !== null && typeof m.oshiChar !== 'string') m.oshiChar = null;
+      if (typeof m.oshiChar === 'undefined') m.oshiChar = null;
+      if (!Array.isArray(m.oshiCleared)) m.oshiCleared = [];
+      if (!m.escapeCounts || typeof m.escapeCounts !== 'object') m.escapeCounts = {};
+      if (!m.oshiPassCounts || typeof m.oshiPassCounts !== 'object') m.oshiPassCounts = {};
+      // ── 交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md §7）──
+      //   outfitUnlocks: [{characterId, season, unlockedAt}] のキャッシュ。
+      //   正本はD1（サーバー）。毎回通信しないためローカルにも持つ。
+      //   ★ポイントは減らないので、ここに残高の類は持たない。
+      if (!Array.isArray(m.outfitUnlocks)) m.outfitUnlocks = [];
+      // ※ lastCollectedChar / finalCheckDone は推し選択構造では使わない（残置は無害・参照しない）。
+      if (m.finalCheckChar !== null && typeof m.finalCheckChar !== 'string') m.finalCheckChar = null; // 今出ている節目のキャラkey（都度セット）
+      // 旧 charPoints（v1 ポイント制）は残っていても無害（v2 では使わない）。初期化はしない。
+    }
+    return m;
+  }
+
+  // モード state アクセサ（固定キー限定・汎用化しない）。
+  //   state.modes[modeKey] を遅延初期化して返す。
+  function modeState(modeKey) {
+    return ensureMode(modeKey);
+  }
+  // キタコレ用の固定アクセサ（active-mode 解決には使わない）。
+  function mc() {
+    return modeState('kitacore');
+  }
+
+  // ── モード横断アクセサ（発動フロー汎用化用）──
+  //   creatorId → そのクリエイターに紐づくモード key（無ければ null）。
+  //   MODE_DEFS の targetCreatorId 逆引き。mc() は 'kitacore' 固定のまま残す（R3）。
+  function activeModeKey(creatorId) {
+    var def = L.modeForCreator(MODE_DEFS, creatorId);
+    return def ? def.key : null;
+  }
+  // creatorId に紐づくモードの state（遅延初期化）。無ければ null。
+  //   ニゲキレの state 読み書きはこれ経由（キタコレ専用の mc() とは分離）。
+  function modeStateFor(creatorId) {
+    var key = activeModeKey(creatorId);
+    return key ? ensureMode(key) : null;
+  }
+  // creatorId に紐づくモードが ON か（モード横断版）。
+  function isModeOnFor(creatorId) {
+    var m = modeStateFor(creatorId);
+    return !!(m && m.mode && m.mode[creatorId]);
   }
 
   // キタコレモードが発動できる唯一の note ID（KITAさん＝推される側。汎用化しない）。
   var KITACORE_ID = 'ktcrs1107';
 
+  // システムメッセージ生成中に参照するモード key（lines 内の playerName() 解決用）。
+  //   null のときはキタコレ（mc()）を見る＝従来挙動。発動/終了の直前にセットしてから
+  //   def.lines.*() を呼び、直後にクリアする。
+  var linesModeKey = null;
+
   // プレイヤー名（＝ユーザー自身の note ID。発動時に入力・保存したものを使う）。
   // 未登録時のフォールバックは 'プレイヤー'（通常は登録後しか表示されない）。
+  //   linesModeKey がセット済みならそのモードの player を見る（モード別 state.player 対応）。
   function playerName() {
-    var p = state.kitacore && state.kitacore.player;
+    var m = linesModeKey ? ensureMode(linesModeKey) : mc();
+    var p = m.player;
     return p && p.id ? p.id : 'プレイヤー';
   }
 
@@ -119,25 +216,14 @@
 
   // 覚醒後ランク = 撃破済みの覚醒後ボスから導出。
   // ワイ数が閾値を超えてもボスを倒すまでランクは上がらない。
+  //   実体は logic.js（L.kitacoreRankOf）。app 側は state から撃破配列を取り出して渡す薄いラッパ。
   function kitacoreRankOf(creatorId) {
-    var defeated = defeatedBossesOf(creatorId);
-    var cur = KITACORE_RANKS[0]; // S級覚醒がデフォルト
-    KITACORE_POST_BOSSES.forEach(function (boss) {
-      if (defeated.indexOf(boss.key) !== -1) {
-        var rank = KITACORE_RANKS.find(function (r) { return r.rank === boss.rankAfter; });
-        if (rank && KITACORE_RANKS.indexOf(rank) > KITACORE_RANKS.indexOf(cur)) cur = rank;
-      }
-    });
-    return cur;
+    return L.kitacoreRankOf(KITACORE_RANKS, KITACORE_POST_BOSSES, defeatedBossesOf(creatorId));
   }
 
-  // ワイ数がどのランク閾値に達しているか（ボス出現トリガー判定用）。
+  // ワイ数がどのランク閾値に達しているか（ボス出現トリガー判定用）。実体は logic.js。
   function kitacoreWaiRankOf(totalWai) {
-    var cur = KITACORE_RANKS[0];
-    for (var i = 0; i < KITACORE_RANKS.length; i++) {
-      if (totalWai >= KITACORE_RANKS[i].min) cur = KITACORE_RANKS[i];
-    }
-    return cur;
+    return L.kitacoreWaiRankOf(KITACORE_RANKS, totalWai);
   }
 
   // 覚醒前ボス（撃破で昇格）。order 順に挑戦。最後の wing 撃破で S級覚醒。
@@ -149,53 +235,292 @@
     { key: 'wing', name: 'WING OF DEATH', title: '収穫の獣', cost: 3, rankBefore: 'A級', rankBeforeKey: 'a', rankAfter: 'S級覚醒', img: 'assets/boss/WING_OF_DEATH.webp' },
   ];
 
-  // このクリエイターがキタコレ発動対象か（ktcrs1107 限定）。
-  function isKitacoreTarget(creatorId) {
-    return creatorId === KITACORE_ID;
+  // ===========================================================================
+  // ニゲキレモード 静的定義（フェーズ1配線）。
+  //   発動対象は hasyamo（おはようカノジョも同アカウント内）。曜日→キャラは機械対応。
+  //   ポイント表・ランク閾値・称号テーブルは正史 nigekire-quiz-and-points-spec.md §10。
+  // ===========================================================================
+  var NIGEKIRE_ID = 'hasyamo';
+
+  // 7人（曜日順・月子→日和固定）。color=キャラ設定のパーソナルカラー hex、img=<name>.webp。
+  var NIGEKIRE_CHARACTERS = [
+    { key: 'tsukiko', weekday: 'mon', label: '月曜', name: '月子',   color: '#1f3a5f', img: 'tsukiko.webp' }, // ネイビー
+    { key: 'you',     weekday: 'tue', label: '火曜', name: '陽',     color: '#f28c28', img: 'you.webp' },     // オレンジ
+    { key: 'shizuku', weekday: 'wed', label: '水曜', name: 'しずく', color: '#7ec8e3', img: 'shizuku.webp' }, // ライトブルー
+    { key: 'rinka',   weekday: 'thu', label: '木曜', name: '凛華',   color: '#7b1e2b', img: 'rinka.webp' },   // ボルドー／ワインレッド
+    { key: 'runa',    weekday: 'fri', label: '金曜', name: 'るな',   color: '#2ecc71', img: 'runa.webp' },    // エメラルドグリーン
+    { key: 'mahiru',  weekday: 'sat', label: '土曜', name: 'まひる', color: '#b39ddb', img: 'mahiru.webp' },  // ラベンダー
+    { key: 'hiyori',  weekday: 'sun', label: '日曜', name: '日和',   color: '#f7b6c2', img: 'hiyori.webp' },  // ソフトピンク
+  ];
+
+  // 一言見出し「◯◯の一言」の名前 → charKey 照合マップ（§10.7 ホワイトリスト・7人限定）。
+  //   L.detectHitokotoChars に渡す。NIGEKIRE_CHARACTERS の name から機械生成（二重定義しない）。
+  //   「KITAさんの一言」等はこのマップに無い＝ null（収集対象外）になる。
+  var NIGEKIRE_NAME_TO_KEY = NIGEKIRE_CHARACTERS.reduce(function (map, ch) {
+    map[ch.name] = ch.key;
+    return map;
+  }, {});
+
+  // 曜日順の key 配列。= ['tsukiko','you','shizuku','rinka','runa','mahiru','hiyori']
+  //   （NIGEKIRE_CHARACTERS の key 順）。推し選択UI・称号の曜日並びで使う。
+  var NIGEKIRE_CHAR_ORDER = NIGEKIRE_CHARACTERS.map(function (ch) { return ch.key; });
+
+  // 生活ランク定義（7段階・通過ベース）。ランクは全体で1つ（キャラごとに持たない）。
+  //   ランクは収集数では決まらない。rankStage（到達済み閾値の数・0〜6）で決まる。
+  //   この配列は logic.js の nigekireRankByStage（rankStage→ランク名）に渡す。
+  //
+  //   ※ min は【もう参照されない】（nigekire-percharacter-points.md で閾値は
+  //     NIGEKIRE_THRESHOLDS へ移した）。値は既存データ互換のため残置するが、
+  //     判定には一切使わない。
+  //   grade = 上位感を伝える記号（E→SS）。ランク名だけだと何段目か分からないため、
+  //     キタコレ（E級/C級/A級/S級覚醒…）と同じ読み口で「S:おはカノ生活継続者」と前置する。
+  var NIGEKIRE_LIFE_RANKS = [
+    { stage: 1, min: 0,   grade: 'E',  name: '言い訳見習い',        key: 'nige1' }, // min 参照されない
+    { stage: 2, min: 0,   grade: 'D',  name: '言い訳準備中',        key: 'nige2' }, // min 参照されない
+    { stage: 3, min: 0,   grade: 'C',  name: '生活立て直し中',      key: 'nige3' }, // min 参照されない
+    { stage: 4, min: 0,   grade: 'B',  name: '生活防衛中',          key: 'nige4' }, // min 参照されない
+    { stage: 5, min: 70,  grade: 'A',  name: '火種処理係',          key: 'nige5' }, // min 参照されない
+    { stage: 6, min: 120, grade: 'S',  name: 'おはカノ生活継続者',  key: 'nige6' }, // min 参照されない
+    { stage: 7, min: 200, grade: 'SS', name: 'おはカノ生活管理人',  key: 'nige7' }, // min 参照されない
+  ];
+
+  // 節目の閾値（1キャラにつき6回）。
+  //   escape: 初期試練＝そのキャラの逃げ切き本数 3/6/9
+  //   point : 収集＝そのキャラのポイント（charCounts[charKey]）5/10/15
+  //   ランクは「閾値キーへの初到達」でだけ上がる（2人目以降は節目だけ出てランクは動かない）。
+  var NIGEKIRE_THRESHOLDS = { escape: [3, 6, 9], point: [5, 10, 15] };
+
+  // ---- 交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md）----
+  //   ★ポイントは減らない（§2）。到達数で「何着選べるか」が決まる。
+  //   解放数はキャラ単位（ポイントが charCounts[charKey] のキャラ単位のため）。
+  var NIGEKIRE_OUTFIT_THRESHOLDS = [5, 10, 15, 20];
+  // 実装済み＝画像がある季節。将来 chibi-autumn/ 等が増えたらここに足す（§7 カタログはコードに持つ）。
+  var NIGEKIRE_OUTFIT_AVAILABLE = ['summer'];
+  // 季節の表示名と記号（未実装マスは記号＋「今後のバージョンで解放」・§5）。
+  var NIGEKIRE_SEASON_META = {
+    spring: { name: '春', dir: 'chibi-spring' },
+    summer: { name: '夏', dir: 'chibi-summer' },
+    autumn: { name: '秋', dir: 'chibi-autumn' },
+    winter: { name: '冬', dir: 'chibi-winter' },
+  };
+  // サーバー（CF/yomiasa-site・README の本番URL）。
+  var NIGEKIRE_OUTFIT_API = 'https://yomiasa-site.hasyamo.workers.dev';
+
+  // 閾値キーの正順（ランク段 1..6 に対応）。既存データの reachedThresholds 復元に使う。
+  //   rankStage=3 → ['escape3','escape6','escape9']、rankStage=5 → +['point5','point10']。
+  var NIGEKIRE_THRESHOLD_ORDER = NIGEKIRE_THRESHOLDS.escape
+    .map(function (n) { return L.nigekireThresholdKey('escape', n); })
+    .concat(NIGEKIRE_THRESHOLDS.point.map(function (n) {
+      return L.nigekireThresholdKey('point', n);
+    }));
+
+  // キャラ別称号（キャラ別収集数判定・4段階・§10.5）。閾値 0/5/10/15。
+  //   names[charKey] = [段階1..4名]。logic.js の nigekireCharTitle に渡す（閾値だけ v2 に変更）。
+  var NIGEKIRE_CHAR_TITLE_TABLE = {
+    thresholds: [0, 5, 10, 15],
+    names: {
+      tsukiko: ['呼び止められ中', '説明準備中',   '予定確認済み', '月曜逃げ切り'],
+      you:     ['勢いで弁明中',   '笑ってごまかし中', '火曜突破中', '火曜逃げ切り'],
+      shizuku: ['そっと確認中',   '迷い回収中',   '静かに通過中', '水曜逃げ切り'],
+      rinka:   ['見られてる',     '言い訳審査中', '別に許してない', '木曜逃げ切り'],
+      runa:    ['追いかけられ中', '全力弁明中',   '勢いで突破中', '金曜逃げ切り'],
+      mahiru:  ['寝たふり中',     '見抜かれ中',   'まだ許され中', '土曜逃げ切り'],
+      hiyori:  ['やさしく確認中', '生活立て直し中', 'そっと通過中', '日曜逃げ切り'],
+    },
+  };
+
+  // 試練ポイント表（火種ランク×通常/一発・§10.2）。[通常, 一発]。回収型は別で +1固定。
+  var NIGEKIRE_POINT_TABLE = {
+    light:  [1, 2],
+    medium: [2, 3],
+    heavy:  [3, 4],
+  };
+
+  // 最終確認カットインのシステム文（正史 §9・7人分そのまま）。charKey → 中央の一文。
+  //   演出は「出かけようとしたところで曜日キャラが逃げ道をふさいでいる」。戦闘語彙・絵文字は使わない。
+  var NIGEKIRE_CUTIN_LINES = {
+    tsukiko: '〈月子〉が玄関で待っている。',
+    you:     '〈陽〉が笑顔で先回りしている。',
+    shizuku: '〈しずく〉が静かにこちらを見ている。',
+    rinka:   '〈凛華〉が何も言わずに立っている。',
+    runa:    '〈るな〉が逃げ道をふさいでいる。',
+    mahiru:  '〈まひる〉が眠そうに待っている。',
+    hiyori:  '〈日和〉がやさしく待っている。',
+  };
+
+  // カットイン専用画像（charKey → 画像パス）。当面は各キャラの生活カード画像（ch.img）と同値。
+  //   ※専用カットイン画像は後日はしゃもさんから受け取る。差し替えはこの定数の値を変えるだけで済む
+  //     （openNigekireFinalCutin は必ずこの定数から src を引く。1箇所修正で全体に反映される）。
+  // 最終確認カットイン専用画像（§9・縦長全身の暗転ポーズ）。生活カード（正方形バストアップ）とは別。
+  var NIGEKIRE_CUTIN_IMG = NIGEKIRE_CHARACTERS.reduce(function (map, ch) {
+    map[ch.key] = 'assets/ohakano/cutin/' + ch.key + '.webp';
+    return map;
+  }, {});
+
+  // 最終確認画面の通過セリフ 42本（7人×6回・answer-oshi-select-CONFIRMED.md からそのまま）。
+  //   キー = <charKey>_<回>。回 1〜3＝初期試練の最終確認①②③、4〜6＝収集の節目（70/120/200）。
+  //   引くときは L.nigekireOshiPassLineKey(charKey, passIndex)。
+  //   ※鉤括弧「」はセリフに含まれている（表示側で付与しない）。
+  var NIGEKIRE_PASS_LINES = {
+    tsukiko_1: '「ひとつ通ったわね。けれど、逃げようとした事実は記録しておくわ」',
+    tsukiko_2: '「二つ目。言い訳の筋は通ったけれど、態度まで通ったとは言っていないわよ」',
+    tsukiko_3: '「三つ通過。生活防衛中ね。……次に逃げたら、最初から聞き直すわ」',
+    tsukiko_4: '「火種に気づいたなら、見なかったふりは通らないわ。そこは分かっているわね」',
+    tsukiko_5: '「続けている点は認めるわ。ただし、逃げ癖を残したままなら意味がないわよ」',
+    tsukiko_6: '「管理できるところまでは来たわね。だからこそ、もう雑な言い逃れは許さないわ」',
+
+    you_1: '「ひとつ通ったね！ でも逃げようとしたの、ぜんぶ見えてたからね？」',
+    you_2: '「二つ目も通った！ だからさ、次は逃げる前にちゃんと止まりなってば！」',
+    you_3: '「三つ通過！ 生活防衛中ってことにするけど、また逃げたらすぐ捕まえるから！」',
+    you_4: '「火種、見えてきたじゃん！ じゃあもう、知らないふりはナシだよ！」',
+    you_5: '「続いてるのは分かった！ でも、こそこそ逃げるのは絶対ダメだからね！」',
+    you_6: '「ここまで来たなら分かるよね？ 次に逃げたら、全力で止めるから！」',
+
+    shizuku_1: '「ひとつ通ったね。でも、逃げようとしたのは……ちゃんと分かってるよ」',
+    shizuku_2: '「二つ目も通ったね。ごまかして通ろうとしたところも、見えてたよ」',
+    shizuku_3: '「三つ通ったね。生活には戻してあげる。でも、黙って逃げるのはだめ」',
+    shizuku_4: '「火種に気づいたなら、そっと隠さないで。そういうの、あとで痛くなるから」',
+    shizuku_5: '「続けているのは分かるよ。でも、逃げようとする癖まで見逃すつもりはないよ」',
+    shizuku_6: '「ここまで来たね。だから次に逃げそうになったら、もっと早く止めるから」',
+
+    rinka_1: '「ひとつ通ったくらいで安心しないで。逃げようとしたの、見えてたから」',
+    rinka_2: '「二つ目。少しはマシだけど、まだ言い逃れの匂いがするわね」',
+    rinka_3: '「三つ通ったなら一応認める。……でも、逃げ癖まで許した覚えはないから」',
+    rinka_4: '「火種を放置しなくなったのは進歩ね。別に褒めてないけど」',
+    rinka_5: '「続けてるのは分かった。だけど、雑に逃げたらその場で止めるから」',
+    rinka_6: '「ここまで来たなら分かってるでしょ。次に逃げたら、もう言い訳は聞かない」',
+
+    runa_1: '「ひとつ通ったねっ！ でも逃げようとしたの、バレバレだからね！」',
+    runa_2: '「二つ目いけたじゃん！ でも次は逃げる前に止まること！ 約束っ！」',
+    runa_3: '「三つ通過っ！ 生活防衛中！ でも逃げたらすぐ追いかけるからね！」',
+    runa_4: '「火種、見つけられるようになってきたねっ！ じゃあ放置は禁止！」',
+    runa_5: '「ここまで続いてるのはいい感じ！ でも、こっそり逃げるのはナシっ！」',
+    runa_6: '「管理人まで来たねっ！ ここまで来て逃げたら、全力で捕まえるから！」',
+
+    mahiru_1: '「ひとつ通ったね。でも、逃げようとしてたのは見えてたよ」',
+    mahiru_2: '「二つ目も通ったね。寝たふりみたいにごまかしても、分かるよ」',
+    mahiru_3: '「三つ通ったなら、生活防衛中でいいよ。でも、置いていくのはだめ」',
+    mahiru_4: '「火種、見つけたね。あとで困る前に、ちゃんと片づけようね」',
+    mahiru_5: '「続いてるね。でも、疲れたふりで逃げるのはなしだよ」',
+    mahiru_6: '「ここまで来たなら大丈夫そう。……でも逃げたら、起きて止めるからね」',
+
+    hiyori_1: '「ひとつ通ったね。でも、行こうとしてたのは……ちゃんと見てたよ」',
+    hiyori_2: '「二つ目も通ったね。逃げる前に、ちゃんとこちらを見てね」',
+    hiyori_3: '「三つ通ったなら、生活に戻っていいよ。でも、黙って逃げるのはだめ」',
+    hiyori_4: '「火種に気づいたね。見つけたのなら、隠して通ろうとしないでね」',
+    hiyori_5: '「続けてきたことは見てるよ。だから、逃げようとする時も分かるからね」',
+    hiyori_6: '「ここまで来たなら大丈夫。でも次に逃げたら、ちゃんと止めるからね」',
+  };
+
+  // 推し選択・キャラ変更セリフ 7本（answer-oshi-select-CONFIRMED.md からそのまま）。
+  //   初回の推し選択時とキャラ変更時で同じセリフを使い回す。
+  var NIGEKIRE_OSHI_SELECT_LINES = {
+    tsukiko: '「私を選ぶのね。いいわ、逃げ癖から順に確認していくわよ」',
+    you:     '「私だね！ じゃあ、逃げる前にちゃんと止めるからね！」',
+    shizuku: '「私でいいんだね。逃げようとしても、ちゃんと気づくからね」',
+    rinka:   '「私を選ぶんだ。……逃げたら見逃さないから、そのつもりでいて」',
+    runa:    '「私の番だねっ！ 逃げてもすぐ追いつくから、覚悟してね！」',
+    mahiru:  '「私でいくんだね。急がなくていいけど、逃げるのはだめだよ」',
+    hiyori:  '「私を選んだんだね。大丈夫、逃げようとしたらちゃんと止めるからね」',
+  };
+
+  // charKey → NIGEKIRE_CHARACTERS の1件（見つからなければ null）。
+  function nigekireCharByKey(charKey) {
+    if (!charKey) return null;
+    var hit = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === charKey; });
+    return hit.length ? hit[0] : null;
+  }
+
+  // ── モード定義（静的データのみ。関数参照は演出 lines のみ許容）──
+  //   MODE_DEFS はモードの静的定義だけを持つ（state ではない）。値は全て既存
+  //   KITACORE_* 定数・kitacore*Lines 関数を参照し二重定義しない（rankAfter 突き合わせズレ防止）。
+  //   lines の関数は宣言（巻き上げ済み）なので、後方に定義されていても参照できる。
+  var MODE_DEFS = {
+    kitacore: {
+      key: 'kitacore',
+      targetCreatorId: KITACORE_ID,        // modeForCreator が逆引き
+      challengeType: 'choice_judgement',   // 既存クイズ=正誤判定型
+      goal: KITACORE_GOAL,                 // 進捗バー最大
+      ranks: KITACORE_RANKS,               // 覚醒後ランク閾値テーブル
+      postBosses: KITACORE_POST_BOSSES,    // 覚醒後ボス（ワイ閾値で出現）
+      preBosses: KITACORE_PRE_BOSSES,      // 覚醒前ボス（鍵消費で挑戦）
+      awakenBossKey: 'wing',               // 覚醒を起こすボス key。null なら覚醒概念なし
+      quizUrl: 'kitacore_quiz.json',       // fetch 先。null ならクイズ無し
+      lines: {
+        wake:   kitacoreWakeLines,         // モード発動メッセージ
+        sleep:  kitacoreSleepLines,        // モード終了メッセージ
+        enter:  kitacoreBossEnterLines,    // ボス登場（boss を受ける）
+        down:   kitacoreBossDownLines,     // ボス撃破（boss を受ける）
+        awaken: kitacoreAwakenLines,       // 覚醒（awakenBossKey 撃破時）
+      },
+    },
+    // ── ニゲキレモード（フェーズ1配線）──
+    //   boss/rank/覚醒 概念は無い。7人同時進行＋キャラ別ポイント蓄積。
+    //   characters/lifeRanks/charTitleTable/pointTable は上の定数を参照（二重定義しない）。
+    nigekire: {
+      key: 'nigekire',
+      targetCreatorId: NIGEKIRE_ID,        // 'hasyamo'（modeForCreator が逆引き）
+      challengeType: 'excuse_choice',      // 火種確認＋4択言い訳＋キャラ反応
+      quizUrl: 'nigekire_quiz.json',       // fetch 先（note_key → レコード）
+      characters: NIGEKIRE_CHARACTERS,     // 曜日順固定 7人
+      lifeRanks: NIGEKIRE_LIFE_RANKS,      // 生活ランク（総ポイント判定・§10.5）
+      charTitleTable: NIGEKIRE_CHAR_TITLE_TABLE, // キャラ別称号（§10.6）
+      pointTable: NIGEKIRE_POINT_TABLE,    // 試練ポイント表（§10.2）
+      lines: {
+        wake:       nigekireWakeLines,       // §16 初回解放
+        sleep:      nigekireSleepLines,      // モード終了
+        success:    nigekireSuccessLines,    // §17 成功（char を受ける）
+        firstTry:   nigekireFirstTryLines,   // §18 一発成功（char を受ける）
+        failure:    nigekireFailureLines,    // §19 失敗（char を受ける）
+        rankUpdate: nigekireRankUpdateLines, // §20 生活ランク更新（rankName を受ける）
+      },
+    },
+  };
+
+  // このクリエイターが何らかのモード（キタコレ / ニゲキレ …）の発動対象か。
+  //   実体は L.modeForCreator（MODE_DEFS の targetCreatorId 逆引き）。
+  //   ※「キタコレ限定か」を問いたい箇所では activeModeKey(id) === 'kitacore' を使うこと。
+  function isModeCreator(creatorId) {
+    return L.modeForCreator(MODE_DEFS, creatorId) != null;
   }
 
   // キタコレモードON か（ダブルタップで立つ。表示全般の前提条件）。
   function isModeOn(creatorId) {
-    return !!(state.kitacore && state.kitacore.mode && state.kitacore.mode[creatorId]);
+    return !!(mc().mode && mc().mode[creatorId]);
   }
 
   // 撃破済みボス key の配列。
   function defeatedBossesOf(creatorId) {
-    var d = state.kitacore && state.kitacore.defeatedBosses ? state.kitacore.defeatedBosses[creatorId] : null;
+    var d = mc().defeatedBosses ? mc().defeatedBosses[creatorId] : null;
     return Array.isArray(d) ? d : [];
   }
 
   // S級覚醒済みか＝覚醒前の最終ボス(wing)を撃破済み。
+  //   実体は logic.js（L.isPostAwakening）。覚醒ボス key は 'wing' 固定で渡す薄いラッパ。
   function isPostAwakening(creatorId) {
-    return defeatedBossesOf(creatorId).indexOf('wing') !== -1;
+    return L.isPostAwakening(defeatedBossesOf(creatorId), 'wing');
   }
 
   // 鍵の数。
   function keysOf(creatorId) {
-    var n = state.kitacore && state.kitacore.keys ? state.kitacore.keys[creatorId] : 0;
+    var n = mc().keys ? mc().keys[creatorId] : 0;
     return typeof n === 'number' ? n : 0;
   }
 
-  // 次に挑むべき覚醒前ボス（未撃破の先頭）。全撃破なら null。
+  // 次に挑むべき覚醒前ボス（未撃破の先頭）。全撃破なら null。実体は logic.js。
   function nextPreBoss(creatorId) {
-    var done = defeatedBossesOf(creatorId);
-    for (var i = 0; i < KITACORE_PRE_BOSSES.length; i++) {
-      if (done.indexOf(KITACORE_PRE_BOSSES[i].key) === -1) return KITACORE_PRE_BOSSES[i];
-    }
-    return null;
+    return L.nextPreBoss(KITACORE_PRE_BOSSES, defeatedBossesOf(creatorId));
   }
 
   // ボスに挑戦する。鍵が足りれば消費して撃破＝昇格を確定し、戦闘演出を開始。
   // 戻り値: 挑戦できたら true。鍵不足なら false。
   function challengeBoss(creatorId, boss) {
-    ensureKitacore();
-    if (keysOf(creatorId) < boss.cost) return false;
-    // 挑戦ボタンで確定：鍵を消費し撃破を記録（演出は結果の見せ方）。
-    state.kitacore.keys[creatorId] = keysOf(creatorId) - boss.cost;
-    if (!Array.isArray(state.kitacore.defeatedBosses[creatorId])) {
-      state.kitacore.defeatedBosses[creatorId] = [];
-    }
-    state.kitacore.defeatedBosses[creatorId].push(boss.key);
+    ensureMode('kitacore');
+    // 判定＋次状態の計算は純関数（logic.js）。副作用はここに残す。
+    var out = L.challengeBossOutcome(mc().keys, mc().defeatedBosses, creatorId, boss);
+    if (!out.ok) return false; // 鍵不足
+    mc().keys = out.nextKeys;
+    mc().defeatedBosses = out.nextDefeated;
     saveState();
     startBossBattle(boss, creatorId);
     return true;
@@ -276,7 +601,9 @@
       updateReadStatsHeader();
       renderCreatorCards();
       // 撃破/昇格を通常のシステムメッセージで（モード進入・覚醒と同じUI）。
-      showSystemMessage(boss.key === 'wing' ? kitacoreAwakenLines() : kitacoreBossDownLines(boss));
+      //   覚醒ボス(awakenBossKey)撃破なら覚醒演出。値は 'wing' 固定なので挙動不変。
+      var def = MODE_DEFS.kitacore;
+      showSystemMessage(boss.key === def.awakenBossKey ? kitacoreAwakenLines() : kitacoreBossDownLines(boss));
     }, KITACORE_SHATTER_MS);
   }
 
@@ -289,32 +616,43 @@
   // キタコレモードのトグル。ON→E級スタート（修行開始）/ OFF→終了。発動対象のみ反応。
   // ※覚醒(S級)は A級ボス撃破で起きる。ここでは覚醒しない。
   // ON 時、プレイヤー未登録なら ID 入力モーダルを挟む（認証成功で発動）。
+  //   creatorId → modeKey を解決し、そのモードの state・def.lines で発動/終了する。
+  //   キタコレは modeKey='kitacore' に解決され従来と同一経路を通る（挙動不変）。
   function toggleMode(creatorId) {
-    if (!isKitacoreTarget(creatorId)) return;
-    ensureKitacore();
-    if (isModeOn(creatorId)) {
+    var def = L.modeForCreator(MODE_DEFS, creatorId);
+    if (!def) return;
+    var modeKey = def.key;
+    var m = ensureMode(modeKey);
+    if (isModeOnFor(creatorId)) {
       // OFF
-      delete state.kitacore.mode[creatorId];
+      delete m.mode[creatorId];
       saveState();
       renderCreatorCards();
-      showSystemMessage(kitacoreSleepLines());
+      linesModeKey = modeKey;
+      showSystemMessage(def.lines.sleep());
+      linesModeKey = null;
       return;
     }
     // ON：プレイヤー未登録なら入力モーダル → 認証成功で activateMode。
-    if (!state.kitacore.player || !state.kitacore.player.id) {
+    //   プレイヤー認証はモード横断で共有可だが、保存先は当該モードの state.player。
+    if (!m.player || !m.player.id) {
       openPlayerInput(creatorId);
       return;
     }
     activateMode(creatorId);
   }
 
-  // モードを実際にONにして覚醒メッセージを出す（プレイヤー登録済み前提）。
+  // モードを実際にONにして発動メッセージを出す（プレイヤー登録済み前提）。
   function activateMode(creatorId) {
-    ensureKitacore();
-    state.kitacore.mode[creatorId] = { at: new Date().toISOString() };
+    var def = L.modeForCreator(MODE_DEFS, creatorId);
+    if (!def) return;
+    var m = ensureMode(def.key);
+    m.mode[creatorId] = { at: new Date().toISOString() };
     saveState();
     renderCreatorCards();
-    showSystemMessage(kitacoreWakeLines());
+    linesModeKey = def.key;
+    showSystemMessage(def.lines.wake());
+    linesModeKey = null;
   }
 
   // プレイヤーID入力モーダル。認証成功で player を保存し activateMode。
@@ -388,8 +726,9 @@
     // 2回目：プレビュー確認済み → 決定
     if (pendingPlayerProfile) {
       var creatorId = pendingModeCreatorId;
-      ensureKitacore();
-      state.kitacore.player = {
+      // 保存先は当該モードの state.player（キタコレなら modeStateFor→kitacore state＝mc() と同一）。
+      var m = modeStateFor(creatorId) || ensureMode('kitacore');
+      m.player = {
         id: pendingPlayerProfile.id,
         displayName: pendingPlayerProfile.displayName,
         iconUrl: pendingPlayerProfile.iconUrl,
@@ -434,20 +773,32 @@
   // ランクカード表示
   function openRankCard() {
     if (!els.kitacoreRankCard || !els.kitacoreRankCardContent) return;
-    var player = state.kitacore && state.kitacore.player;
+    // アクティブモードがニゲキレなら 7人カルーセルの詳細カードを描く（キタコレのボスカードは無改変）。
+    var selectedCard = getSelectedCreator();
+    if (selectedCard && activeModeKey(selectedCard.id) === 'nigekire' && isModeOnFor(selectedCard.id)) {
+      renderNigekireCard();
+      return;
+    }
+    var player = mc().player;
     if (!player) return;
-    var creatorId = KITACORE_ID;
+    // 対象クリエイターは選択中クリエイターから modeForCreator で解決。
+    //   ランクエリアはキタコレ発動対象でのみ表示されるため、現状は常に KITACORE_ID と一致（挙動不変）。
+    var selected = getSelectedCreator();
+    var def = selected ? L.modeForCreator(MODE_DEFS, selected.id) : null;
+    var creatorId = def ? def.targetCreatorId : KITACORE_ID;
     var rankInfo = isPostAwakening(creatorId) ? kitacoreRankOf(creatorId) : null;
     var rankLabel = rankInfo
       ? 'ワイ語ハンターランク ' + rankInfo.rank
       : (nextPreBoss(creatorId) ? 'ワイ語ハンターランク ' + nextPreBoss(creatorId).rankBefore : '---');
-    var totalWai = (state.kitacore && state.kitacore.totalWai) || 0;
-    var quizTaps = (state.kitacore && state.kitacore.quizTaps) || 0;
-    var quizCleared = state.kitacore && state.kitacore.quizCleared ? Object.keys(state.kitacore.quizCleared).length : 0;
+    var totalWai = mc().totalWai || 0;
+    var quizTaps = mc().quizTaps || 0;
+    var quizCleared = mc().quizCleared ? Object.keys(mc().quizCleared).length : 0;
     var keysCount = keysOf(creatorId);
 
     var el = els.kitacoreRankCardContent;
     el.innerHTML = '';
+    el.classList.remove('nigekire-card'); // ニゲキレ描画の残りクラスを落とす（キタコレ表示は無改変）
+    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.remove('is-nigekire');
 
     // アイコン + 表示名 + ID
     var playerRow = document.createElement('div');
@@ -544,6 +895,240 @@
     if (els.kitacoreRankCard) els.kitacoreRankCard.classList.add('hidden');
   }
 
+  // ニゲキレ：詳細カード（上部サマリ＋7人の一覧）。#kitacore-rank-card を流用し中身だけ差し替える。
+  //   上部: 生活ランク・総ニゲキレ成功数・一発ニゲキレ数。
+  //   下部: 7人カルーセル（曜日順固定・左右ボタンで1人ずつ）。各キャラは
+  //         画像(assets/ohakano/<img>・無ければプレースホルダ)・曜日｜キャラ名(色強調)・
+  //         ポイント・進行(段階/4)・キャラ別称号。
+  //   語彙: 生活ランク/確認/通過/到達。禁止語彙(撃破/討伐/覚醒/ボス/好感度/勝利)は使わない。
+  function renderNigekireCard() {
+    var el = els.kitacoreRankCardContent;
+    el.innerHTML = '';
+    el.classList.add('nigekire-card');
+    // 窓側にも印を付ける（7人一覧を画面内に収めてスクロールさせるため・CSS で使う）。
+    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.add('is-nigekire');
+
+    var m = ensureMode('nigekire');
+    // v2：ランクは通過ベース（rankStage・§10-2）。収集数は次の節目トリガーで、ランク名は決めない。
+    //   キャラ別カードは charCounts で育つ（収集数は各キャラの明細行に出す）。
+    var counts = m.charCounts && typeof m.charCounts === 'object' ? m.charCounts : {};
+    var life = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
+    var totalSuccess = typeof m.totalSuccess === 'number' ? m.totalSuccess : 0;
+    var firstTry = typeof m.firstTrySuccess === 'number' ? m.firstTrySuccess : 0;
+
+    // 上部：プロフィール（アイコン＋表示名＋@ID）。キタコレのランクカードと同じ構成にする。
+    var player = mc().player;
+    if (player) {
+      var playerRow = document.createElement('div');
+      playerRow.className = 'rank-card-player';
+      var avatar = document.createElement('div');
+      avatar.className = 'add-preview-avatar rank-card-avatar';
+      if (player.iconUrl) {
+        var pimg = document.createElement('img');
+        pimg.src = player.iconUrl;
+        pimg.alt = '';
+        pimg.addEventListener('error', function () {
+          if (pimg.parentNode) avatar.removeChild(pimg);
+          avatar.textContent = (player.displayName || player.id).charAt(0);
+        });
+        avatar.appendChild(pimg);
+      } else {
+        avatar.textContent = (player.displayName || player.id).charAt(0);
+      }
+      var playerInfo = document.createElement('div');
+      var playerName = document.createElement('div');
+      playerName.className = 'add-preview-name';
+      playerName.textContent = player.displayName || player.id;
+      var playerId = document.createElement('div');
+      playerId.className = 'add-preview-id';
+      playerId.textContent = '@' + player.id;
+      playerInfo.appendChild(playerName);
+      playerInfo.appendChild(playerId);
+      playerRow.appendChild(avatar);
+      playerRow.appendChild(playerInfo);
+      el.appendChild(playerRow);
+    }
+
+    // 上部サマリ（生活ランク・総ニゲキレ成功=逃げ切り数・一発・キャラ名収集数）。§12。
+    //   ランクはキタコレと同じくバッジ（.kitacore-rank-text rank-XX）で出す。
+    var summary = document.createElement('div');
+    summary.className = 'nigekire-card-summary';
+    var rankRow = document.createElement('div');
+    rankRow.className = 'rank-card-row';
+    rankRow.innerHTML =
+      '<span class="rank-card-label">ランク</span>' +
+      '<span class="kitacore-rank-text rank-' + escapeHtml(life.key || 'nige1') + '">' +
+      escapeHtml(L.nigekireRankTitleWithDays(L.nigekireRankLabel(life) || '---', m.oshiCleared, NIGEKIRE_CHARACTERS)) +
+      '</span>';
+    summary.appendChild(rankRow);
+    var succRow = document.createElement('div');
+    succRow.className = 'rank-card-row';
+    succRow.innerHTML =
+      '<span class="rank-card-label">総ニゲキレ成功</span>' +
+      '<span class="rank-card-value">' + totalSuccess + '</span>';
+    summary.appendChild(succRow);
+    var ftRow = document.createElement('div');
+    ftRow.className = 'rank-card-row';
+    ftRow.innerHTML =
+      '<span class="rank-card-label">一発ニゲキレ</span>' +
+      '<span class="rank-card-value">' + firstTry + '</span>';
+    summary.appendChild(ftRow);
+    // キャラ名収集数はサマリに出さない（各キャラの明細行に「N 収集」として出る）。
+    el.appendChild(summary);
+
+    // 7人の一覧（縦スクロール）。カルーセルは一覧性が落ちるので廃止した。
+    //   各行は「左にキャラ画像・右にステータス」の横並び（nigekireCharCardEl）。
+    var list = document.createElement('div');
+    list.className = 'nigekire-char-list';
+    NIGEKIRE_CHARACTERS.forEach(function (ch) {
+      list.appendChild(nigekireCharCardEl(ch, counts));
+    });
+    el.appendChild(list);
+
+    els.kitacoreRankCard.classList.remove('hidden');
+  }
+
+  // ニゲキレ：カルーセル1枚分（1キャラ）の DOM を組む（v2・生活カード4段階）。
+  //   counts = charCounts（キャラ別収集数）。段階は L.nigekireCardStage で4段階。
+  //     未観測(0):画像グレー・「未観測」／観測(1+):カラー・収集数・称号／
+  //     定着(5+):枠キャラ色・称号／中核(10+):バッジ。
+  //   画像は assets/ohakano/<img>。読めなければ頭文字プレースホルダ（キタコレの ? fallback 同方式）。
+  function nigekireCharCardEl(ch, counts) {
+    var cnt = counts && typeof counts[ch.key] === 'number' ? counts[ch.key] : 0;
+    var stageInfo = L.nigekireCardStage(cnt); // { stage:1..4, name:'未観測'|'観測'|'定着'|'中核' }
+    var title = L.nigekireCharTitle(counts, ch.key, NIGEKIRE_CHAR_TITLE_TABLE);
+    // イラスト解放は「3回通過（oshiCleared 入り）」で決まる（収集数ではない）。
+    //   未通過は影（グレー）＝コンプは7人ぶん通過すること。
+    var nm = ensureMode('nigekire');
+    var unobserved = nm.oshiCleared.indexOf(ch.key) < 0;
+    var focus = stageInfo.stage >= 3;      // 定着(5+)以上＝枠をキャラ色に（段階は文字にしない）
+
+    var card = document.createElement('div');
+    card.className = 'nigekire-char-card is-stage-' + stageInfo.stage +
+      (unobserved ? ' is-unobserved' : '');
+    // 定着(5+)以上でカード枠をキャラ色に（観測まではデフォルト枠）。
+    if (focus && ch.color) card.style.borderColor = ch.color;
+
+    // 画像（無ければ頭文字プレースホルダ）。未観測はグレースケール（CSS .is-unobserved）。
+    var thumb = document.createElement('div');
+    thumb.className = 'nigekire-char-thumb';
+    if (!unobserved && ch.color) thumb.style.background = ch.color + '22'; // 観測以降のみ薄いキャラカラー背景
+    var img = document.createElement('img');
+    img.src = 'assets/ohakano/' + ch.img;
+    img.alt = ch.name;
+    img.loading = 'lazy';
+    img.addEventListener('error', function () {
+      if (img.parentNode) img.parentNode.removeChild(img);
+      var ph = document.createElement('span');
+      ph.className = 'nigekire-char-thumb-fallback';
+      ph.textContent = ch.name.charAt(0);
+      if (ch.color) ph.style.color = ch.color;
+      thumb.appendChild(ph);
+    });
+    thumb.appendChild(img);
+    card.appendChild(thumb);
+
+    // 右側：ステータス（名前・称号・収集数）をまとめる。行は「左に画像・右に情報」。
+    var info = document.createElement('div');
+    info.className = 'nigekire-char-info';
+
+    // 曜日｜キャラ名（キャラカラー強調・未通過はグレー）。
+    //   段階（未観測/観測/定着/中核）は文字で出さない＝カード枠の色と画像の解放で表す。
+    var nameEl = document.createElement('div');
+    nameEl.className = 'nigekire-char-name';
+    nameEl.textContent = ch.label + '｜' + ch.name;
+    // 色は CSS 側で --char-color に白を混ぜて出す（月子のネイビー等が暗背景に沈むため）。
+    if (!unobserved && ch.color) nameEl.style.setProperty('--char-color', ch.color);
+    info.appendChild(nameEl);
+
+    // キャラ別称号（ラベル＋値）。未通過は「未観測」。
+    var titleRow = document.createElement('div');
+    titleRow.className = 'nigekire-char-row';
+    var titleLabel = document.createElement('span');
+    titleLabel.className = 'nigekire-char-label';
+    titleLabel.textContent = '称号';
+    var titleEl = document.createElement('span');
+    titleEl.className = 'nigekire-char-title';
+    titleEl.textContent = unobserved ? '未観測' : (title.name || '---');
+    titleRow.appendChild(titleLabel);
+    titleRow.appendChild(titleEl);
+    info.appendChild(titleRow);
+
+    // 収集数（ラベル＋値）。
+    var statRow = document.createElement('div');
+    statRow.className = 'nigekire-char-row';
+    var cntLabel = document.createElement('span');
+    cntLabel.className = 'nigekire-char-label';
+    cntLabel.textContent = '収集';
+    var cntEl = document.createElement('span');
+    cntEl.className = 'nigekire-char-points';
+    cntEl.textContent = cnt;
+    statRow.appendChild(cntLabel);
+    statRow.appendChild(cntEl);
+    info.appendChild(statRow);
+
+    // 衣装行（交換所・§4）。春夏秋冬で位置固定・取得済みだけ季節名・未取得は「-」。
+    //   ボタンは常時表示（5pt以上でカラー／未満はグレー）。
+    var outfitSeasons = L.nigekireUnlockedSeasons(nm.outfitUnlocks, ch.key);
+    // 交換できるのは「姿が解放された（アイコンが活性化した）キャラ」だけ。
+    //   ＝初期試練を3回通過して oshiCleared に入っているキャラ（unobserved の裏）。
+    //   ポイントが足りていても、未観測のキャラは交換できない。
+    var canExchange = !unobserved &&
+      L.nigekireOutfitAllowance(cnt, NIGEKIRE_OUTFIT_THRESHOLDS) > 0;
+
+    var outfitRow = document.createElement('div');
+    outfitRow.className = 'nigekire-char-row nigekire-outfit-row';
+    var outfitLabel = document.createElement('span');
+    outfitLabel.className = 'nigekire-char-label';
+    outfitLabel.textContent = '衣装';
+    var slots = document.createElement('span');
+    slots.className = 'nigekire-outfit-slots';
+    L.OUTFIT_SEASONS.forEach(function (season) {
+      var slot = document.createElement('span');
+      var has = outfitSeasons.indexOf(season) >= 0;
+      slot.className = 'nigekire-outfit-slot' + (has ? ' is-has' : '');
+      slot.textContent = has ? (NIGEKIRE_SEASON_META[season] || {}).name || season : '-';
+      slots.appendChild(slot);
+    });
+    outfitRow.appendChild(outfitLabel);
+    outfitRow.appendChild(slots);
+    info.appendChild(outfitRow);
+
+    // 交換所を開くボタン（文言は日本語で固定・§4）。
+    var exBtn = document.createElement('button');
+    exBtn.type = 'button';
+    exBtn.className = 'nigekire-outfit-btn' + (canExchange ? '' : ' is-locked');
+    exBtn.textContent = 'おへんじ帖の衣装';
+    exBtn.addEventListener('click', function () {
+      // 押せない理由を出す（無反応にしない）。姿が未解放のほうを先に案内する。
+      if (unobserved) {
+        showSystemMessage([
+          '［ システム ］',
+          '',
+          '〈' + ch.name + '〉の姿がまだ見えていません。',
+          '初期試練を通すと受け取れるようになります。',
+        ]);
+        return;
+      }
+      if (!canExchange) {
+        var need = L.nigekireOutfitNextThreshold(cnt, NIGEKIRE_OUTFIT_THRESHOLDS);
+        showSystemMessage([
+          '［ システム ］',
+          '',
+          'まだ受け取れません。',
+          need == null ? '' : 'あと' + (need - cnt) + 'pt で1着選べます。',
+        ]);
+        return;
+      }
+      openNigekireOutfit(ch.key);
+    });
+    info.appendChild(exBtn);
+
+    card.appendChild(info);
+
+    return card;
+  }
+
   // クイズデータ（覚醒前）。起動時に一度だけ読み、メモリに保持する。
   //   キー = 記事URLのスラッグ(n...)。{ q, choices[], answer }
   var kitacoreQuizzes = null;
@@ -553,7 +1138,9 @@
         return r.json();
       })
       .then(function (data) {
-        kitacoreQuizzes = data && data.quizzes ? data.quizzes : {};
+        // 読込時に一度だけ正規形へ変換する（choices=[{text,result,reaction}]）。
+        // kitacore_quiz.json 自体は無改変。answer:index 形式は normalizeQuiz が内部変換。
+        kitacoreQuizzes = L.normalizeQuizMap(data && data.quizzes ? data.quizzes : {});
       })
       .catch(function () {
         kitacoreQuizzes = {}; // 読めなくてもクイズ無しで動く
@@ -565,26 +1152,70 @@
       });
   }
 
-  // 記事に紐づくクイズ（無ければ null）。スラッグで引く。
+  // ニゲキレのクイズデータ。起動時に一度だけ読み、メモリに保持する。
+  //   キー = 記事URLのスラッグ(note_key)。値 = レコード（weekday/targetType/fireRank/
+  //   question/choices[]/correctKey/promptLine/successLine/failureLine）。
+  //   ※文言はコードに直書きせず JSON から読む（スキーマは差し替え前提）。フェーズ2で使う。
+  var nigekireQuizzes = null;
+  function loadNigekireQuizzes() {
+    fetch('nigekire_quiz.json?v=' + APP_VERSION)
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        // note_key → レコードのマップ。スキーマ変換はせずそのまま保持（フェーズ1は配線のみ）。
+        nigekireQuizzes = data && data.quizzes && typeof data.quizzes === 'object' ? data.quizzes : {};
+      })
+      .catch(function () {
+        nigekireQuizzes = {}; // 読めなくてもモード発動は動く
+      })
+      .then(function () {
+        // ロード完了で初めて記事チップの判定ができる。初回描画はロード前に走るため、
+        // ここで現在のルートを描き直してニゲキレチップを反映する（キタコレと同じレース対策）。
+        renderRoute();
+      });
+  }
+
+  // 記事に紐づくクイズ（無ければ null）。スラッグで引く。実体は logic.js。
+  //   app 側は現在のクイズマップ（kitacoreQuizzes）を渡す薄いラッパ。
   function quizForArticle(article) {
-    if (!kitacoreQuizzes) return null;
-    var key = articleKeyFromUrl(article && article.url);
-    return key && kitacoreQuizzes[key] ? kitacoreQuizzes[key] : null;
+    return L.quizForArticle(kitacoreQuizzes, article);
+  }
+
+  // ニゲキレ：記事に紐づくクイズレコード（無ければ null）。
+  //   articleKeyFromUrl(article.url) で note_key を引き nigekireQuizzes から取る。
+  //   nigekireQuizzes 未ロード（null）や該当なしは null。文言はコード直書きせず
+  //   このレコード（question/choices/promptLine/successLine/failureLine 等）から読む。
+  function nigekireQuizForArticle(article) {
+    if (!nigekireQuizzes || typeof nigekireQuizzes !== 'object') return null;
+    var key = L.articleKeyFromUrl(article && article.url);
+    return key && nigekireQuizzes[key] ? nigekireQuizzes[key] : null;
+  }
+
+  // ニゲキレ：記事の担当キャラを解決する。
+  //   優先: クイズレコードの weekday（正史データが持つ確定曜日）。
+  //   フォールバック: article.publishedAt から weekdayOf で算出。
+  //   該当キャラ無しは null。
+  function nigekireCharForArticle(article, rec) {
+    var wd = rec && rec.weekday ? rec.weekday : L.weekdayOf(article && article.publishedAt);
+    return L.weekdayCharOf(wd, NIGEKIRE_CHARACTERS);
   }
 
   // クイズ正解済みか（記事ごと1回。鍵の二重獲得防止）。collected を流用せず専用に持つ。
   function isQuizCleared(creatorId, articleId) {
-    var k = state.kitacore && state.kitacore.quizCleared ? state.kitacore.quizCleared : null;
+    var k = mc().quizCleared ? mc().quizCleared : null;
     return !!(k && k[articleId]);
   }
 
   // 鍵を1つ獲得（クイズ正解時）。記事ごと1回きり。
   function awardKey(creatorId, articleId) {
-    ensureKitacore();
-    if (!state.kitacore.quizCleared) state.kitacore.quizCleared = {};
-    if (state.kitacore.quizCleared[articleId]) return; // 既に獲得済み
-    state.kitacore.quizCleared[articleId] = true;
-    state.kitacore.keys[creatorId] = keysOf(creatorId) + 1;
+    ensureMode('kitacore');
+    if (!mc().quizCleared) mc().quizCleared = {};
+    // 判定＋次状態の計算は純関数（logic.js）。no-op なら何もしない。
+    var out = L.awardKeyOutcome(mc().quizCleared, mc().keys, creatorId, articleId);
+    if (!out) return; // 既に獲得済み
+    mc().quizCleared = out.nextQuizCleared;
+    mc().keys = out.nextKeys;
     saveState();
   }
 
@@ -675,16 +1306,16 @@
   // クイズモーダルを開く（覚醒前・モードON・未覚醒・クイズ有りのときだけ）。
   // 選択肢は毎回シャッフルする（位置記憶でのズルを防ぐ）。
   function openQuiz(creatorId, article, quiz) {
-    // {text, correct} にしてシャッフルし、シャッフル後の正解位置を持つ。
-    var items = shuffled(
-      quiz.choices.map(function (text, i) {
-        return { text: text, correct: i === quiz.answer };
-      })
-    );
-    var correctIndex = items.findIndex(function (it) {
-      return it.correct;
-    });
-    activeQuiz = { creatorId: creatorId, articleId: article.id, correctIndex: correctIndex };
+    // quiz は正規形（choices=[{text,result,reaction}]）。選択肢を毎回シャッフルして
+    // シャッフル後の並びを activeQuiz に保持する（正解位置のランダム性を温存）。
+    // 判定はシャッフル後 index に対して L.quizChoiceOutcome で行う。
+    var items = shuffled(quiz.choices.slice());
+    var shuffledQuiz = { q: quiz.q, choices: items };
+    activeQuiz = { creatorId: creatorId, articleId: article.id, quiz: shuffledQuiz };
+    // 共有モーダルのラベルをキタコレ用に設定（ニゲキレと同じ DOM を使い回すため毎回セット）。
+    if (els.kitacoreQuizLabel) {
+      els.kitacoreQuizLabel.textContent = '［ システム ］試練：正解で終焉の鍵を1つ得る';
+    }
 
     els.kitacoreQuizQ.textContent = quiz.q;
     els.kitacoreQuizResult.classList.add('hidden');
@@ -720,12 +1351,14 @@
     if (!activeQuiz) return;
     // 正解済み（選択肢が disabled）なら何もしない
     if (activeQuiz.answered) return;
-    var correct = idx === activeQuiz.correctIndex;
+    // シャッフル後の並びに対して正誤判定する。'success' のみ正解扱い、
+    // 'wrong'/'wrong_funny' は不正解（再挑戦可）。
+    var outcome = L.quizChoiceOutcome(activeQuiz.quiz, idx);
+    var correct = outcome === 'success';
     var btns = els.kitacoreQuizChoices.querySelectorAll('.kitacore-quiz-choice');
     btns[idx].classList.add(correct ? 'is-correct' : 'is-wrong');
     if (correct) {
       activeQuiz.answered = true; // 正解フラグ
-      btns[activeQuiz.correctIndex].classList.add('is-correct');
       // 全選択肢を無効化
       btns.forEach(function (b) { b.disabled = true; });
     }
@@ -813,6 +1446,84 @@
     ];
   }
 
+  // ── ニゲキレ用システムメッセージ（正史 nigekire-mode-ui-spec.md §16-20 準拠）──
+  //   文言はモード発動等のシステムメッセージ（クイズ文言ではない＝正史記載なので直書き可）。
+  //   playerName() はモード横断で共有（認証プレイヤー）。
+  //   showSystemMessage 側でタップ挙動を持つため「画面をタップ」フッターは付けない（キタコレと揃える）。
+
+  // §16 初回解放（モード発動時）。
+  function nigekireWakeLines() {
+    return [
+      '［ システム ］',
+      'プレイヤー〈' + playerName() + '〉の過去記事に、',
+      '複数の火種を検出しました。',
+      '隠しモード『ニゲキレモード』が解放されました。',
+      '曜日担当による確認を開始します。',
+    ];
+  }
+
+  // モード終了時（キタコレのスリープに対応。§では未指定のため語彙に沿った締め）。
+  function nigekireSleepLines() {
+    return [
+      '［ システム ］',
+      '『ニゲキレモード』を終了します。',
+      'プレイヤー〈' + playerName() + '〉、また確認しましょう。',
+    ];
+  }
+
+  // §17 成功時（v2）。char = 担当キャラ { label, name }。
+  //   v2：ポイント文言は廃止。試練成功＝その記事が「逃げ切り済み」になる（記事状態の変化）。
+  function nigekireSuccessLines(char) {
+    return [
+      '［ システム ］',
+      char.label + '担当〈' + char.name + '〉の確認を通過しました。',
+      'この記事から逃げ切りました。',
+    ];
+  }
+
+  // §17-1 一言チップ回収時（v2・収集モード）。char = 検出キャラ { name }。
+  //   「確認を通過」ではなく「気配を見つけた／収集した」の語彙（収集は詰めではない）。
+  //   ポイント文言は使わない。char が無い場合の防御込み。
+  function nigekireCollectLines(char) {
+    var label = char ? char.label + '担当〈' + char.name + '〉' : '担当キャラ';
+    var name = char ? char.name : 'キャラ';
+    return [
+      '［ システム ］',
+      label + 'の気配を見つけました。',
+      name + 'の収集数が増えました。',
+    ];
+  }
+
+  // §18 一発成功時。
+  function nigekireFirstTryLines(char) {
+    return [
+      '［ システム ］',
+      char.label + '担当〈' + char.name + '〉の確認を、',
+      '一度で通過しました。',
+      '一発ニゲキレ記録を更新しました。',
+    ];
+  }
+
+  // §19 失敗時。
+  function nigekireFailureLines(char) {
+    return [
+      '［ システム ］',
+      char.label + '担当〈' + char.name + '〉は、',
+      'その説明では納得しませんでした。',
+      '別の説明を選んでください。',
+    ];
+  }
+
+  // §20 生活ランク更新時。rankName = 到達した生活ランク名。
+  function nigekireRankUpdateLines(rankName) {
+    return [
+      '［ システム ］',
+      '生活ランクが更新されました。',
+      'プレイヤー〈' + playerName() + '〉は、',
+      '『' + rankName + '』に到達しました。',
+    ];
+  }
+
   // 進行中のタイプライターの状態。null=非表示。
   //   { lines, full, typed, timer, done } done=true なら次タップで閉じる。
   var systemMsg = null;
@@ -861,6 +1572,45 @@
     if (systemMsg && systemMsg.timer) clearTimeout(systemMsg.timer);
     systemMsg = null;
     if (els.kitacoreSystem) els.kitacoreSystem.classList.add('hidden');
+  }
+
+  // ---------------------------------------------------------------------------
+  // システム確認（Yes/No の選択式）。
+  //   システムメッセージ（#kitacore-system）と同じ見た目のまま、タップで閉じる代わりに
+  //   選択ボタンを出す汎用部品。用途は限定しない（推し選択に限らず使える）。
+  //     lines   : 表示する行の配列（showSystemMessage と同じ形）
+  //     choices : [{ label, onSelect?, primary?, danger? }, ...]（省略時は「はい」「やめる」）
+  //   選択すると閉じてから onSelect を呼ぶ。背景タップでは閉じない（誤操作で流さない）。
+  // ---------------------------------------------------------------------------
+  function showSystemConfirm(lines, choices) {
+    if (!els.systemConfirm || !els.systemConfirmText || !els.systemConfirmActions) return;
+    var items = Array.isArray(choices) && choices.length
+      ? choices
+      : [{ label: 'はい', primary: true }, { label: 'やめる' }];
+
+    els.systemConfirmText.textContent = (lines || []).join('\n');
+    els.systemConfirmActions.innerHTML = '';
+
+    items.forEach(function (it) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'system-confirm-btn' +
+        (it.primary ? ' is-primary' : '') +
+        (it.danger ? ' is-danger' : '');
+      btn.textContent = it.label != null ? it.label : 'OK';
+      btn.addEventListener('click', function () {
+        closeSystemConfirm();
+        if (typeof it.onSelect === 'function') it.onSelect();
+      });
+      els.systemConfirmActions.appendChild(btn);
+    });
+
+    els.systemConfirm.classList.remove('hidden');
+  }
+
+  function closeSystemConfirm() {
+    if (els.systemConfirm) els.systemConfirm.classList.add('hidden');
+    if (els.systemConfirmActions) els.systemConfirmActions.innerHTML = '';
   }
 
   // クリエイター別に覚える UI 項目のデフォルト。
@@ -946,10 +1696,9 @@
           parsed.uiByCreator && typeof parsed.uiByCreator === 'object'
             ? parsed.uiByCreator
             : base.uiByCreator,
-        kitacore:
-          parsed.kitacore && typeof parsed.kitacore === 'object'
-            ? parsed.kitacore
-            : base.kitacore,
+        // モード state。新 parsed.modes 優先・旧 parsed.kitacore は modes.kitacore
+        //   未定義時のみ移送（migrateModes が冪等・非破壊）。この行を落とすと進行データが黙って消える。
+        modes: L.migrateModes(parsed),
       };
     } catch (e) {
       return defaultState();
@@ -1004,10 +1753,9 @@
         incoming.uiByCreator && typeof incoming.uiByCreator === 'object'
           ? incoming.uiByCreator
           : base.uiByCreator,
-      kitacore:
-        incoming.kitacore && typeof incoming.kitacore === 'object'
-          ? incoming.kitacore
-          : base.kitacore,
+      // モード state。incoming.modes 優先・旧 incoming.kitacore は modes.kitacore
+      //   未定義時のみ移送（migrateModes が冪等・非破壊）。この行を落とすと進行データが黙って消える。
+      modes: L.migrateModes(incoming),
     };
     state = next;
     var saved = saveState();
@@ -1297,39 +2045,33 @@
   //   本文HTMLは保存せず数だけ残す。記事ごと1回きり（collected で二重取り防止）。
   // ---------------------------------------------------------------------------
 
-  var WAI_RE = /ワイ/g;
   // 収集中の article.id（多重発火防止）。
   var kitacoreInFlight = {};
+  // ニゲキレ一言検出の取得中フラグ（キタコレとは別マップ＝混線させない）。
+  var nigekireInFlight = {};
 
   // HTML からタグを除去し最低限の実体参照をデコードして素テキストにする。
+  //   実体は logic.js（L.stripHtml）。呼び出し側は無変更。
   function stripHtml(html) {
-    return String(html)
-      .replace(/<[^>]*>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+    return L.stripHtml(html);
   }
 
-  // テキスト中の「ワイ」出現数。
+  // テキスト中の「ワイ」出現数。実体は logic.js（L.countWai）。
   function countWai(text) {
-    return (String(text).match(WAI_RE) || []).length;
+    return L.countWai(text);
   }
 
-  // 記事 URL からスラッグ（note key）を抜く。失敗時 null。
+  // 記事 URL からスラッグ（note key）を抜く。失敗時 null。実体は logic.js。
   function articleKeyFromUrl(url) {
-    var m = String(url || '').match(/\/n\/([A-Za-z0-9]+)/);
-    return m ? m[1] : null;
+    return L.articleKeyFromUrl(url);
   }
 
   function isCounted(articleId) {
-    return !!(state.kitacore && state.kitacore.counts && state.kitacore.counts[articleId]);
+    return !!(mc().counts && mc().counts[articleId]);
   }
 
   function isCollected(articleId) {
-    return !!(state.kitacore && state.kitacore.collected && state.kitacore.collected[articleId]);
+    return !!(mc().collected && mc().collected[articleId]);
   }
 
   // 記事 1 本の本文を取り、ワイ数を数えて counts に保存する（＝収集）。
@@ -1339,7 +2081,7 @@
     if (isCounted(article.id) || kitacoreInFlight[article.id]) return;
     var key = articleKeyFromUrl(article.url);
     if (!key) return; // スラッグ抽出失敗はスキップ
-    ensureKitacore();
+    ensureMode('kitacore');
     kitacoreInFlight[article.id] = true;
     var url = PROXY_URL + '?path=' + encodeURIComponent('/api/v3/notes/' + key);
     fetch(url)
@@ -1349,8 +2091,8 @@
       .then(function (json) {
         var body = json && json.data ? json.data.body : null;
         if (typeof body !== 'string') return; // 形式不正は未計測のまま握りつぶす
-        ensureKitacore();
-        state.kitacore.counts[article.id] = {
+        ensureMode('kitacore');
+        mc().counts[article.id] = {
           wai: countWai(stripHtml(body)),
           countedAt: new Date().toISOString(),
         };
@@ -1368,52 +2110,799 @@
       });
   }
 
+  // ニゲキレ v2：記事本文を取り「◯◯の一言」見出しから一言キャラを検出して counts に保存。
+  //   キタコレの fetchAndCountArticle と同方式（プロキシで本文取得→実行時判定）だが、
+  //   別 state（nigekire.counts）・別 in-flight（nigekireInFlight）で完全に分離する。
+  //   検出済み/取得中/key抽出失敗/body不正/一言なし（ホワイトリスト外）はスキップ。
+  //   ※detect は生 HTML の <h2> を見るので stripHtml しない（生 body を渡す）。
+  function fetchAndDetectNigekireChar(article, creatorId) {
+    if (!article || !article.id) return;
+    var nm = ensureMode('nigekire');
+    if ((nm.counts && nm.counts[article.id]) || nigekireInFlight[article.id]) return;
+    var key = articleKeyFromUrl(article.url);
+    if (!key) return; // スラッグ抽出失敗はスキップ
+    nigekireInFlight[article.id] = true;
+    var url = PROXY_URL + '?path=' + encodeURIComponent('/api/v3/notes/' + key);
+    fetch(url)
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (json) {
+        var body = json && json.data ? json.data.body : null;
+        if (typeof body !== 'string') return; // 形式不正は未検出のまま握りつぶす
+        // 本文中の「◯◯の一言」を全部拾い、7人に該当するキャラを配列で得る。
+        //   1記事に複数キャラ（「日和の一言」「しずくの一言」）があれば全員ぶんチップを出す。
+        var chars = L.detectHitokotoChars(body, NIGEKIRE_NAME_TO_KEY);
+        if (!chars.length) return; // 一言見出しなし / 7人ホワイトリスト外（例「KITAさん」）は収集対象外
+        var m = ensureMode('nigekire');
+        m.counts[article.id] = { chars: chars };
+        saveState();
+        // ニゲキレ表示中なら該当クリエイターの一覧を作り直して一言チップを出す。
+        if (currentRoute() === 'read' && state.selectedCreatorId === creatorId) {
+          renderArticles();
+        }
+      })
+      .catch(function () {
+        /* ネットワーク失敗等は未検出のまま（次タップで再試行） */
+      })
+      .then(function () {
+        delete nigekireInFlight[article.id];
+      });
+  }
+
   // ワイ語チップを回収する（＝ポイント加算）。
   // 収集済み・未回収・ワイ>0 のときだけ totalWai に加算し collected を立てる。
   function collectWai(articleId) {
-    ensureKitacore();
-    var entry = state.kitacore.counts[articleId];
-    if (!entry) return; // 未収集
-    if (isCollected(articleId)) return; // 二重取り防止
-    if (entry.wai <= 0) return; // ワイ0は回収対象外（チップ非活性）
-    var waiRankBefore = kitacoreWaiRankOf(state.kitacore.totalWai);
-    state.kitacore.totalWai += entry.wai;
-    state.kitacore.collected[articleId] = true;
+    ensureMode('kitacore');
+    // 判定＋加算後 totalWai＋出現すべきボス key の計算は純関数（logic.js）。
+    var out = L.collectWaiOutcome(
+      KITACORE_RANKS, KITACORE_POST_BOSSES, mc().counts, mc().collected, mc().totalWai, articleId
+    );
+    if (!out.ok) return; // 未収集 / 二重取り / ワイ0
+    mc().totalWai = out.nextTotalWai;
+    mc().collected = out.nextCollected;
     saveState();
     // ワイ閾値を超えたら覚醒後ボスを出現させる（ランク表示はボス撃破まで据え置き）
-    var waiRankAfter = kitacoreWaiRankOf(state.kitacore.totalWai);
-    if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
-      var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
+    if (out.summonBossKey) {
+      var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === out.summonBossKey; });
       if (boss) showPostBoss(boss);
     }
   }
 
   // 覚醒後ボスカードを表示する（挑戦待ち状態にセット）。
   function showPostBoss(boss) {
-    ensureKitacore();
-    if (!state.kitacore.pendingPostBoss) state.kitacore.pendingPostBoss = {};
-    var defeated = defeatedBossesOf(KITACORE_ID);
-    // 撃破済みなら無視
-    if (defeated.indexOf(boss.key) !== -1) return;
-    // 既に挑戦待ちボスがいる場合は上書きしない
-    if (state.kitacore.pendingPostBoss[KITACORE_ID]) return;
-    // このボスより前の覚醒後ボスが全員撃破済みでなければ出現しない
-    var idx = KITACORE_POST_BOSSES.findIndex(function (b) { return b.key === boss.key; });
-    for (var i = 0; i < idx; i++) {
-      if (defeated.indexOf(KITACORE_POST_BOSSES[i].key) === -1) return;
-    }
-    state.kitacore.pendingPostBoss[KITACORE_ID] = boss.key;
+    ensureMode('kitacore');
+    if (!mc().pendingPostBoss) mc().pendingPostBoss = {};
+    // 順序ガードの判定は純関数（logic.js）。null なら出さない。
+    var summon = L.canSummonPostBoss(
+      KITACORE_POST_BOSSES, defeatedBossesOf(KITACORE_ID), mc().pendingPostBoss[KITACORE_ID], boss.key
+    );
+    if (summon == null) return;
+    mc().pendingPostBoss[KITACORE_ID] = summon;
     saveState();
     renderKitacoreHeader();
   }
 
   // 覚醒後の挑戦待ちボスを取得（pendingPostBoss から）。
   function pendingPostBossOf(creatorId) {
-    var k = state.kitacore && state.kitacore.pendingPostBoss ? state.kitacore.pendingPostBoss[creatorId] : null;
+    var k = mc().pendingPostBoss ? mc().pendingPostBoss[creatorId] : null;
     if (!k) return null;
     var defeated = defeatedBossesOf(creatorId);
     if (defeated.indexOf(k) !== -1) return null; // 撃破済みなら消す
     return KITACORE_POST_BOSSES.find(function (b) { return b.key === k; }) || null;
+  }
+
+  // ===========================================================================
+  // ニゲキレ コアループ（v2）。試練の逃げ切りと一言チップ収集が入る部分。
+  //   DOM は #kitacore-quiz（試練モーダル）/ #kitacore-system（メッセージ）を流用。
+  //   キタコレの openQuiz/answerQuiz/awardKey/collectWai は無改変。ニゲキレ専用の
+  //   openNigekireTrial/answerNigekire/nigekireCollect を新設する（挙動を混ぜない）。
+  //   語彙: 確認/通過/火種/生活ランク/更新/到達。禁止: 撃破/討伐/覚醒/ボス/好感度/勝利。
+  // ===========================================================================
+
+  // 進行中のニゲキレ試練の文脈（キタコレの activeQuiz とは別変数＝混線しない）。
+  //   { creatorId, articleId, char, rec, choices, fireRank, wrongCount, done }
+  //   choices = シャッフル後の4択（各 { text, isCorrect }）。
+  //   wrongCount = このモーダルで失敗した回数（0のまま成功＝一発）。
+  var activeNigekireTrial = null;
+
+  // 最終確認カットイン／最終確認画面で扱っている曜日キャラ key（タップ遷移の受け渡し用）。
+  var activeNigekireFinalChar = null;
+
+
+  // 試練モーダルを開く（ニゲキレ・モードON・試練型記事のとき）。
+  //   促し文（promptLine）を上部に、4択（choices）をシャッフルして並べる。
+  //   選択は answerNigekire(idx) へ。キタコレの openQuiz とは別実装（DOM だけ共有）。
+  function openNigekireTrial(article) {
+    if (!els.kitacoreQuiz) return;
+    var rec = nigekireQuizForArticle(article);
+    if (!rec) return;
+    var char = nigekireCharForArticle(article, rec);
+    if (!char) return;
+    // 既に通過済みなら開かない（二重取り防止＝チップ側で非活性のはずだが二重防御）。
+    var m = ensureMode('nigekire');
+    if (m.passed && m.passed[article.id]) return;
+
+    // choices を正規化（{ text, isCorrect }）してシャッフル。正解位置のランダム性を温存。
+    var rawChoices = Array.isArray(rec.choices) ? rec.choices : [];
+    var norm = rawChoices.map(function (c) {
+      return { text: c && c.text != null ? c.text : '', isCorrect: !!(c && c.isCorrect) };
+    });
+    var items = shuffled(norm.slice());
+
+    activeNigekireTrial = {
+      creatorId: NIGEKIRE_ID,
+      articleId: article.id,
+      char: char,
+      rec: rec,
+      choices: items,
+      fireRank: rec.fireRank,
+      wrongCount: 0,
+      done: false,
+    };
+
+    // 共有モーダルのラベルをニゲキレ用に設定（キタコレの「終焉の鍵」文言を上書き）。
+    //   語彙は §15 準拠（確認・通過・曜日担当）。鍵の概念はニゲキレに無いので使わない。
+    if (els.kitacoreQuizLabel) {
+      els.kitacoreQuizLabel.textContent =
+        '［ システム ］' + char.label + '担当〈' + char.name + '〉の確認';
+    }
+
+    // 上部: 火種確認セリフ（promptLine）＋設問（question）。文言は rec から読む。
+    //   promptLine を上、question を下に2段で見せる（共有 CSS が white-space:pre-line で
+    //   ない場合に備え、textContent ではなく行要素を組んで確実に改行する）。
+    var prompt = rec.promptLine != null ? rec.promptLine : '';
+    var question = rec.question != null ? rec.question : '';
+    els.kitacoreQuizQ.innerHTML = '';
+    if (prompt) {
+      var pEl = document.createElement('span');
+      pEl.className = 'nigekire-prompt-line';
+      pEl.textContent = prompt;
+      pEl.style.display = 'block';
+      pEl.style.marginBottom = '8px';
+      els.kitacoreQuizQ.appendChild(pEl);
+    }
+    var qEl = document.createElement('span');
+    qEl.className = 'nigekire-question-line';
+    qEl.textContent = question;
+    qEl.style.display = 'block';
+    els.kitacoreQuizQ.appendChild(qEl);
+    els.kitacoreQuizResult.classList.add('hidden');
+    els.kitacoreQuizResult.textContent = '';
+    els.kitacoreQuizChoices.innerHTML = '';
+    items.forEach(function (it, idx) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kitacore-quiz-choice';
+      btn.textContent = it.text;
+      btn.addEventListener('click', function () {
+        answerNigekire(idx);
+      });
+      els.kitacoreQuizChoices.appendChild(btn);
+    });
+    els.kitacoreQuiz.classList.remove('hidden');
+    // 演出はキタコレのクイズと同じグリッチを流用（DOM 共有のため）。
+    var win = els.kitacoreQuiz.querySelector('.kitacore-quiz-window');
+    els.kitacoreQuiz.classList.remove('is-glitch');
+    if (win) win.classList.remove('is-glitch');
+    void els.kitacoreQuiz.offsetWidth;
+    els.kitacoreQuiz.classList.add('is-glitch');
+    if (win) win.classList.add('is-glitch');
+  }
+
+  // ニゲキレ試練の選択に答える。
+  //   isCorrect → 通過（逃げ切り）: passed 記録・総ニゲキレ成功・一発判定（収集数と別軸・ポイントなし）。
+  //   それ以外 → 失敗: failureLine を反応表示し再挑戦可（wrongCount++）。
+  //   一発判定 = このモーダルで失敗を挟まず（wrongCount===0）1回目の選択で通過。
+  function answerNigekire(idx) {
+    var t = activeNigekireTrial;
+    if (!t || t.done) return;
+    var choice = t.choices[idx];
+    var correct = !!(choice && choice.isCorrect);
+    var btns = els.kitacoreQuizChoices.querySelectorAll('.kitacore-quiz-choice');
+    if (btns[idx]) btns[idx].classList.add(correct ? 'is-correct' : 'is-wrong');
+
+    if (!correct) {
+      // 失敗＝再挑戦可。失敗を1回でも挟むと一発ではなくなる。
+      t.wrongCount += 1;
+      els.kitacoreQuizResult.textContent =
+        t.rec && t.rec.failureLine != null && t.rec.failureLine !== ''
+          ? t.rec.failureLine
+          : 'その説明では納得しませんでした。別の説明を選んでください。';
+      els.kitacoreQuizResult.classList.remove('hidden');
+      return;
+    }
+
+    // 通過（成功）。二度目以降の発火を止める。
+    t.done = true;
+    btns.forEach(function (b) { b.disabled = true; });
+    var isFirstTry = t.wrongCount === 0;
+
+    // 逃げ切り（試練通過）判定は純関数（logic.js・v2）。試練は収集数と別軸＝ポイントなし。
+    //   passed 記録・総ニゲキレ成功・一発成功のみ更新する。生活ランクは収集数で動くので
+    //   試練成功では変わらない（ランク更新メッセージは出さない）。
+    var m = ensureMode('nigekire');
+    var out = L.nigekireTrialV2(m.passed, m.totalSuccess, m.firstTrySuccess, t.articleId, isFirstTry);
+
+    // 反応表示（successLine）。二重取り（既通過）でも文言は出す。
+    els.kitacoreQuizResult.textContent =
+      t.rec && t.rec.successLine != null && t.rec.successLine !== ''
+        ? t.rec.successLine
+        : t.char.name + 'の確認を通過しました。';
+    els.kitacoreQuizResult.classList.remove('hidden');
+
+    if (!out.ok) return; // 二重取り防止（既に通過済み）→ 加算なし
+
+    m.passed = out.nextPassed;
+    m.totalSuccess = out.nextTotalSuccess;
+    m.firstTrySuccess = out.nextFirstTrySuccess;
+    // 逃げ切き記録はキャラ別に積む（試練は推しの曜日にしか出ないので t.char.key = 推し）。
+    //   キャラ別に持つので、推しを変えて戻ってきても記録が消えない。
+    if (t.char && t.char.key) {
+      var prev = typeof m.escapeCounts[t.char.key] === 'number' ? m.escapeCounts[t.char.key] : 0;
+      m.escapeCounts[t.char.key] = prev + 1;
+    }
+    saveState();
+
+    // 記事チップ（逃げ切り済み表示）とヘッダーへ反映（クイズモーダルは別レイヤーで残る）。
+    renderArticles();
+    updateReadStatsHeader();
+    // successLine はクイズ画面内（kitacoreQuizResult）に上で出している。キタコレの
+    //   answerQuiz と揃え、別レイヤーのシステムメッセージ（showNigekireSuccessMessage）は
+    //   出さない＝二重表示にしない。閉じるまで正解の緑ハイライトが見える。
+  }
+
+  // ニゲキレ試練モーダルを閉じる（DOM 共有のため hidden 付与＋文脈クリア）。
+  function closeNigekireTrial() {
+    activeNigekireTrial = null;
+    if (els.kitacoreQuiz) els.kitacoreQuiz.classList.add('hidden');
+  }
+
+  // 今 節目が出ているか（1箇所に集約・見出し／カットイン／最終確認／通過／DEBUG で共用）。
+  //   -> { ready, kind:'escape'|'point'|'done', need, passIndex }
+  //   閾値は選択中キャラ単位（逃げ切き 3/6/9 → ポイント 5/10/15・計6回）。
+  function nigekireReadyOut(m) {
+    return L.nigekireOshiMilestone(
+      m.escapeCounts, m.charCounts, m.oshiPassCounts, m.oshiChar, NIGEKIRE_THRESHOLDS
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 推し選択（7人から1人）。初回（oshiChar が null）とキャラ変更（rankStage>=3）で共用。
+  //   選択で oshiChar を確定し、NIGEKIRE_OSHI_SELECT_LINES をシステムメッセージで出す。
+  // ---------------------------------------------------------------------------
+
+  // モーダルを開く。isChange=true でキャラ変更（やめるボタンを出す・初回は閉じられない）。
+  function openNigekireOshiSelect(isChange) {
+    if (!els.nigekireOshi || !els.nigekireOshiGrid) return;
+    var m = ensureMode('nigekire');
+
+    if (els.nigekireOshiTitle) {
+      els.nigekireOshiTitle.textContent = isChange ? '推しを変える' : '推しを選ぶ';
+    }
+    if (els.nigekireOshiNote) {
+      els.nigekireOshiNote.textContent = isChange
+        ? '選び直すと、新しい曜日の記事に試練が出るようになります。'
+        : '1人選んでください。選んだ相手の曜日の記事にだけ試練が出ます。';
+    }
+    if (els.nigekireOshiCancel) {
+      els.nigekireOshiCancel.classList.toggle('hidden', !isChange);
+    }
+
+    els.nigekireOshiGrid.innerHTML = '';
+    NIGEKIRE_CHARACTERS.forEach(function (ch) {
+      var isCurrent = m.oshiChar === ch.key;
+      var isCleared = m.oshiCleared.indexOf(ch.key) >= 0;
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nigekire-oshi-item' +
+        (isCurrent ? ' is-current' : '') +
+        (isCleared ? ' is-cleared' : '');
+      if (ch.color) btn.style.setProperty('--char-color', ch.color);
+
+      // 画像は通常の立ち絵（生活カードと同じ assets/ohakano/<img>・正方形バストアップ）。
+      //   カットイン用の縦長全身は演出専用なので、一覧では使わない。
+      var thumb = document.createElement('div');
+      thumb.className = 'nigekire-oshi-thumb';
+      var img = document.createElement('img');
+      img.src = 'assets/ohakano/' + ch.img;
+      img.alt = ch.name;
+      img.loading = 'lazy';
+      thumb.appendChild(img);
+
+      var nameEl = document.createElement('span');
+      nameEl.className = 'nigekire-oshi-name';
+      nameEl.textContent = ch.label + '｜' + ch.name;
+      // 色は CSS 側で --char-color に白を混ぜて出す（inline 指定だと暗いキャラ色のまま沈む）。
+
+      btn.appendChild(thumb);
+      btn.appendChild(nameEl);
+
+      // 通過済み（3回クリア）は印を出す。絵文字は使わない。
+      if (isCleared) {
+        var mark = document.createElement('span');
+        mark.className = 'nigekire-oshi-mark';
+        mark.textContent = '通過済み';
+        btn.appendChild(mark);
+      }
+
+      btn.setAttribute('data-char', ch.key); // 確認バーの選択強調で引く
+      btn.addEventListener('click', function () { pickNigekireOshi(ch.key); });
+      els.nigekireOshiGrid.appendChild(btn);
+    });
+
+    els.nigekireOshi.classList.remove('hidden');
+  }
+
+  function closeNigekireOshiSelect() {
+    if (els.nigekireOshi) els.nigekireOshi.classList.add('hidden');
+  }
+
+  // 推しカードをタップ → その場で確定せず、システム確認（Yes/No）を挟む。
+  //   誤タップ防止＝キャラ変更は3回通過してやっと解禁される重い選択なので、必ず一度聞く。
+  function pickNigekireOshi(charKey) {
+    var ch = nigekireCharByKey(charKey);
+    if (!ch) return;
+    var m = ensureMode('nigekire');
+    if (m.oshiChar === charKey) { closeNigekireOshiSelect(); return; } // 現在の推しなら何もしない
+    var isChange = !!m.oshiChar;
+    showSystemConfirm(
+      [
+        '［ システム ］',
+        '',
+        isChange
+          ? ch.label + '担当〈' + ch.name + '〉に変えますか。'
+          : ch.label + '担当〈' + ch.name + '〉を推しにしますか。',
+        '',
+        '試練は' + ch.label + 'の記事に出るようになります。',
+      ],
+      [
+        { label: 'はい', primary: true, onSelect: function () { confirmNigekireOshi(charKey); } },
+        { label: 'やめる' },
+      ]
+    );
+  }
+
+  // 推しを確定する（システム確認で「はい」を選んだとき）。
+  function confirmNigekireOshi(charKey) {
+    var ch = nigekireCharByKey(charKey);
+    if (!ch) return;
+    var m = ensureMode('nigekire');
+
+    m.oshiChar = charKey;
+    saveState();
+    closeNigekireOshiSelect();
+
+    // 記事一覧を再描画（試練チップの出る曜日が変わる）＋ヘッダー更新。
+    renderRoute();
+    updateReadStatsHeader();
+
+    showSystemMessage([
+      '［ システム ］',
+      '',
+      ch.label + '担当〈' + ch.name + '〉を選びました。',
+      '',
+      NIGEKIRE_OSHI_SELECT_LINES[charKey] || '',
+    ]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 交換所（おへんじ帖の季節衣装・nigekire-exchange-spec.md）
+  //   ★ポイントは減らない（§2）。到達数で「何着選べるか」が決まる。
+  //   ポイントの正本はローカル。交換ボタンを押したときだけ API を叩く（§7）。
+  // ---------------------------------------------------------------------------
+
+  // 交換所で今開いているキャラ。二度押しロックは inFlight で持つ（§4 通信の失敗時）。
+  var outfitCharKey = null;
+  var outfitInFlight = false;
+
+  // ちび絵のパス。季節ごとにディレクトリが分かれる（chibi-summer/tsukiko.png）。
+  function nigekireOutfitImgSrc(charKey, season) {
+    var meta = NIGEKIRE_SEASON_META[season];
+    if (!meta || !meta.dir) return '';
+    return 'assets/ohakano/' + meta.dir + '/' + charKey + '.png';
+  }
+
+  // 解放済み一覧をサーバーから取り直してローカルへ反映（§7 キャッシュ）。
+  //   失敗しても致命ではない（キャッシュで表示を続ける）。
+  function refreshNigekireOutfitUnlocks() {
+    var m = ensureMode('nigekire');
+    var noteId = m.player && m.player.id ? m.player.id : '';
+    if (!noteId) return Promise.resolve();
+    return fetch(NIGEKIRE_OUTFIT_API + '/api/outfit/unlocks?noteId=' + encodeURIComponent(noteId))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.outfits)) return;
+        m.outfitUnlocks = data.outfits.map(function (o) {
+          return {
+            characterId: o.characterId,
+            season: o.season,
+            unlockedAt: typeof o.unlockedAt === 'string' ? o.unlockedAt : '',
+          };
+        });
+        saveState();
+      })
+      .catch(function () { /* オフラインはキャッシュで続行（§7） */ });
+  }
+
+  // 交換画面を開く（§5・2列×2行）。
+  function openNigekireOutfit(charKey) {
+    if (!els.nigekireOutfit || !els.nigekireOutfitGrid) return;
+    outfitCharKey = charKey;
+    renderNigekireOutfit();
+    els.nigekireOutfit.classList.remove('hidden');
+    // 開いたあとに最新を取り直す（取れたら描き直す）。オフラインでも開ける。
+    refreshNigekireOutfitUnlocks().then(function () {
+      if (outfitCharKey === charKey) renderNigekireOutfit();
+    });
+  }
+
+  function closeNigekireOutfit() {
+    outfitCharKey = null;
+    if (els.nigekireOutfit) els.nigekireOutfit.classList.add('hidden');
+    // カード画面の衣装行を更新（交換後の `- 夏 - -` を反映）。
+    renderNigekireCard();
+  }
+
+  // 交換画面の中身を描く。状態は logic の nigekireOutfitState に集約。
+  function renderNigekireOutfit() {
+    if (!outfitCharKey || !els.nigekireOutfitGrid) return;
+    var m = ensureMode('nigekire');
+    var ch = nigekireCharByKey(outfitCharKey);
+    if (!ch) return;
+    var cnt = typeof m.charCounts[ch.key] === 'number' ? m.charCounts[ch.key] : 0;
+    var unlocked = L.nigekireUnlockedSeasons(m.outfitUnlocks, ch.key);
+    var st = L.nigekireOutfitState(
+      cnt, unlocked, NIGEKIRE_OUTFIT_AVAILABLE, NIGEKIRE_OUTFIT_THRESHOLDS
+    );
+
+    if (els.nigekireOutfitTitle) {
+      els.nigekireOutfitTitle.textContent = ch.label + '｜' + ch.name;
+      if (ch.color) els.nigekireOutfitTitle.style.setProperty('--char-color', ch.color);
+    }
+    // 「選べる衣装 N着」＝減らないが到達数で決まる仕組みを伝える唯一の場所（§5・省略しない）。
+    if (els.nigekireOutfitSummary) {
+      var summary = '収集 ' + cnt + '　選べる衣装 ' + st.remaining + '着';
+      if (st.remaining === 0 && st.nextThreshold != null) {
+        summary += '（次は' + st.nextThreshold + 'pt）';
+      }
+      els.nigekireOutfitSummary.textContent = summary;
+    }
+
+    els.nigekireOutfitGrid.innerHTML = '';
+    st.seasons.forEach(function (slot) {
+      var meta = NIGEKIRE_SEASON_META[slot.season] || {};
+      var cell = document.createElement('div');
+      cell.className = 'nigekire-outfit-cell is-' + slot.state;
+
+      var art = document.createElement('div');
+      art.className = 'nigekire-outfit-art';
+      if (slot.state === 'unimplemented') {
+        // 未実装は画像を持たない。空枠のままにする（記号やアイコンを勝手に置かない）。
+      } else {
+        var img = document.createElement('img');
+        img.src = nigekireOutfitImgSrc(ch.key, slot.season);
+        img.alt = ch.name + ' ' + (meta.name || slot.season);
+        img.loading = 'lazy';
+        art.appendChild(img);
+      }
+      cell.appendChild(art);
+
+      var name = document.createElement('div');
+      name.className = 'nigekire-outfit-season';
+      name.textContent = meta.name || slot.season;
+      cell.appendChild(name);
+
+      var action = document.createElement('div');
+      action.className = 'nigekire-outfit-action';
+      if (slot.state === 'unimplemented') {
+        action.textContent = '準備中';
+      } else if (slot.state === 'unlocked') {
+        action.textContent = '取得済み';
+        action.classList.add('is-owned');
+        // 取得済みマスのタップで演出を再生（§6・コレクションを眺める楽しみ）。
+        cell.classList.add('is-replayable');
+        cell.addEventListener('click', function () {
+          playNigekireOutfitReveal(ch, slot.season);
+        });
+      } else if (slot.state === 'short') {
+        action.textContent = slot.shortfall == null ? '受け取れません' : 'あと' + slot.shortfall + 'pt';
+      } else {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nigekire-outfit-exchange';
+        btn.textContent = '受け取る';
+        btn.addEventListener('click', function () {
+          confirmNigekireOutfit(ch, slot.season);
+        });
+        action.appendChild(btn);
+      }
+      cell.appendChild(action);
+      els.nigekireOutfitGrid.appendChild(cell);
+    });
+  }
+
+  // 交換の確認（§6）。「本当によろしいですか？」ではなく、ちび絵を見せた上での [交換する]。
+  function confirmNigekireOutfit(ch, season) {
+    if (outfitInFlight) return; // 二度押しロック
+    var meta = NIGEKIRE_SEASON_META[season] || {};
+    showSystemConfirm(
+      ['［ システム ］', '', ch.name + 'の' + (meta.name || season) + '衣装を受け取ります。'],
+      [
+        {
+          label: '受け取る',
+          primary: true,
+          onSelect: function () { execNigekireOutfitUnlock(ch, season); },
+        },
+        { label: 'やめる' },
+      ]
+    );
+  }
+
+  // 交換の実行。API 成功後にローカルへ反映して演出を出す。
+  //   ★ポイントは減らさない（§2）。失敗しても巻き戻す残高が無い（§7）。
+  function execNigekireOutfitUnlock(ch, season) {
+    if (outfitInFlight) return;
+    var m = ensureMode('nigekire');
+    var noteId = m.player && m.player.id ? m.player.id : '';
+    if (!noteId) {
+      showSystemMessage(['［ システム ］', '', 'プレイヤー情報が見つかりません。']);
+      return;
+    }
+    outfitInFlight = true;
+    // 押せなくする（レスポンスが返るまで・§7）。
+    if (els.nigekireOutfitGrid) els.nigekireOutfitGrid.classList.add('is-busy');
+
+    fetch(NIGEKIRE_OUTFIT_API + '/api/outfit/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ noteId: noteId, characterId: ch.key, season: season }),
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || data.ok !== true) throw new Error('unlock failed');
+        // 既に解放済み（alreadyUnlocked）でもローカルに入れる＝二重タップ対策と整合。
+        m.outfitUnlocks = L.nigekireApplyOutfitUnlock(
+          m.outfitUnlocks, ch.key, season, data.unlockedAt
+        );
+        saveState();
+        renderNigekireOutfit();
+        playNigekireOutfitReveal(ch, season);
+      })
+      .catch(function () {
+        showSystemMessage(['［ システム ］', '', '解放できませんでした。']);
+      })
+      .then(function () {
+        outfitInFlight = false;
+        if (els.nigekireOutfitGrid) els.nigekireOutfitGrid.classList.remove('is-busy');
+      });
+  }
+
+  // 解放の演出（§6）。買っても YOMIASA 側では何も変わらないので、ここが唯一の報酬。
+  //   ちび絵を大きく出し、「おへんじ帖で使えるようになりました」を必ず添える。
+  function playNigekireOutfitReveal(ch, season) {
+    if (!els.nigekireOutfitReveal) return;
+    if (els.nigekireOutfitRevealImg) {
+      els.nigekireOutfitRevealImg.src = nigekireOutfitImgSrc(ch.key, season);
+      els.nigekireOutfitRevealImg.alt = ch.name;
+    }
+    if (els.nigekireOutfitRevealText) {
+      els.nigekireOutfitRevealText.textContent = 'おへんじ帖で使えるようになりました';
+    }
+    if (ch.color) els.nigekireOutfitReveal.style.setProperty('--char-color', ch.color);
+    els.nigekireOutfitReveal.classList.remove('hidden');
+    // タップで閉じる（§6 は1〜2秒だが、読み終わる前に消えないようタップでも閉じられる）。
+    var close = function () {
+      els.nigekireOutfitReveal.classList.add('hidden');
+      els.nigekireOutfitReveal.removeEventListener('click', close);
+    };
+    els.nigekireOutfitReveal.addEventListener('click', close);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 節目イベント（最終確認）: カットイン → 最終確認画面 → 通過（§9/§10）。
+  //   キタコレのボスカットイン相当だが戦闘語彙は使わない。専用オーバーレイ #nigekire-cutin
+  //   / #nigekire-final を使う（キタコレのボス戦 DOM とは分離＝キタコレ無改変）。
+  // ---------------------------------------------------------------------------
+
+  // 最終確認カットイン（§9）。暗転・曜日キャラ縦カード大・キャラカラー発光枠・システム文・
+  //   [画面タップで最終確認へ]案内。画面（背景/カード）タップで最終確認画面へ進む。
+  // 段階番号の正規化（1..6 に丸める）。passIndex は logic 側で 1..6 を返すが、
+  //   将来 7 回目以降が来ても最終段（6）で頭打ちにして描画が壊れないようにする。
+  function nigekireCutinStage(passIndex) {
+    var n = typeof passIndex === 'number' && isFinite(passIndex) ? Math.floor(passIndex) : 1;
+    if (n < 1) return 1;
+    if (n > 6) return 6;
+    return n;
+  }
+
+  // '#1f3a5f' -> '31, 58, 95'。CSS 側で rgba(var(--char-rgb), a) の形で
+  //   キャラカラーを任意の透明度で混ぜられるようにするため。#RGB 短縮形も許容する。
+  //   ★演出用に明度を底上げする：月子(#1f3a5f ネイビー)や凛華(#7b1e2b ボルドー)は
+  //     そのまま暗転に混ぜても暗いままで、段階が上がった実感が出ないため。
+  //     色相は保ったまま、暗い色ほど強く白へ寄せる（明るい色はほぼ素通り）。
+  function nigekireHexToRgbTriple(hex) {
+    var h = typeof hex === 'string' ? hex.replace('#', '').trim() : '';
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return '148, 163, 184'; // フォールバック（既定のスレート）
+    var r = parseInt(h.slice(0, 2), 16);
+    var g = parseInt(h.slice(2, 4), 16);
+    var b = parseInt(h.slice(4, 6), 16);
+    // 知覚輝度（0..255）。低いほど暗い色。
+    var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    var TARGET = 165; // 演出に必要な明るさの目安
+    if (lum < TARGET) {
+      // 白へ寄せる割合。暗いほど大きく（上限 0.72 で色相を完全には飛ばさない）。
+      var mix = Math.min(0.72, (TARGET - lum) / TARGET);
+      r = Math.round(r + (255 - r) * mix);
+      g = Math.round(g + (255 - g) * mix);
+      b = Math.round(b + (255 - b) * mix);
+    }
+    return [r, g, b].join(', ');
+  }
+
+  function openNigekireFinalCutin(charKey) {
+    if (!els.nigekireCutin) return;
+    var ch = nigekireCharByKey(charKey);
+    if (!ch) return;
+    // 二重防御: 今 節目が出ていない（ready でない）なら開かない。
+    var m = ensureMode('nigekire');
+    var readyOut = nigekireReadyOut(m);
+    if (!readyOut.ready) return;
+
+    // 段階の描き分け（§spec-cutin-stage-decoration）。
+    //   JS は「何段階目か」と「キャラカラー」を渡すだけ。見た目は style.css の
+    //   .nigekire-cutin.stage-N が持つ（値は CSS 変数にまとめてある）。
+    //   段階 = 通過セリフの回数と同じ数字（readyOut.passIndex・1..6）。
+    var stage = nigekireCutinStage(readyOut.passIndex);
+    for (var s = 1; s <= 6; s++) els.nigekireCutin.classList.remove('stage-' + s);
+    els.nigekireCutin.classList.add('stage-' + stage);
+    els.nigekireCutin.style.setProperty('--char-color', ch.color || '#94a3b8');
+    els.nigekireCutin.style.setProperty('--char-rgb', nigekireHexToRgbTriple(ch.color));
+
+    if (els.nigekireCutinCard) {
+      // 枠色・発光は CSS 側（stage 別）が --char-color から作る。inline 指定は残さない。
+      els.nigekireCutinCard.style.borderColor = '';
+      els.nigekireCutinCard.style.boxShadow = '';
+    }
+    if (els.nigekireCutinImg) {
+      // 画像は必ず専用定数から引く（後日の専用カットイン画像差し替えを1箇所で済ませるため）。
+      els.nigekireCutinImg.src = NIGEKIRE_CUTIN_IMG[charKey] || ('assets/ohakano/' + ch.img);
+      els.nigekireCutinImg.alt = ch.name;
+    }
+    if (els.nigekireCutinName) {
+      els.nigekireCutinName.textContent = ch.label + '｜' + ch.name;
+      // 色は CSS 側で --char-color に白を混ぜて出す（段階が上がると背景が明るくなり、
+      //   暗いキャラカラーのままだと名前が埋もれるため）。
+      els.nigekireCutinName.style.removeProperty('color');
+      if (ch.color) els.nigekireCutinName.style.setProperty('--char-color', ch.color);
+    }
+    if (els.nigekireCutinLine) {
+      var line = NIGEKIRE_CUTIN_LINES[charKey] || ('〈' + ch.name + '〉が待っている。');
+      els.nigekireCutinLine.textContent = line;
+    }
+    // タップで進む先のキャラを覚えておく（オーバーレイの click ハンドラで参照）。
+    activeNigekireFinalChar = charKey;
+    els.nigekireCutin.classList.remove('hidden');
+  }
+
+  // カットインのタップ → 最終確認画面へ。
+  function onNigekireCutinTap() {
+    var charKey = activeNigekireFinalChar;
+    if (els.nigekireCutin) els.nigekireCutin.classList.add('hidden');
+    if (charKey) openNigekireFinalCheck(charKey);
+  }
+
+  // 最終確認画面（§10）。「○○の最終確認」＋キャラ別セリフ＋[確認を通過する]（クイズなし・儀式）。
+  function openNigekireFinalCheck(charKey) {
+    if (!els.nigekireFinal) return;
+    var ch = nigekireCharByKey(charKey);
+    if (!ch) return;
+    var m = ensureMode('nigekire');
+    var ready = nigekireReadyOut(m);
+    if (!ready.ready) return; // 二重防御（節目が出ていない）
+
+    if (els.nigekireFinalTitle) {
+      els.nigekireFinalTitle.textContent = ch.name + 'の最終確認';
+      els.nigekireFinalTitle.style.color = ch.color || '';
+    }
+    if (els.nigekireFinalLine) {
+      // 通過セリフ 42本から引く（回 1..6）。セリフに鉤括弧が含まれるのでそのまま入れる。
+      var lineKey = L.nigekireOshiPassLineKey(charKey, ready.passIndex);
+      els.nigekireFinalLine.textContent = NIGEKIRE_PASS_LINES[lineKey] || '';
+    }
+    activeNigekireFinalChar = charKey;
+    els.nigekireFinal.classList.remove('hidden');
+  }
+
+  // 最終確認画面を閉じる。
+  function closeNigekireFinalCheck() {
+    if (els.nigekireFinal) els.nigekireFinal.classList.add('hidden');
+  }
+
+  // [確認を通過する]。節目を通過する（キャラ単位ポイント＋閾値初到達）。
+  //   閾値キー（'escape3'..'point15'）が reachedThresholds に無ければ追加＝初到達で
+  //   ランクが1段上がる。2人目以降は既に到達済みなので節目は出るがランクは動かない。
+  //   ランク A→B の行は rankUp のときだけ出す（動かないのに出すと嘘表示になる）。
+  function passNigekireFinalCheck(charKey) {
+    var m = ensureMode('nigekire');
+    var ready = nigekireReadyOut(m);
+    if (!ready.ready) { closeNigekireFinalCheck(); return; }
+
+    var ch = nigekireCharByKey(charKey) || nigekireCharByKey(m.oshiChar);
+    var lifeBefore = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
+    var clearedBefore = m.oshiCleared.length;
+    var stageBefore = m.rankStage;
+
+    var out = L.nigekirePassOshiMilestone(
+      m.reachedThresholds, m.oshiPassCounts, m.oshiCleared, m.oshiChar, ready.kind, ready.need
+    );
+    if (!out.ok) { closeNigekireFinalCheck(); return; }
+    m.reachedThresholds = out.nextReached;
+    m.oshiPassCounts = out.nextPassCounts;
+    m.oshiCleared = out.nextCleared;
+    // rankStage は到達済み閾値の数から導出（rankUp のときだけ実際に動く）。
+    m.rankStage = L.nigekireRankStageFromReached(
+      m.reachedThresholds, NIGEKIRE_LIFE_RANKS.length - 1
+    );
+    saveState();
+
+    var lifeAfter = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
+    var label = ch ? ch.label : '曜日';
+    var name = ch ? ch.name : '曜日担当';
+    var lines = [
+      '［ システム ］',
+      '',
+      label + '担当〈' + name + '〉の最終確認を通過しました。',
+    ];
+    // ランク更新の行は閾値への初到達（rankUp）のときだけ。2人目以降は動かないので出さない。
+    if (out.rankUp && m.rankStage !== stageBefore) {
+      lines.push('');
+      lines.push('おはカノ生活ランクが更新されました。');
+      lines.push((L.nigekireRankLabel(lifeBefore) || '---') + ' → ' + (L.nigekireRankLabel(lifeAfter) || '---'));
+    }
+    // 3回通過（oshiCleared に積まれた）＝そのキャラの立ち絵が生活カードで見えるようになる。
+    //   「生活カードが開きました」だけだと何が起きたか伝わらないので、
+    //   どこで何が見られるようになったかを書く。
+    if (m.oshiCleared.length > clearedBefore) {
+      lines.push('');
+      lines.push(name + 'の姿が見えるようになりました。');
+      lines.push('ランクをタップすると確認できます。');
+      // 1人目の完了（rankStage 3 到達）でだけキャラ変更の解禁を知らせる。
+      if (stageBefore < 3 && m.rankStage >= 3) {
+        lines.push('');
+        lines.push('推しを変えられるようになりました。');
+      }
+    }
+    closeNigekireFinalCheck();
+    // 再描画（最終確認見出しが消える・ランク更新）。ヘッダー・記事チップを更新してからメッセージ。
+    renderRoute();
+    updateReadStatsHeader();
+    showSystemMessage(lines);
+  }
+
+  // 一言チップのタップ回収 v2（キャラ別・+1・§10）。読了自動ではなくチップタップで回収する。
+  //   1記事に複数キャラの一言があるため、どの charKey を回収するかを受ける。
+  //   回収キャラは counts[articleId].chars に含まれるもの。二重取りは logic 側で防ぐ。
+  //   回収→収集モーダル（§17-1「気配を見つけた」語彙・ポイント文言なし）。
+  function nigekireCollect(articleId, charKey) {
+    var m = ensureMode('nigekire');
+    // 収集ロックは撤去（推し選択構造では rankStage による回収拒否をしない）。
+    var out = L.nigekireCollectV2(m.counts, m.collected, m.charCounts, articleId, charKey);
+    if (!out.ok) return; // 未検出 / 二重取り防止（回収済み）
+    m.collected = out.nextCollected;
+    m.charCounts = out.nextCharCounts;
+    saveState();
+    renderArticles();
+    updateReadStatsHeader(); // 節目トリガー到達時はここで見出しが出る（renderNigekireHeader）
+
+    var char = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === out.charKey; })[0];
+    // 収集モーダル（§17-1）。ランクは通過ベースなので収集ではランク更新メッセージを出さない。
+    linesModeKey = 'nigekire';
+    var lines = nigekireCollectLines(char);
+    linesModeKey = null;
+    showSystemMessage(lines);
   }
 
   // ---------------------------------------------------------------------------
@@ -1433,13 +2922,10 @@
     return L.monthOf(a);
   }
 
+  // 記事の公開日「YYYY.MM.DD (曜)」。曜日は JST 基準（logic.js・ニゲキレのチップと必ず一致）。
+  //   記事一覧・お気に入り一覧の両方で使う（全モード共通の常時表示）。
   function formatDateDot(a) {
-    var d = parseDate(a.publishedAt);
-    if (!d) return '';
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var day = String(d.getDate()).padStart(2, '0');
-    return y + '.' + m + '.' + day;
+    return L.formatDateWithWeekday(a && a.publishedAt);
   }
 
   function formatFetched(iso) {
@@ -1694,6 +3180,7 @@
     kitacoreSystem: document.getElementById('kitacore-system'),
     kitacoreSystemText: document.getElementById('kitacore-system-text'),
     kitacoreQuiz: document.getElementById('kitacore-quiz'),
+    kitacoreQuizLabel: document.getElementById('kitacore-quiz-label'),
     kitacoreQuizQ: document.getElementById('kitacore-quiz-q'),
     kitacoreQuizChoices: document.getElementById('kitacore-quiz-choices'),
     kitacoreQuizResult: document.getElementById('kitacore-quiz-result'),
@@ -1707,6 +3194,44 @@
     kitacoreBattle: document.getElementById('kitacore-battle'),
     kitacoreBattleImg: document.getElementById('kitacore-battle-img'),
     kitacoreBattleText: document.getElementById('kitacore-battle-text'),
+
+    // ニゲキレ 節目イベント（最終確認）オーバーレイ ＆ debug（キタコレ DOM とは分離）。
+    nigekireCutin: document.getElementById('nigekire-cutin'),
+    nigekireCutinCard: document.getElementById('nigekire-cutin-card'),
+    nigekireCutinImg: document.getElementById('nigekire-cutin-img'),
+    nigekireCutinName: document.getElementById('nigekire-cutin-name'),
+    nigekireCutinLine: document.getElementById('nigekire-cutin-line'),
+    nigekireFinal: document.getElementById('nigekire-final'),
+    nigekireFinalTitle: document.getElementById('nigekire-final-title'),
+    nigekireFinalLine: document.getElementById('nigekire-final-line'),
+    nigekireFinalPass: document.getElementById('nigekire-final-pass'),
+    nigekireDebugBtns: document.getElementById('nigekire-debug-btns'),
+    nigekireDebugAddAll: document.getElementById('nigekire-debug-add-all'),
+    nigekireDebugAddTsukiko: document.getElementById('nigekire-debug-add-tsukiko'),
+    nigekireDebugOver200: document.getElementById('nigekire-debug-over200'),
+    nigekireDebugEscape: document.getElementById('nigekire-debug-escape'),
+    nigekireDebugPass: document.getElementById('nigekire-debug-pass'),
+    nigekireDebugClear: document.getElementById('nigekire-debug-clear'),
+    nigekireDebugOshi: document.getElementById('nigekire-debug-oshi'),
+    // 推し選択モーダル（初回選択・キャラ変更で共用）。
+    nigekireOshi: document.getElementById('nigekire-oshi'),
+    nigekireOshiTitle: document.getElementById('nigekire-oshi-title'),
+    nigekireOshiNote: document.getElementById('nigekire-oshi-note'),
+    nigekireOshiGrid: document.getElementById('nigekire-oshi-grid'),
+    nigekireOshiCancel: document.getElementById('nigekire-oshi-cancel'),
+    // 交換所（おへんじ帖の季節衣装）
+    nigekireOutfit: document.getElementById('nigekire-outfit'),
+    nigekireOutfitTitle: document.getElementById('nigekire-outfit-title'),
+    nigekireOutfitSummary: document.getElementById('nigekire-outfit-summary'),
+    nigekireOutfitGrid: document.getElementById('nigekire-outfit-grid'),
+    nigekireOutfitClose: document.getElementById('nigekire-outfit-close'),
+    nigekireOutfitReveal: document.getElementById('nigekire-outfit-reveal'),
+    nigekireOutfitRevealImg: document.getElementById('nigekire-outfit-reveal-img'),
+    nigekireOutfitRevealText: document.getElementById('nigekire-outfit-reveal-text'),
+    // システム確認（Yes/No の汎用部品・システムメッセージと同じ見た目）
+    systemConfirm: document.getElementById('system-confirm'),
+    systemConfirmText: document.getElementById('system-confirm-text'),
+    systemConfirmActions: document.getElementById('system-confirm-actions'),
   };
 
   // 初期既読セットアップの対象クリエイターID
@@ -1949,11 +3474,12 @@
 
     var avatar = document.createElement('div');
     avatar.className = 'creator-card-avatar';
-    // 発動対象が覚醒済みなら金縁。隠しコマンド（ダブルタップ）で切り替える。
-    if (isKitacoreTarget(c.id) && isModeOn(c.id)) {
+    // 発動対象がモードON中なら金縁。隠しコマンド（ダブルタップ）で切り替える。
+    // モード横断で判定する（キタコレ=kitacore / ニゲキレ=nigekire どちらでも金縁）。
+    if (isModeCreator(c.id) && isModeOnFor(c.id)) {
       avatar.classList.add('is-awakened');
     }
-    if (isKitacoreTarget(c.id)) {
+    if (isModeCreator(c.id)) {
       attachDoubleTap(avatar, function () {
         toggleMode(c.id);
       });
@@ -2420,7 +3946,9 @@
 
     // キタコレ覚醒前：クイズがある記事に「光ボタン」を出す（タップでクイズ）。
     //   未正解＝光る（タップ可）/ 正解済み＝光を消し「入手済」表示（タップ不可）。
-    if (isKitacoreTarget(creatorId) && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
+    //   中身（kitacore-glow / openQuiz / mc().quizTaps）はキタコレ専用なので、
+    //   キタコレ限定で判定する（ニゲキレは別チップ＝下の nigekire 分岐で扱う）。
+    if (activeModeKey(creatorId) === 'kitacore' && isModeOn(creatorId) && !isPostAwakening(creatorId)) {
       var quiz = quizForArticle(article);
       if (quiz) {
         var quizCleared = isQuizCleared(creatorId, article.id);
@@ -2432,8 +3960,8 @@
         glow.disabled = quizCleared;
         if (!quizCleared) {
           glow.addEventListener('click', function () {
-            ensureKitacore();
-            state.kitacore.quizTaps = (state.kitacore.quizTaps || 0) + 1;
+            ensureMode('kitacore');
+            mc().quizTaps = (mc().quizTaps || 0) + 1;
             saveState();
             openQuiz(creatorId, article, quiz);
           });
@@ -2445,8 +3973,8 @@
     // キタコレ：覚醒済みクリエイターで「収集済み」の記事だけワイ語チップを出す。
     //   未収集（タップ前）はチップ無し。ワイ>0未回収=タップ可。
     //   ワイ0 / 回収済み=非活性。
-    if (isKitacoreTarget(creatorId) && isModeOn(creatorId) && isCounted(article.id)) {
-      var entry = state.kitacore.counts[article.id];
+    if (activeModeKey(creatorId) === 'kitacore' && isModeOn(creatorId) && isCounted(article.id)) {
+      var entry = mc().counts[article.id];
       var collected = isCollected(article.id);
       var claimable = entry.wai > 0 && !collected;
       var wai = document.createElement('button');
@@ -2465,6 +3993,72 @@
         });
       }
       meta.appendChild(wai);
+    }
+
+    // ── ニゲキレ：記事チップ（v2・二層）＋タップ動作 ──
+    //   試練対象（nigekire_quiz.json に載っている推しの曜日の記事）＝「ニゲキレ試練」。
+    //   収集対象（本文取得で一言検出済み＝counts[id].chars あり）＝見出しキャラの「一言チップ」（複数可）。
+    //   ★試練と収集は独立に出す（else if にしない）。試練の途中でも最新記事の一言チップを
+    //     出して回収できるようにする＝あとで記事を二度読む羽目を避けるため（はしゃもさん）。
+    //     同じ記事に試練と一言が両方あれば、試練チップと一言チップが並んで出る。
+    if (isModeOnFor(creatorId) && activeModeKey(creatorId) === 'nigekire') {
+      var nrec = nigekireQuizForArticle(article);
+      var nm = ensureMode('nigekire');
+
+      // 試練は推しの曜日の記事にだけ出す。曜日が一致しなければ（クイズがあっても）試練チップは出さない。
+      var ntchar = nrec ? nigekireCharForArticle(article, nrec) : null;
+      var isOshiDay = !!(ntchar && nm.oshiChar && ntchar.key === nm.oshiChar);
+
+      if (nrec && isOshiDay) {
+        // 試練対象：推しの曜日。タップで試練モーダル。逃げ切り済みは非活性。
+        var tchar = ntchar;
+        if (tchar) {
+          var passedAlready = !!(nm.passed && nm.passed[article.id]);
+          // 見た目はキタコレの試練チップ（.kitacore-glow・金＋点滅）と同じにする。
+          //   両モードで「試練＝ここに挑めるものがある」の見え方を揃える（キャラ色では分けない）。
+          var trial = document.createElement('button');
+          trial.type = 'button';
+          trial.className = 'kitacore-glow nigekire-trial' + (passedAlready ? ' is-cleared is-done' : '');
+          trial.textContent = passedAlready ? tchar.name + ' 逃げ切り済み' : '✨ ' + tchar.name + ' 試練';
+          trial.disabled = passedAlready;
+          if (!passedAlready) {
+            trial.addEventListener('click', function () {
+              openNigekireTrial(article);
+            });
+          }
+          meta.appendChild(trial);
+        }
+      }
+
+      // 一言チップ：試練の有無と独立に、検出済みなら常に出す。
+      if (nm.counts && nm.counts[article.id] && Array.isArray(nm.counts[article.id].chars)) {
+        // 収集対象：本文取得で検出した一言キャラ。1記事に複数キャラの一言があれば
+        //   キャラごとにチップを出し、それぞれ独立にタップ回収（+1）する。回収済みは非活性。
+        var articleId = article.id;
+        var collectedMap = (nm.collected && nm.collected[articleId] &&
+          typeof nm.collected[articleId] === 'object') ? nm.collected[articleId] : {};
+        nm.counts[articleId].chars.forEach(function (cKey) {
+          var cchar = NIGEKIRE_CHARACTERS.filter(function (c) { return c.key === cKey; })[0];
+          if (!cchar) return;
+          var already = !!collectedMap[cKey];
+          // 収集ロックは撤去（rankStage による回収拒否をしない）。
+          // 見た目はキタコレのワイチップ（.article-wai）と同じにする＝両モードで
+          //   「回収できるチップ」の見え方を揃える（曜日・キャラ色では分けない）。
+          var chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'article-wai nigekire-chip' +
+            (already ? ' is-collected' : ' is-claimable');
+          // 文言はキャラ名のみ。回収済みは ✓ を付ける（キタコレの「ワイ 5 ✓」と同型）。
+          chip.textContent = already ? cchar.name + ' ✓' : cchar.name;
+          chip.disabled = already;
+          if (!already) {
+            chip.addEventListener('click', function () {
+              nigekireCollect(articleId, cKey);
+            });
+          }
+          meta.appendChild(chip);
+        });
+      }
     }
 
     body.appendChild(meta);
@@ -2506,7 +4100,181 @@
       els.readProgress.appendChild(progressBarEl(stats));
     }
 
+    // モード別ヘッダー。キタコレはキタコレ発動対象のときだけ描く（無改変）。
+    //   ニゲキレはアクティブモードが nigekire のときだけ描く（同じ #kitacore-rank-area を
+    //   別モードで排他利用＝同一クリエイターに両モードが同時発動することはない）。
     renderKitacoreHeader();
+    renderNigekireHeader();
+  }
+
+  // ニゲキレ：ヘッダー（v2・生活ランクバッジ＋最推し＋1本ゲージ）。モードON のときだけ表示。
+  //   ※v2で7人水平バーは廃止（1本の「おはカノ生活ゲージ」に統一・§5/§6）。
+  //     ゲージの中身は選択中キャラのポイント（次のポイント閾値 5/10/15 まで）。
+  //   キタコレの #kitacore-rank-area / #kitacore-stats / #kitacore-progress を排他利用する
+  //   （ニゲキレ対象=hasyamo・キタコレ対象=ktcrs1107 で creator が異なるため衝突しない）。
+  //   称号エリア（rank-area）タップ→詳細カード（openRankCard がモード分岐）＝キタコレと操作統一。
+  //   ボス概念は無いので #kitacore-boss は使わず隠す。
+  function renderNigekireHeader() {
+    var c = getSelectedCreator();
+    var on = c && activeModeKey(c.id) === 'nigekire' && isModeOnFor(c.id);
+    // ニゲキレ非該当時は何もしない（キタコレ側の hidden 制御を尊重＝二重制御しない）。
+    if (!on) return;
+
+    if (els.kitacoreRankArea) els.kitacoreRankArea.classList.remove('hidden');
+    if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
+    // キタコレ用 debug は常に隠す（排他）。ニゲキレ用は下で ?debug=1 のとき出す。
+    if (els.debugBtns) els.debugBtns.classList.add('hidden');
+
+    // ニゲキレ用 debug ボタン群: ?debug=1 かつ 記事取得済み のときだけ表示（キタコレと同方式・排他）。
+    var hasArticles = c && (state.articlesByCreator[c.id] || []).length > 0;
+    if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.toggle('hidden', !(DEBUG_MODE && hasArticles));
+
+    var m = ensureMode('nigekire');
+    // 推し未選択なら選択モーダルを出す（初回・閉じられない）。選択するまで先へ進めない。
+    if (!m.oshiChar) openNigekireOshiSelect(false);
+    // v2（通過ベース §10-2）：ランクは rankStage（通過した節目数）で決まる。収集数は次の
+    //   節目トリガーで、ランク名は決めない。ゲージ（総収集の進捗）と最推しは収集数ベースのまま。
+    var life = L.nigekireRankByStage(m.rankStage, NIGEKIRE_LIFE_RANKS);
+    // ゲージは選択中キャラのポイント（総収集ではない）。例「8 / 15」・オーバーは「20 / 15」。
+    var gauge = L.nigekireOshiGauge(m.charCounts, m.oshiChar, m.oshiPassCounts, NIGEKIRE_THRESHOLDS);
+    var top = L.nigekireTopChar(m.charCounts, NIGEKIRE_CHARACTERS);
+
+    // 上段: 生活ランクバッジ（キタコレの paintKitacoreHeader と完全に同じ形式）＋最推し。
+    //   バッジ1個に「おはカノ生活ランク ○○」を入れる。クラスも同じ .kitacore-rank-text（button）。
+    //   タップで詳細カード（称号名だけがタップ領域・§4 操作統一）。
+    els.kitacoreStats.innerHTML = '';
+    // ニゲキレは上部を縦積みにする（§6：ランク→逃げ切り記録→節目見出し）。
+    //   キタコレの stats は横並び flex なので、ニゲキレ時だけ is-nigekire で縦積みへ切り替える。
+    els.kitacoreStats.classList.add('is-nigekire');
+    // ランク行：左にランクバッジ、右端に推しバッジ（同じ行に並べる）。
+    var rankRow = document.createElement('div');
+    rankRow.className = 'nigekire-rank-row';
+    var rank = document.createElement('button');
+    rank.type = 'button';
+    rank.className = 'kitacore-rank-text rank-' + (life.key || 'nigekire');
+    // 称号に通過済みキャラの曜日を積む（曜日順固定）。例: 生活防衛中〈月水金〉
+    rank.textContent = 'ランク ' +
+      L.nigekireRankTitleWithDays(L.nigekireRankLabel(life) || '---', m.oshiCleared, NIGEKIRE_CHARACTERS);
+    rank.addEventListener('click', function () { openRankCard(); });
+    rankRow.appendChild(rank);
+
+    // 推しバッジ（行の右端）。ランクバッジと同じ質感で、色はキャラ別にしない（共通の落ち着いた色）。
+    //   タップで推し選択モーダル＝キャラ変更の導線。変更解禁は rankStage>=3。
+    var oshiCh = nigekireCharByKey(m.oshiChar);
+    if (oshiCh) {
+      var canChange = m.rankStage >= 3;
+      var oshiEl = document.createElement('button');
+      oshiEl.type = 'button';
+      oshiEl.className = 'nigekire-oshi-current' + (canChange ? ' is-changeable' : '');
+      oshiEl.textContent = '推し ' + oshiCh.label + '｜' + oshiCh.name;
+      oshiEl.disabled = !canChange;
+      if (canChange) {
+        oshiEl.title = '推しを変える';
+        oshiEl.addEventListener('click', function () { openNigekireOshiSelect(true); });
+      }
+      rankRow.appendChild(oshiEl);
+    }
+    els.kitacoreStats.appendChild(rankRow);
+
+    // 逃げ切き記録行（ゲージとは別行・絵文字を使わない）。
+    //   「逃げ切り 凛華 3/9  ●●●｜○○○｜○○○」。3回通過済み（oshiCleared入り）なら出さない。
+    if (oshiCh && m.oshiCleared.indexOf(oshiCh.key) < 0) {
+      var esc = L.nigekireOshiEscapeRecord(m.escapeCounts, m.oshiChar);
+      var recEl = document.createElement('div');
+      recEl.className = 'nigekire-escape-record';
+
+      var recLabel = document.createElement('span');
+      recLabel.className = 'nigekire-escape-label';
+      recLabel.textContent = '逃げ切り';
+      recEl.appendChild(recLabel);
+
+      var recCount = document.createElement('span');
+      recCount.className = 'nigekire-escape-count';
+      recCount.textContent = esc.count + ' / ' + esc.need;
+      recEl.appendChild(recCount);
+
+      // 進捗ドット（文字の●○でなく CSS で描く）。3本ごとに1ブロック＝最終確認の単位。
+      var dots = document.createElement('span');
+      dots.className = 'nigekire-escape-dots';
+      esc.cleared.forEach(function (done, i) {
+        var block = document.createElement('span');
+        block.className = 'nigekire-escape-block' + (done ? ' is-cleared' : '');
+        var filled = done ? 3 : Math.max(0, Math.min(3, esc.count - i * 3));
+        for (var d = 0; d < 3; d++) {
+          var dot = document.createElement('span');
+          dot.className = 'nigekire-escape-dot' + (d < filled ? ' is-on' : '');
+          block.appendChild(dot);
+        }
+        dots.appendChild(block);
+      });
+      recEl.appendChild(dots);
+      els.kitacoreStats.appendChild(recEl);
+    }
+
+    // 節目トリガー判定。initial（推しの逃げ切き 3/6/9）と collect（総収集 70/120/200）の2系統。
+    var readyOut = nigekireReadyOut(m);
+
+    // 最終確認見出し（§8）。ready のときだけ表示。カルーセルなし＝演出に出るのは推し固定。
+    //   キタコレのボス見出し（サムネ＋info＋pillボタン）と同型の節目カードにする（§7 相当表）。
+    //   戦闘語彙は使わず、色はキャラカラーにする。
+    if (readyOut.ready) {
+      var fchar = oshiCh; // 推し固定（選定処理は無い）
+      var fname = fchar ? fchar.name : '曜日担当';
+      var head = document.createElement('div');
+      head.className = 'nigekire-final-head';
+
+      // サムネ（曜日キャラの立ち絵・キタコレの kitacore-boss-thumb 相当）。
+      var fthumb = document.createElement('div');
+      fthumb.className = 'nigekire-final-head-thumb';
+      if (fchar) {
+        var fimg = document.createElement('img');
+        fimg.src = 'assets/ohakano/' + fchar.img;
+        fimg.alt = fname;
+        fimg.loading = 'lazy';
+        fthumb.appendChild(fimg);
+      }
+
+      // 情報カラム（label／本文／pillボタン）。
+      var finfo = document.createElement('div');
+      finfo.className = 'nigekire-final-head-info';
+      var hTitle = document.createElement('div');
+      hTitle.className = 'nigekire-final-head-title';
+      hTitle.textContent = '最終確認';
+      var hBody = document.createElement('div');
+      hBody.className = 'nigekire-final-head-body';
+      hBody.textContent = fchar ? (fchar.label + '担当 ' + fname + 'が待っています') : (fname + 'が待っています');
+      var hBtn = document.createElement('button');
+      hBtn.type = 'button';
+      hBtn.className = 'nigekire-final-head-btn';
+      hBtn.textContent = '言い訳する';
+      hBtn.addEventListener('click', function () { openNigekireFinalCutin(m.oshiChar); });
+      finfo.appendChild(hTitle);
+      finfo.appendChild(hBody);
+      finfo.appendChild(hBtn);
+
+      head.appendChild(fthumb);
+      head.appendChild(finfo);
+      els.kitacoreStats.appendChild(head);
+    }
+
+    // 下段: 1本ゲージ（§5/§6）。塗り=次のポイント閾値への進行率(pct)・ラベルはオーバー値表示。
+    //   キタコレの progress バー（.progress/.progress-track/.progress-fill/.progress-pct）を流用。
+    //   タップ不可（表示専用）。7人水平バーは v2 で廃止。
+    els.kitacoreProgress.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'progress';
+    var track = document.createElement('div');
+    track.className = 'progress-track';
+    var fill = document.createElement('div');
+    fill.className = 'progress-fill';
+    fill.style.width = Math.max(0, Math.min(100, gauge.pct)) + '%';
+    track.appendChild(fill);
+    var barLabel = document.createElement('span');
+    barLabel.className = 'progress-pct kitacore-wai-count';
+    barLabel.textContent = gauge.display; // 例「8 / 15」・閾値超は「20 / 15」
+    wrap.appendChild(track);
+    wrap.appendChild(barLabel);
+    els.kitacoreProgress.appendChild(wrap);
   }
 
   // キタコレ：ヘッダーにランク行＋進捗バーを出す。モードON のときだけ表示。
@@ -2514,8 +4282,10 @@
   //   覚醒後（wing 撃破済み）= ワイ語ハンターランク＋ワイ累計バー。
   function renderKitacoreHeader() {
     var c = getSelectedCreator();
-    var on = c && isKitacoreTarget(c.id) && isModeOn(c.id);
+    var on = c && activeModeKey(c.id) === 'kitacore' && isModeOn(c.id);
     if (els.kitacoreRankArea) els.kitacoreRankArea.classList.toggle('hidden', !on);
+    // ニゲキレ用 debug ボタンはキタコレ描画中は常に隠す（排他・キタコレ挙動は無改変）。
+    if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.add('hidden');
     if (!on) {
       if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
       if (els.debugBtns) els.debugBtns.classList.add('hidden');
@@ -2642,14 +4412,14 @@
 
   // 覚醒後ボスに挑戦（鍵不要）。撃破確定＆演出開始。
   function challengePostBoss(creatorId, boss) {
-    ensureKitacore();
-    if (!state.kitacore.defeatedBosses[creatorId]) state.kitacore.defeatedBosses[creatorId] = [];
-    state.kitacore.defeatedBosses[creatorId].push(boss.key);
-    if (state.kitacore.pendingPostBoss) delete state.kitacore.pendingPostBoss[creatorId];
+    ensureMode('kitacore');
+    if (!mc().defeatedBosses[creatorId]) mc().defeatedBosses[creatorId] = [];
+    mc().defeatedBosses[creatorId].push(boss.key);
+    if (mc().pendingPostBoss) delete mc().pendingPostBoss[creatorId];
     saveState();
     // 撃破後、既にワイ閾値を超えている次のボスがあれば出現させる
-    var totalWai = state.kitacore.totalWai || 0;
-    var defeated = state.kitacore.defeatedBosses[creatorId];
+    var totalWai = mc().totalWai || 0;
+    var defeated = mc().defeatedBosses[creatorId];
     KITACORE_POST_BOSSES.forEach(function (nextBoss) {
       if (defeated.indexOf(nextBoss.key) !== -1) return; // 既に撃破済み
       var rank = KITACORE_RANKS.find(function (r) { return r.bossKey === nextBoss.key; });
@@ -2662,9 +4432,14 @@
   //   badgeText/badgeKey = ランクバッジ。barCur/barMax/barText = 進捗バー。
   function paintKitacoreHeader(badgeText, badgeKey, barCur, barMax, barText) {
     els.kitacoreStats.innerHTML = '';
-    var rank = document.createElement('span');
+    // キタコレは横並び stats（ニゲキレの縦積みクラスが残っていたら外す）。
+    els.kitacoreStats.classList.remove('is-nigekire');
+    // ランクバッジ＝ボタン。タップで詳細カード（称号名だけがタップ領域・§9操作統一）。
+    var rank = document.createElement('button');
+    rank.type = 'button';
     rank.className = 'kitacore-rank-text rank-' + badgeKey;
     rank.textContent = badgeText;
+    rank.addEventListener('click', function () { openRankCard(); });
     els.kitacoreStats.appendChild(rank);
 
     els.kitacoreProgress.innerHTML = '';
@@ -2686,7 +4461,7 @@
 
   // 覚醒後ヘッダー：ワイ累計→ランク、バーは N／2000。
   function renderKitacorePostHeader(creatorId) {
-    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
+    var totalWai = mc().totalWai ? mc().totalWai : 0;
     var rankInfo = kitacoreRankOf(creatorId);
     paintKitacoreHeader(
       'ワイ語ハンターランク ' + rankInfo.rank,
@@ -2702,7 +4477,7 @@
   // 鍵の数はバーには出さず、ボスUI側で見せる。
   function renderKitacorePreHeader(creatorId) {
     var boss = nextPreBoss(creatorId); // モードON＆未覚醒なら必ず非null
-    var totalWai = state.kitacore && state.kitacore.totalWai ? state.kitacore.totalWai : 0;
+    var totalWai = mc().totalWai ? mc().totalWai : 0;
     paintKitacoreHeader(
       'ワイ語ハンターランク ' + boss.rankBefore,
       boss.rankBeforeKey,
@@ -3127,8 +4902,13 @@
     }
     // キタコレ：覚醒済みクリエイターの記事なら、遷移前に裏でワイ数を収集する。
     // （ポイント加算は後で記事行のチップをタップして回収＝ここでは点を入れない）
-    if (isKitacoreTarget(creatorId) && isModeOn(creatorId)) {
+    if (activeModeKey(creatorId) === 'kitacore' && isModeOn(creatorId)) {
       fetchAndCountArticle(article, creatorId);
+    }
+    // ニゲキレ：モードON なら遷移前に裏で本文を取り「◯◯の一言」キャラを検出する。
+    //   （回収は後で記事行の一言チップをタップ＝ここでは収集数を入れない）
+    if (activeModeKey(creatorId) === 'nigekire' && isModeOnFor(creatorId)) {
+      fetchAndDetectNigekireChar(article, creatorId);
     }
   }
 
@@ -3193,31 +4973,23 @@
     state.creators = state.creators.filter(function (x) {
       return x.id !== id;
     });
-    // この creator のキタコレ計測も掃除（counts/collected は article.id 単位なので
-    // 削除前に拾う。回収済みの累計 totalWai もそのぶん差し引く）。
-    if (state.kitacore) {
-      ensureKitacore();
-      (state.articlesByCreator[id] || []).forEach(function (a) {
-        if (!a || !a.id) return;
-        if (state.kitacore.collected[a.id]) {
-          var entry = state.kitacore.counts[a.id];
-          if (entry && typeof entry.wai === 'number') {
-            state.kitacore.totalWai = Math.max(0, state.kitacore.totalWai - entry.wai);
-          }
-          delete state.kitacore.collected[a.id];
-        }
-        delete state.kitacore.counts[a.id];
-        delete state.kitacore.quizCleared[a.id];
+    // この creator のキタコレ計測を掃除（counts/collected は article.id 単位なので
+    // 削除前に拾う。回収済みの累計 totalWai もそのぶん差し引く）。掃除ロジックは
+    // logic.js の純関数（非破壊）に切り出し済み。ここは「掃除後 state を計算して代入」する。
+    {
+      // 物理保存先（state.modes.kitacore）を必ず初期化してから掃除する。
+      var kc = ensureMode('kitacore');
+      var articleIds = (state.articlesByCreator[id] || []).map(function (a) {
+        return a && a.id;
       });
-      delete state.kitacore.mode[id];
-      delete state.kitacore.keys[id];
-      delete state.kitacore.defeatedBosses[id];
-      if (state.kitacore.pendingPostBoss) delete state.kitacore.pendingPostBoss[id];
-      // KITAcoreクリエーター本体を削除した場合はプレイヤー情報もリセット
-      if (id === KITACORE_ID) {
-        state.kitacore.player = null;
-        state.kitacore.quizTaps = 0;
-      }
+      state.modes.kitacore = L.cleanupKitacoreOnDelete(kc, id, articleIds, id === KITACORE_ID);
+    }
+    // この creator がニゲキレ対象（hasyamo）なら、ニゲキレ state も掃除する。
+    //   キタコレと違いポイントの逆算（記事→キャラ→pt）が煩雑なため、唯一の対象を
+    //   削除する＝そのモードの進行を丸ごとリセットする方針（亡霊 state を残さない）。
+    if (id === NIGEKIRE_ID) {
+      var nm = ensureMode('nigekire');
+      state.modes.nigekire = L.cleanupNigekireOnDelete(nm, id === NIGEKIRE_ID);
     }
     delete state.articlesByCreator[id];
     // この creator の読了状態も掃除
@@ -3732,7 +5504,12 @@
       els.kitacoreSystem.addEventListener('click', onSystemMessageTap);
     }
     if (els.kitacoreQuizClose) {
-      els.kitacoreQuizClose.addEventListener('click', closeQuiz);
+      // #kitacore-quiz はキタコレ試練とニゲキレ試練で DOM 共有。閉じるボタンは
+      // 両方の文脈をクリアする（closeQuiz 自体はキタコレ挙動のまま無改変）。
+      els.kitacoreQuizClose.addEventListener('click', function () {
+        closeQuiz();
+        closeNigekireTrial();
+      });
     }
     if (els.kitacoreBattle) {
       els.kitacoreBattle.addEventListener('click', onBossBattleTap);
@@ -3743,22 +5520,18 @@
     if (els.kitacorePlayerCancel) {
       els.kitacorePlayerCancel.addEventListener('click', closePlayerInput);
     }
-    if (els.kitacoreRankArea) {
-      els.kitacoreRankArea.addEventListener('click', function (e) {
-        // デバッグボタンのクリックは除外
-        if (e.target.closest('#debug-btns')) return;
-        openRankCard();
-      });
-    }
+    // ランクエリア全体のタップは廃止。カードを開くのはランクバッジ（称号名）だけ。
+    //   キタコレ＝paintKitacoreHeader、ニゲキレ＝renderNigekireHeader で各バッジに click 登録済み。
+    //   （§4/§9「称号名のところをタップ」＝両モードで操作統一）。
     if (els.kitacoreRankCardClose) {
       els.kitacoreRankCardClose.addEventListener('click', closeRankCard);
     }
     if (els.debugAddKeys) {
       els.debugAddKeys.addEventListener('click', function () {
         var c = getSelectedCreator();
-        if (!c || !isKitacoreTarget(c.id)) return;
-        ensureKitacore();
-        state.kitacore.keys[c.id] = keysOf(c.id) + 3;
+        if (!c || activeModeKey(c.id) !== 'kitacore') return;
+        ensureMode('kitacore');
+        mc().keys[c.id] = keysOf(c.id) + 3;
         saveState();
         renderKitacoreHeader();
       });
@@ -3766,12 +5539,12 @@
     if (els.debugAddWai) {
       els.debugAddWai.addEventListener('click', function () {
         var c = getSelectedCreator();
-        if (!c || !isKitacoreTarget(c.id)) return;
-        ensureKitacore();
-        var waiRankBefore = kitacoreWaiRankOf(state.kitacore.totalWai);
-        state.kitacore.totalWai += 100;
+        if (!c || activeModeKey(c.id) !== 'kitacore') return;
+        ensureMode('kitacore');
+        var waiRankBefore = kitacoreWaiRankOf(mc().totalWai);
+        mc().totalWai += 100;
         saveState();
-        var waiRankAfter = kitacoreWaiRankOf(state.kitacore.totalWai);
+        var waiRankAfter = kitacoreWaiRankOf(mc().totalWai);
         if (waiRankAfter.key !== waiRankBefore.key && waiRankAfter.bossKey) {
           var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === waiRankAfter.bossKey; });
           if (boss) showPostBoss(boss);
@@ -3784,15 +5557,15 @@
         if (!window.confirm('キタコレの進行データ（鍵・クイズ・ボス撃破・ワイ）をすべてクリアします。よろしいですか？')) return;
         var c = getSelectedCreator();
         if (!c) return;
-        ensureKitacore();
-        state.kitacore.keys = {};
-        state.kitacore.quizCleared = {};
-        state.kitacore.defeatedBosses = {};
-        state.kitacore.totalWai = 0;
-        state.kitacore.counts = {};
-        state.kitacore.collected = {};
-        state.kitacore.quizTaps = 0;
-        state.kitacore.pendingPostBoss = {};
+        ensureMode('kitacore');
+        mc().keys = {};
+        mc().quizCleared = {};
+        mc().defeatedBosses = {};
+        mc().totalWai = 0;
+        mc().counts = {};
+        mc().collected = {};
+        mc().quizTaps = 0;
+        mc().pendingPostBoss = {};
         saveState();
         renderRoute();
         updateReadStatsHeader();
@@ -3803,11 +5576,137 @@
         if (e.key === 'Enter') authPlayer();
       });
     }
+
+    // ── ニゲキレ 節目イベント（最終確認）の配線（キタコレ DOM とは分離）──
+    //   カットイン：画面（背景/カード）タップで最終確認画面へ。
+    if (els.nigekireCutin) {
+      els.nigekireCutin.addEventListener('click', onNigekireCutinTap);
+    }
+    //   最終確認：[確認を通過する]で通過処理（active char を渡す）。
+    if (els.nigekireFinalPass) {
+      els.nigekireFinalPass.addEventListener('click', function () {
+        passNigekireFinalCheck(activeNigekireFinalChar);
+      });
+    }
+
+    //   推し選択モーダル：[やめる]で閉じる（キャラ変更時のみ表示・初回は閉じられない）。
+    if (els.nigekireOshiCancel) {
+      els.nigekireOshiCancel.addEventListener('click', closeNigekireOshiSelect);
+    }
+
+    //   交換所：[閉じる]で閉じる（カード画面の衣装行を更新して戻る）。
+    if (els.nigekireOutfitClose) {
+      els.nigekireOutfitClose.addEventListener('click', closeNigekireOutfit);
+    }
+
+    // ── ニゲキレ DEBUG（?debug=1・記事取得済み・activeModeKey==='nigekire' のときだけ表示）──
+    //   全ボタン activeModeKey==='nigekire' ガード・ensureMode('nigekire')経由・saveState・再描画。
+    //   キタコレの debug ボタンとは別 DOM・別ハンドラ（キタコレ挙動は無改変）。
+    if (els.nigekireDebugAddAll) {
+      els.nigekireDebugAddAll.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        NIGEKIRE_CHARACTERS.forEach(function (ch) {
+          m.charCounts[ch.key] = (typeof m.charCounts[ch.key] === 'number' ? m.charCounts[ch.key] : 0) + 5;
+        });
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    if (els.nigekireDebugAddTsukiko) {
+      els.nigekireDebugAddTsukiko.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        m.charCounts.tsukiko = (typeof m.charCounts.tsukiko === 'number' ? m.charCounts.tsukiko : 0) + 5;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    if (els.nigekireDebugOver200) {
+      els.nigekireDebugOver200.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        // 推しのポイントを最終閾値(15)超にする。オーバー値表示（20 / 15）の確認用。
+        //   ポイントはキャラ単位なので、選択中の推しに入れる。
+        var oshi = m.oshiChar || NIGEKIRE_CHARACTERS[0].key;
+        m.charCounts[oshi] = 20;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    // 推しを選ぶ/変える: 選択モーダルを開く（DEBUG では rankStage に関係なく開ける）。
+    if (els.nigekireDebugOshi) {
+      els.nigekireDebugOshi.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        openNigekireOshiSelect(!!m.oshiChar);
+      });
+    }
+    // 逃げ切き+1: 推しのぶんを1本積む（推し未選択なら何もしない）。
+    if (els.nigekireDebugEscape) {
+      els.nigekireDebugEscape.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        if (!m.oshiChar) return;
+        m.totalSuccess = (typeof m.totalSuccess === 'number' ? m.totalSuccess : 0) + 1;
+        var prevEsc = typeof m.escapeCounts[m.oshiChar] === 'number' ? m.escapeCounts[m.oshiChar] : 0;
+        m.escapeCounts[m.oshiChar] = prevEsc + 1;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+    // 節目を通過（通過ベース §10-2）: 今 ready なら通過処理を呼んで rankStage を1段上げる。
+    //   収集+5大量→70/120/200到達→このボタンで通常進行の節目を手で通せる（確認用）。
+    if (els.nigekireDebugPass) {
+      els.nigekireDebugPass.addEventListener('click', function () {
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        if (!nigekireReadyOut(m).ready) return; // まだ節目が出ていない（閾値未到達）
+        passNigekireFinalCheck(m.oshiChar); // 演出に出るのは推し固定
+      });
+    }
+    if (els.nigekireDebugClear) {
+      els.nigekireDebugClear.addEventListener('click', function () {
+        if (!window.confirm('ニゲキレの進行データ（収集・逃げ切り・最終確認）をすべてクリアします。よろしいですか？')) return;
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nigekire') return;
+        var m = ensureMode('nigekire');
+        m.charCounts = {};
+        m.counts = {};
+        m.collected = {};
+        m.passed = {};
+        m.totalSuccess = 0;
+        m.firstTrySuccess = 0;
+        m.rankStage = 0;
+        m.reachedThresholds = []; // 到達済み閾値も戻す（ランクの源泉）
+        // 推し選択構造のぶんも戻す（これを消さないと推し選択モーダルが出ない）。
+        m.oshiChar = null;
+        m.oshiCleared = [];
+        m.escapeCounts = {};
+        m.oshiPassCounts = {};
+        m.finalCheckChar = null;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+
     // 直接 #read で来ても選択が無ければ list に落とす（renderRoute 内で処理）
     renderRoute();
     checkVersionUpdate();
     registerServiceWorker();
     loadKitacoreQuizzes();
+    loadNigekireQuizzes();
   }
 
   init();

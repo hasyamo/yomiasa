@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.8" />
+    <link rel="stylesheet" href="style.css?v=0.1.9" />
   </head>
   <body>
     <div id="app">
@@ -108,6 +108,17 @@
               <button id="debug-add-keys" class="debug-btn" type="button">🗝 鍵+3</button>
               <button id="debug-add-wai" class="debug-btn" type="button">💬 ワイ+100</button>
               <button id="debug-clear" class="debug-btn debug-btn-danger" type="button">🗑 データクリア</button>
+            </div>
+            <!-- デバッグ用（ニゲキレ）：収集注入・逃げ切り注入・クリア（開発中のみ・キタコレと排他） -->
+            <div id="nigekire-debug-btns" class="debug-btns nigekire-debug-btns hidden">
+              <span class="debug-label">DEBUG</span>
+              <button id="nigekire-debug-add-all" class="debug-btn" type="button">収集+5（全）</button>
+              <button id="nigekire-debug-add-tsukiko" class="debug-btn" type="button">収集+5（月子）</button>
+              <button id="nigekire-debug-over200" class="debug-btn" type="button">推しを20点に</button>
+              <button id="nigekire-debug-oshi" class="debug-btn" type="button">推しを選ぶ/変える</button>
+              <button id="nigekire-debug-escape" class="debug-btn" type="button">逃げ切き+1</button>
+              <button id="nigekire-debug-pass" class="debug-btn" type="button">節目を通過</button>
+              <button id="nigekire-debug-clear" class="debug-btn debug-btn-danger" type="button">クリア</button>
             </div>
             <div id="kitacore-progress" class="read-progress"></div>
           </div>
@@ -333,10 +344,20 @@
       </div>
     </div>
 
+    <!-- ===================== システム確認（Yes/No の選択式） ===================== -->
+    <!-- システムメッセージと同じ見た目で、タップで閉じる代わりに選択肢を出す汎用部品。
+         文言とボタンは showSystemConfirm() から流し込む（用途を限定しない）。 -->
+    <div id="system-confirm" class="kitacore-system system-confirm hidden" role="dialog" aria-modal="true" aria-labelledby="system-confirm-text">
+      <div class="kitacore-system-window">
+        <p id="system-confirm-text" class="kitacore-system-text" aria-live="polite"></p>
+        <div id="system-confirm-actions" class="system-confirm-actions"></div>
+      </div>
+    </div>
+
     <!-- ===================== キタコレ：覚醒前クイズ（システム風） ===================== -->
     <div id="kitacore-quiz" class="kitacore-quiz hidden" role="dialog" aria-modal="true" aria-labelledby="kitacore-quiz-q">
       <div class="kitacore-quiz-window">
-        <p class="kitacore-quiz-label">［ システム ］試練：正解で終焉の鍵を1つ得る</p>
+        <p id="kitacore-quiz-label" class="kitacore-quiz-label">［ システム ］試練：正解で終焉の鍵を1つ得る</p>
         <p id="kitacore-quiz-q" class="kitacore-quiz-q"></p>
         <div id="kitacore-quiz-choices" class="kitacore-quiz-choices"></div>
         <p id="kitacore-quiz-result" class="kitacore-quiz-result hidden"></p>
@@ -378,8 +399,59 @@
       </div>
     </div>
 
+    <!-- ============= ニゲキレ：最終確認カットイン（§9・戦闘語彙なし） ============= -->
+    <!-- 暗転・曜日キャラ縦カード大・キャラカラー発光枠・システム文。画面タップで最終確認へ。 -->
+    <div id="nigekire-cutin" class="nigekire-cutin hidden" role="dialog" aria-modal="true" aria-label="最終確認">
+      <div class="nigekire-cutin-stage">
+        <div id="nigekire-cutin-card" class="nigekire-cutin-card">
+          <img id="nigekire-cutin-img" class="nigekire-cutin-img" alt="" />
+        </div>
+        <p id="nigekire-cutin-name" class="nigekire-cutin-name"></p>
+        <div class="nigekire-cutin-text-wrap">
+          <p class="nigekire-cutin-sys">［ システム ］</p>
+          <p id="nigekire-cutin-line" class="nigekire-cutin-line"></p>
+          <div class="nigekire-cutin-hint">画面をタップして最終確認へ</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============= ニゲキレ：最終確認画面（§10・儀式・クイズなし） ============= -->
+    <div id="nigekire-final" class="kitacore-quiz nigekire-final hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-final-title">
+      <div class="kitacore-quiz-window nigekire-final-window">
+        <p id="nigekire-final-title" class="nigekire-final-title"></p>
+        <p id="nigekire-final-line" class="nigekire-final-line"></p>
+        <button id="nigekire-final-pass" class="nigekire-final-pass" type="button">確認を通過する</button>
+      </div>
+    </div>
+
+    <!-- ============= ニゲキレ：推し選択モーダル（7人から1人・初回選択とキャラ変更で共用） ============= -->
+    <div id="nigekire-oshi" class="kitacore-quiz nigekire-oshi hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-oshi-title">
+      <div class="kitacore-quiz-window nigekire-oshi-window">
+        <p id="nigekire-oshi-title" class="nigekire-oshi-title"></p>
+        <p id="nigekire-oshi-note" class="nigekire-oshi-note"></p>
+        <div id="nigekire-oshi-grid" class="nigekire-oshi-grid"></div>
+        <button id="nigekire-oshi-cancel" class="nigekire-oshi-cancel hidden" type="button">やめる</button>
+      </div>
+    </div>
+
+    <!-- ===================== 交換所（おへんじ帖の季節衣装） ===================== -->
+    <div id="nigekire-outfit" class="kitacore-quiz nigekire-outfit hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-outfit-title">
+      <div class="kitacore-quiz-window nigekire-outfit-window">
+        <p id="nigekire-outfit-title" class="nigekire-outfit-title"></p>
+        <p id="nigekire-outfit-summary" class="nigekire-outfit-summary"></p>
+        <div id="nigekire-outfit-grid" class="nigekire-outfit-grid"></div>
+        <button id="nigekire-outfit-close" class="nigekire-outfit-close" type="button">閉じる</button>
+      </div>
+    </div>
+
+    <!-- 交換の演出（ちび絵を大きく出す・§6）。取得済みマスのタップでも再生する。 -->
+    <div id="nigekire-outfit-reveal" class="nigekire-outfit-reveal hidden" role="dialog" aria-modal="true">
+      <img id="nigekire-outfit-reveal-img" class="nigekire-outfit-reveal-img" alt="" />
+      <p id="nigekire-outfit-reveal-text" class="nigekire-outfit-reveal-text"></p>
+    </div>
+
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="logic.js?v=0.1.8"></script>
-    <script src="app.js?v=0.1.8"></script>
+    <script src="logic.js?v=0.1.9"></script>
+    <script src="app.js?v=0.1.9"></script>
   </body>
 </html>

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ニゲキレ カットイン 6段階 比較</title>
+    <!-- 本番と同じ CSS を読む（見た目のズレを作らない） -->
+    <link rel="stylesheet" href="style.css" id="pv-css" />
+    <script>
+      // 調整中はCSSを毎回読み直す（キャッシュで古い値を見ないため）
+      document.addEventListener("DOMContentLoaded", function () {
+        var l = document.getElementById("pv-css");
+        if (l) l.href = "style.css?t=" + Date.now();
+      });
+    </script>
+    <style>
+      /* ── このページ専用の並べ方だけ（カットインの見た目には触れない）── */
+      body {
+        margin: 0;
+        background: #0b1020;
+        color: #e2e8f0;
+        font-family: 'Noto Sans JP', -apple-system, sans-serif;
+      }
+      .pv-head {
+        position: sticky;
+        top: 0;
+        z-index: 500;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: rgba(2, 6, 23, 0.92);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+      }
+      .pv-head h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      .pv-head label { font-size: 12px; color: #94a3b8; }
+      .pv-head select {
+        font: inherit;
+        font-size: 13px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        background: #111a2e;
+        color: #e2e8f0;
+      }
+      .pv-note {
+        margin: 0;
+        font-size: 12px;
+        color: #94a3b8;
+      }
+
+      .pv-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+        padding: 16px;
+      }
+      .pv-cell {
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #070b16;
+      }
+      .pv-cap {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        font-size: 12px;
+      }
+      .pv-cap b { font-size: 13px; letter-spacing: 0.04em; }
+      .pv-cap span { color: #94a3b8; font-size: 11px; }
+      .pv-vars {
+        padding: 6px 10px 8px;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 10.5px;
+        line-height: 1.7;
+        color: #7d8aa1;
+        border-top: 1px solid rgba(148, 163, 184, 0.15);
+      }
+
+      /* カットイン本体を「その場に埋め込む」ための最小上書き。
+         position:fixed を解除するだけで、色や装飾は style.css のまま。 */
+      .pv-stage {
+        position: relative;
+        height: 420px;
+      }
+      .pv-stage .nigekire-cutin {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        cursor: default;
+      }
+      .pv-stage .nigekire-cutin-img { max-height: 300px; }
+      .pv-stage .nigekire-cutin-name { font-size: 13px; }
+      .pv-stage .nigekire-cutin-sys { font-size: 10px; }
+      .pv-stage .nigekire-cutin-line { font-size: 13px; }
+      .pv-stage .nigekire-cutin-hint { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="pv-head">
+      <h1>ニゲキレ カットイン 6段階</h1>
+      <label>キャラ
+        <select id="pv-char"></select>
+      </label>
+      <p class="pv-note">本番の style.css をそのまま読み込み。段階クラス（stage-1〜6）だけを変えて並べています。</p>
+    </div>
+
+    <div class="pv-grid" id="pv-grid"></div>
+
+    <script>
+      // 本番と同じキャラ定義（app.js の NIGEKIRE_CHARACTERS 相当）
+      var CHARS = [
+        { key: 'tsukiko', label: '月曜', name: '月子',   color: '#1f3a5f', rgb: '31,58,95' },
+        { key: 'you',     label: '火曜', name: '陽',     color: '#f28c28', rgb: '242,140,40' },
+        { key: 'shizuku', label: '水曜', name: 'しずく', color: '#7ec8e3', rgb: '126,200,227' },
+        { key: 'rinka',   label: '木曜', name: '凛華',   color: '#7b1e2b', rgb: '123,30,43' },
+        { key: 'runa',    label: '金曜', name: 'るな',   color: '#2ecc71', rgb: '46,204,113' },
+        { key: 'mahiru',  label: '土曜', name: 'まひる', color: '#b39ddb', rgb: '179,157,219' },
+        { key: 'hiyori',  label: '日曜', name: '日和',   color: '#f7b6c2', rgb: '247,182,194' }
+      ];
+
+      // 段階の意味（spec-cutin-stage-decoration.md より）
+      var STAGES = [
+        { n: 1, rank: '言い訳準備中',           mean: 'まだ疑われている' },
+        { n: 2, rank: '生活立て直し中',         mean: '少し認められた' },
+        { n: 3, rank: '生活防衛中',             mean: '初期試練クリア＝第一の山' },
+        { n: 4, rank: '火種処理係',             mean: '生活が回り始める' },
+        { n: 5, rank: 'おはカノ生活継続者',     mean: '安定している' },
+        { n: 6, rank: 'おはカノ生活管理人',     mean: '最終＝最大' }
+      ];
+
+      var CUTIN_LINES = {
+        tsukiko: '〈月子〉が玄関で待っている。',
+        you: '〈陽〉が笑顔で先回りしている。',
+        shizuku: '〈しずく〉が静かにこちらを見ている。',
+        rinka: '〈凛華〉が何も言わずに立っている。',
+        runa: '〈るな〉が逃げ道をふさいでいる。',
+        mahiru: '〈まひる〉が眠そうに待っている。',
+        hiyori: '〈日和〉がやさしく待っている。'
+      };
+
+      // app.js の nigekireHexToRgbTriple と同じ明度底上げ（暗いキャラを演出で見えるように）
+      function boostRgb(hex) {
+        var h = String(hex).replace('#', '');
+        var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+        var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b, T = 165;
+        if (lum < T) {
+          var m = Math.min(0.72, (T - lum) / T);
+          r = Math.round(r + (255 - r) * m);
+          g = Math.round(g + (255 - g) * m);
+          b = Math.round(b + (255 - b) * m);
+        }
+        return [r, g, b].join(', ');
+      }
+
+      var sel = document.getElementById('pv-char');
+      CHARS.forEach(function (c, i) {
+        var o = document.createElement('option');
+        o.value = String(i);
+        o.textContent = c.label + '｜' + c.name;
+        sel.appendChild(o);
+      });
+
+      function render() {
+        var ch = CHARS[Number(sel.value) || 0];
+        var grid = document.getElementById('pv-grid');
+        grid.innerHTML = '';
+
+        STAGES.forEach(function (st) {
+          var cell = document.createElement('div');
+          cell.className = 'pv-cell';
+
+          var cap = document.createElement('div');
+          cap.className = 'pv-cap';
+          cap.innerHTML = '<b>' + st.n + '回目 ' + st.rank + '</b><span>' + st.mean + '</span>';
+          cell.appendChild(cap);
+
+          var stage = document.createElement('div');
+          stage.className = 'pv-stage';
+          stage.innerHTML =
+            '<div class="nigekire-cutin stage-' + st.n + '">' +
+              '<div class="nigekire-cutin-stage">' +
+                '<div class="nigekire-cutin-card">' +
+                  '<img class="nigekire-cutin-img" src="assets/ohakano/cutin/' + ch.key + '.webp" alt="" />' +
+                '</div>' +
+                '<p class="nigekire-cutin-name">' + ch.label + '｜' + ch.name + '</p>' +
+                '<div class="nigekire-cutin-text-wrap">' +
+                  '<p class="nigekire-cutin-sys">［ システム ］</p>' +
+                  '<p class="nigekire-cutin-line">' + CUTIN_LINES[ch.key] + '</p>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          cell.appendChild(stage);
+
+          // キャラカラーを本番と同じ形で流す（--char-rgb は app.js と同じ明度底上げを通す）
+          var cut = stage.querySelector('.nigekire-cutin');
+          cut.style.setProperty('--char-color', ch.color);
+          cut.style.setProperty('--char-rgb', boostRgb(ch.color));
+          var nameEl = stage.querySelector('.nigekire-cutin-name');
+          if (nameEl) nameEl.style.setProperty('--char-color', ch.color);
+
+          // その段階の実効値を表示（何がどれだけ違うのかを数字でも見る）
+          var vars = document.createElement('div');
+          vars.className = 'pv-vars';
+          setTimeout(function () {
+            var cs = getComputedStyle(cut);
+            function v(k) { return (cs.getPropertyValue(k) || '').trim() || '0'; }
+            vars.textContent =
+              'tint ' + v('--tint') + ' / dark ' + v('--dark') +
+              ' / glow ' + v('--glow') + ' α' + v('--glow-a') +
+              ' / ring ' + v('--ring') + ' / rays ' + v('--rays') + ' / motes ' + v('--motes');
+          }, 0);
+          cell.appendChild(vars);
+
+          grid.appendChild(cell);
+        });
+      }
+
+      sel.addEventListener('change', render);
+      render();
+    </script>
+  </body>
+</html>
