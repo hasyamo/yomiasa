@@ -264,6 +264,62 @@
     return modes;
   }
 
+  // note ID の正規化。クライアント側の唯一の規則＝trim（前後空白の除去）のみ。
+  //   @除去・大文字小文字の同一視はしない（サーバへ送る形を変えないため）。
+  //   非文字列は ''。読み書き・移行のすべてがこの規則を通る。
+  function normalizeNoteId(id) {
+    return typeof id === 'string' ? id.trim() : '';
+  }
+
+  // 全モード共有の user.noteId を導出する（純粋・非破壊）。
+  //   戻り値は次の user オブジェクト（loadState/importData で next.user に載せる）。
+  //   規則はこれだけ（フラグ無し・毎回この判定でよい＝冪等）：
+  //     1. user.noteId が既に入っていればそれを正として使う（プロフィールも user 側を維持）。
+  //     2. 空なら旧 modes.*.player から拾う：
+  //          正規化後1種類だけ → 自動昇格（displayName/iconUrl も引き継ぐ）。
+  //          正規化後 複数種類  → 自動確定しない（空。次に note ID が要る操作で入力を促す）。
+  //          旧IDなし          → 空。
+  //   ※ user.noteId が入っている限り旧 player より優先されるので、認証で user に入れれば
+  //     以後は player を見ない。フラグを持たなくても「先勝ちで別人に化ける」ことはない。
+  //   normalize は呼び出し側（app.js）と同一規則を渡す＝クライアント全体で1規則。
+  function migrateUserNoteId(parsed, normalize) {
+    parsed = parsed || {};
+    normalize = normalize || normalizeNoteId;
+    var existing = (parsed.user && typeof parsed.user === 'object') ? parsed.user : {};
+    var existingId = normalize(existing.noteId);
+    // 1. user.noteId が既にある → それを正とする（旧 player は見ない）。
+    if (existingId) {
+      return {
+        noteId: existingId,
+        displayName: typeof existing.displayName === 'string' ? existing.displayName : '',
+        iconUrl: typeof existing.iconUrl === 'string' ? existing.iconUrl : '',
+      };
+    }
+    // 2. 空 → 旧 modes.*.player から拾う。正規化後IDごとに最初のプロフィールを覚える。
+    var modes = (parsed.modes && typeof parsed.modes === 'object') ? parsed.modes : {};
+    var byId = {};
+    var order = [];
+    Object.keys(modes).forEach(function (k) {
+      var m = modes[k];
+      var p = m && typeof m === 'object' ? m.player : null;
+      var norm = p && typeof p === 'object' ? normalize(p.id) : '';
+      if (!norm) return;
+      if (!byId[norm]) {
+        byId[norm] = {
+          noteId: norm,
+          displayName: typeof p.displayName === 'string' ? p.displayName : '',
+          iconUrl: typeof p.iconUrl === 'string' ? p.iconUrl : '',
+        };
+        order.push(norm);
+      }
+    });
+    if (order.length === 1) {
+      return byId[order[0]]; // 1種類だけ → 自動昇格。
+    }
+    // 複数種類 or 旧IDなし → 空（自動確定しない）。
+    return { noteId: '', displayName: '', iconUrl: '' };
+  }
+
   // targetCreatorId からモード定義を逆引きする。無ければ null。
   function modeForCreator(modeDefs, creatorId) {
     if (!modeDefs || typeof modeDefs !== 'object') return null;
@@ -1029,6 +1085,8 @@
     quizForArticle: quizForArticle,
     quizChoiceOutcome: quizChoiceOutcome,
     migrateModes: migrateModes,
+    normalizeNoteId: normalizeNoteId,
+    migrateUserNoteId: migrateUserNoteId,
     modeForCreator: modeForCreator,
     // ---- 状態遷移（次状態の計算） ----
     awardKeyOutcome: awardKeyOutcome,

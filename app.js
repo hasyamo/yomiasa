@@ -71,6 +71,10 @@
       // モード state 名前空間。各モードの進行データは state.modes[modeKey] に載る。
       //   キタコレは state.modes.kitacore（旧 state.kitacore から migrateModes で移行済み）。
       modes: {},
+      // 全モード共有のプレイヤー情報（＝ユーザー自身の note ID）。
+      //   noteId は正規化（trim）済みを正とし、各モードはこれを参照する（playerNoteId()）。
+      //   空なら loadState 時に旧 modes.*.player から昇格する（migrateUserNoteId）。
+      user: { noteId: '', displayName: '', iconUrl: '' },
     };
   }
 
@@ -187,13 +191,66 @@
   //   def.lines.*() を呼び、直後にクリアする。
   var linesModeKey = null;
 
+  // ── プレイヤー note ID（全モード共有）へのアクセサ ──
+  //   note ID は state.user に一本化する。localStorage や modes.*.player を直接読まず、
+  //   すべてこの3関数を経由する（読み: playerNoteId/playerProfile、書き: setPlayerNoteId）。
+  //   state.user が未初期化の古い state でも壊れないよう遅延初期化する。
+  function ensureUser() {
+    if (!state.user || typeof state.user !== 'object') {
+      state.user = { noteId: '', displayName: '', iconUrl: '' };
+    }
+    return state.user;
+  }
+  // 現在のプレイヤー note ID（正規化済み）。未登録なら ''。
+  //   user.noteId を正とし、無ければ旧 modes.*.player.id にフォールバック（移行前でも壊れない）。
+  function playerNoteId() {
+    var u = ensureUser();
+    var id = L.normalizeNoteId(u.noteId);
+    if (id) return id;
+    // フォールバック：移行前 state（version 未設定）で発動直後などに旧 player から拾う。
+    var modes = ensureModes();
+    var keys = Object.keys(modes);
+    for (var i = 0; i < keys.length; i++) {
+      var p = modes[keys[i]] && modes[keys[i]].player;
+      var norm = p ? L.normalizeNoteId(p.id) : '';
+      if (norm) return norm;
+    }
+    return '';
+  }
+  // プレイヤーのプロフィール {id, displayName, iconUrl}。未登録なら null。
+  //   表示（ランクカード等）で使う。id は正規化済み。
+  function playerProfile() {
+    var id = playerNoteId();
+    if (!id) return null;
+    var u = ensureUser();
+    if (L.normalizeNoteId(u.noteId) === id) {
+      return { id: id, displayName: u.displayName || '', iconUrl: u.iconUrl || '' };
+    }
+    // フォールバック元（旧 player）のプロフィールを返す。
+    var modes = ensureModes();
+    var keys = Object.keys(modes);
+    for (var i = 0; i < keys.length; i++) {
+      var p = modes[keys[i]] && modes[keys[i]].player;
+      if (p && L.normalizeNoteId(p.id) === id) {
+        return { id: id, displayName: p.displayName || '', iconUrl: p.iconUrl || '' };
+      }
+    }
+    return { id: id, displayName: '', iconUrl: '' };
+  }
+  // プレイヤー note ID を保存（全モード共有）。id は正規化して保存する。
+  //   保存はここ1本に集約する。呼び出し側で saveState() する。
+  function setPlayerNoteId(profile) {
+    var u = ensureUser();
+    u.noteId = L.normalizeNoteId(profile && profile.id);
+    u.displayName = profile && typeof profile.displayName === 'string' ? profile.displayName : '';
+    u.iconUrl = profile && typeof profile.iconUrl === 'string' ? profile.iconUrl : '';
+    return u;
+  }
+
   // プレイヤー名（＝ユーザー自身の note ID。発動時に入力・保存したものを使う）。
   // 未登録時のフォールバックは 'プレイヤー'（通常は登録後しか表示されない）。
-  //   linesModeKey がセット済みならそのモードの player を見る（モード別 state.player 対応）。
   function playerName() {
-    var m = linesModeKey ? ensureMode(linesModeKey) : mc();
-    var p = m.player;
-    return p && p.id ? p.id : 'プレイヤー';
+    return playerNoteId() || 'プレイヤー';
   }
 
   // 覚醒後ランク（確定閾値・実データ検算済み）。覚醒＝S級スタートで、
@@ -633,8 +690,10 @@
       linesModeKey = null;
       return;
     }
-    // ON：プレイヤー未登録なら入力モーダル → 認証成功で activateMode。
-    //   プレイヤー認証はモード横断で共有可だが、保存先は当該モードの state.player。
+    // ON：そのモードが未登録なら入力モーダル → 認証成功で activateMode。
+    //   判定は「そのモード自身の player」（従来挙動を変えない）。モーダルの初期値は
+    //   全モード共有の user.noteId から埋める（openPlayerInput）ので、別モードで入力済みなら
+    //   確認するだけで済む（再入力不要・ただし発動フロー 1→2→3 は毎回踏む）。
     if (!m.player || !m.player.id) {
       openPlayerInput(creatorId);
       return;
@@ -660,7 +719,8 @@
   function openPlayerInput(creatorId) {
     pendingModeCreatorId = creatorId;
     if (!els.kitacorePlayer) return;
-    els.kitacorePlayerInput.value = '';
+    // 既に note ID があれば初期値として埋める（全モード共有＝再入力不要）。初回は空欄。
+    els.kitacorePlayerInput.value = playerNoteId();
     els.kitacorePlayerInput.classList.remove('hidden');
     els.kitacorePlayerError.classList.add('hidden');
     els.kitacorePlayerError.textContent = '';
@@ -726,7 +786,9 @@
     // 2回目：プレビュー確認済み → 決定
     if (pendingPlayerProfile) {
       var creatorId = pendingModeCreatorId;
-      // 保存先は当該モードの state.player（キタコレなら modeStateFor→kitacore state＝mc() と同一）。
+      // 保存先は全モード共有の state.user（setPlayerNoteId が正規化＋移行済み印を立てる）。
+      //   旧 modes.*.player も互換のため当該モードに残す（読みは playerNoteId() 経由に一本化済み）。
+      setPlayerNoteId(pendingPlayerProfile);
       var m = modeStateFor(creatorId) || ensureMode('kitacore');
       m.player = {
         id: pendingPlayerProfile.id,
@@ -779,7 +841,7 @@
       renderNigekireCard();
       return;
     }
-    var player = mc().player;
+    var player = playerProfile();
     if (!player) return;
     // 対象クリエイターは選択中クリエイターから modeForCreator で解決。
     //   ランクエリアはキタコレ発動対象でのみ表示されるため、現状は常に KITACORE_ID と一致（挙動不変）。
@@ -917,7 +979,7 @@
     var firstTry = typeof m.firstTrySuccess === 'number' ? m.firstTrySuccess : 0;
 
     // 上部：プロフィール（アイコン＋表示名＋@ID）。キタコレのランクカードと同じ構成にする。
-    var player = mc().player;
+    var player = playerProfile();
     if (player) {
       var playerRow = document.createElement('div');
       playerRow.className = 'rank-card-player';
@@ -1699,6 +1761,9 @@
         // モード state。新 parsed.modes 優先・旧 parsed.kitacore は modes.kitacore
         //   未定義時のみ移送（migrateModes が冪等・非破壊）。この行を落とすと進行データが黙って消える。
         modes: L.migrateModes(parsed),
+        // 全モード共有のプレイヤー note ID。旧 modes.*.player から昇格する（冪等・非破壊）。
+        //   migrateUserNoteId が正規化して1本化する。version 済みなら旧 player を再参照しない。
+        user: L.migrateUserNoteId({ modes: L.migrateModes(parsed), user: parsed.user }, L.normalizeNoteId),
       };
     } catch (e) {
       return defaultState();
@@ -1756,6 +1821,8 @@
       // モード state。incoming.modes 優先・旧 incoming.kitacore は modes.kitacore
       //   未定義時のみ移送（migrateModes が冪等・非破壊）。この行を落とすと進行データが黙って消える。
       modes: L.migrateModes(incoming),
+      // 全モード共有のプレイヤー note ID（loadState と同じ移行を通す）。
+      user: L.migrateUserNoteId({ modes: L.migrateModes(incoming), user: incoming.user }, L.normalizeNoteId),
     };
     state = next;
     var saved = saveState();
@@ -2508,7 +2575,7 @@
   //   失敗しても致命ではない（キャッシュで表示を続ける）。
   function refreshNigekireOutfitUnlocks() {
     var m = ensureMode('nigekire');
-    var noteId = m.player && m.player.id ? m.player.id : '';
+    var noteId = playerNoteId();
     if (!noteId) return Promise.resolve();
     return fetch(NIGEKIRE_OUTFIT_API + '/api/outfit/unlocks?noteId=' + encodeURIComponent(noteId))
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -2645,7 +2712,7 @@
   function execNigekireOutfitUnlock(ch, season) {
     if (outfitInFlight) return;
     var m = ensureMode('nigekire');
-    var noteId = m.player && m.player.id ? m.player.id : '';
+    var noteId = playerNoteId();
     if (!noteId) {
       showSystemMessage(['［ システム ］', '', 'プレイヤー情報が見つかりません。']);
       return;

@@ -319,6 +319,91 @@ test('migrateModes: 他モードが既にある modes へ旧 kitacore を足す'
   assert.deepStrictEqual(out, { nenkoro: { x: 1 }, kitacore: { totalWai: 5 } });
 });
 
+// ============================================================================
+// D-2群: note ID 昇格（全モード共有 user.noteId）
+// ============================================================================
+
+test('normalizeNoteId: trim のみ（@除去・小文字化はしない）', () => {
+  assert.strictEqual(L.normalizeNoteId('  me  '), 'me');
+  assert.strictEqual(L.normalizeNoteId('@me'), '@me'); // @は除去しない
+  assert.strictEqual(L.normalizeNoteId('Me'), 'Me');   // 大文字小文字は保持
+  assert.strictEqual(L.normalizeNoteId(''), '');
+  assert.strictEqual(L.normalizeNoteId(null), '');
+  assert.strictEqual(L.normalizeNoteId(undefined), '');
+  assert.strictEqual(L.normalizeNoteId(123), '');
+});
+
+test('migrateUserNoteId: 旧IDが1種類だけ → 自動昇格（プロフィールも引き継ぐ）', () => {
+  const out = L.migrateUserNoteId({
+    modes: {
+      kitacore: { player: { id: ' me ', displayName: '僕', iconUrl: 'x' } },
+      nigekire: { player: { id: 'me', displayName: '僕2', iconUrl: 'y' } }, // 正規化後 同一
+    },
+  });
+  assert.deepStrictEqual(out, { noteId: 'me', displayName: '僕', iconUrl: 'x' });
+});
+
+// ★ユーザーが踏んだバグの回帰テスト：キタコレ登録済み → ニゲキレ発動で空になる問題。
+//   user.noteId が空でも、旧 modes.kitacore.player から必ず昇格すること。
+test('migrateUserNoteId[回帰]: キタコレ登録済み・ニゲキレ未登録 → kitacore から昇格', () => {
+  const out = L.migrateUserNoteId({
+    user: { noteId: '', displayName: '', iconUrl: '' }, // 空の user があっても
+    modes: {
+      kitacore: { player: { id: 'hasyamo', displayName: 'はしゃも', iconUrl: 'ic.png' } },
+      nigekire: { player: null }, // ニゲキレは未登録
+    },
+  });
+  assert.strictEqual(out.noteId, 'hasyamo'); // 空にならず昇格する
+  assert.strictEqual(out.displayName, 'はしゃも');
+});
+
+test('migrateUserNoteId: user.noteId が既にあれば旧 player より優先（先勝ちで化けない）', () => {
+  const out = L.migrateUserNoteId({
+    user: { noteId: ' me ', displayName: '僕', iconUrl: 'x' },
+    modes: { kitacore: { player: { id: 'other' } } }, // 旧 player が別IDでも user が勝つ
+  });
+  assert.deepStrictEqual(out, { noteId: 'me', displayName: '僕', iconUrl: 'x' }); // trim 済み
+});
+
+test('migrateUserNoteId: 旧IDが複数種類 → 自動確定しない（noteId空）', () => {
+  const out = L.migrateUserNoteId({
+    modes: {
+      kitacore: { player: { id: 'meA' } },
+      nigekire: { player: { id: 'meB' } },
+    },
+  });
+  assert.strictEqual(out.noteId, '');
+});
+
+test('migrateUserNoteId: 大文字小文字違いは別ID扱い（trim のみなので複数種類）', () => {
+  const out = L.migrateUserNoteId({
+    modes: {
+      kitacore: { player: { id: 'Me' } },
+      nigekire: { player: { id: 'me' } },
+    },
+  });
+  assert.strictEqual(out.noteId, '');
+});
+
+test('migrateUserNoteId: 旧IDなし → noteId空', () => {
+  assert.strictEqual(L.migrateUserNoteId({ modes: { kitacore: { player: null } } }).noteId, '');
+  assert.strictEqual(L.migrateUserNoteId({}).noteId, '');
+  assert.strictEqual(L.migrateUserNoteId(null).noteId, '');
+});
+
+test('migrateUserNoteId: 冪等（出力を再度通しても不変）', () => {
+  const first = L.migrateUserNoteId({ modes: { kitacore: { player: { id: 'me', displayName: '僕', iconUrl: 'x' } } } });
+  const second = L.migrateUserNoteId({ user: first, modes: { kitacore: { player: { id: 'me', displayName: '僕', iconUrl: 'x' } } } });
+  assert.deepStrictEqual(second, first);
+});
+
+test('migrateUserNoteId: 非破壊（入力を書き換えない）', () => {
+  const parsed = { modes: { kitacore: { player: { id: 'me' } } } };
+  const before = JSON.stringify(parsed);
+  L.migrateUserNoteId(parsed);
+  assert.strictEqual(JSON.stringify(parsed), before);
+});
+
 test('modeForCreator: targetCreatorId 逆引き', () => {
   const MODE_DEFS = {
     kitacore: { key: 'kitacore', targetCreatorId: 'ktcrs1107' },
