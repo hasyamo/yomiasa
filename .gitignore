@@ -4,5 +4,9 @@
 # キタコレ作問用の記事本文素材（成果物ではない・デプロイに含めない）
 articles/
 
+# 澪運用の作業交換箱（上書き運用。README.md だけは管理する）
+.mio/handoff.md
+.mio/result.md
+
 # OS
 .DS_Store
