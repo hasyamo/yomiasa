@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.10';
+  var APP_VERSION = '0.1.11';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -2697,6 +2697,26 @@
       creator.isDigTarget = isTarget;
       saveState();
       return isTarget;
+    });
+  }
+
+  // 起動時：登録済み全クリエイターの被験体判定を最新化する（毎回上書き）。
+  //   参加者一覧を1回だけ取得し、各クリエイターの isDigTarget を再セット
+  //   （参加者から外れた人は false に戻す）。既存登録者の取りこぼしを防ぐ。
+  //   digEnabled=false（企画開始前）や取得失敗時は何もしない。
+  function refreshAllDigTargets() {
+    if (!digEnabled()) return Promise.resolve();
+    return fetchParticipants().then(function (participants) {
+      if (!participants) return; // 取得失敗 → 触らない（既存フラグ維持）
+      var changed = false;
+      state.creators.forEach(function (c) {
+        var isTarget = L.isDigTargetInParticipants(participants, c.id);
+        if (c.isDigTarget !== isTarget) { c.isDigTarget = isTarget; changed = true; }
+      });
+      if (changed) {
+        saveState();
+        if (currentRoute() === 'list') renderCreatorCards();
+      }
     });
   }
 
@@ -6081,6 +6101,8 @@
     registerServiceWorker();
     loadKitacoreQuizzes();
     loadNigekireQuizzes();
+    // 起動時に既存クリエイターの被験体判定を最新化（0.1.9以前から登録済みの被験体を拾う）。
+    refreshAllDigTargets();
   }
 
   init();
