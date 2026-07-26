@@ -401,6 +401,25 @@
       </div>
     </div>
 
+    <!-- ===================== 発掘報告：送信後の結果（案内人・イラスト付き） ===================== -->
+    <!-- 確認モーダルと同じ .dig-report レイアウトを流用（左＝イラスト／右＝案内人の一言）。 -->
+    <div id="dig-result-modal" class="kitacore-system dig-report hidden" role="dialog" aria-modal="true" aria-labelledby="dig-result-title">
+      <div class="kitacore-system-window dig-report-window">
+        <div class="dig-report-body">
+          <div class="dig-report-figure">
+            <img class="dig-guide-img" src="assets/dig/raid-main-character-bustup.webp" alt="発掘案内人" loading="lazy" />
+          </div>
+          <div class="dig-report-textcol">
+            <p id="dig-result-title" class="dig-report-title">［ 発掘案内人 ］</p>
+            <p id="dig-result-text" class="dig-report-confirm"></p>
+          </div>
+        </div>
+        <div class="system-confirm-actions">
+          <button id="dig-result-close" class="system-confirm-btn is-primary">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===================== キタコレ：ランクカード ===================== -->
     <div id="kitacore-rank-card" class="kitacore-quiz hidden" role="dialog" aria-modal="true">
       <div class="kitacore-quiz-window kitacore-rank-card-window">

@@ -477,6 +477,25 @@ test('readNoteKeys: 不正入力でも落ちない（[]）', () => {
   assert.deepStrictEqual(L.readNoteKeys([{ id: 'n1', url: 'x' }], null), []);
 });
 
+test('unsentNoteKeys: 送信済みを除いた未送信を順序維持で返す', () => {
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b', 'c'], ['b']), ['a', 'c']);
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b'], ['a', 'b']), []); // 全部送信済み
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b'], []), ['a', 'b']); // 未送信なし
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b'], null), ['a', 'b']);
+});
+
+test('unsentNoteKeys: 不正入力でも落ちない（[]）', () => {
+  assert.deepStrictEqual(L.unsentNoteKeys(null, ['a']), []);
+  assert.deepStrictEqual(L.unsentNoteKeys(undefined, undefined), []);
+});
+
+test('mergeReportedKeys: 既存＋新規を重複なしで結合（順序維持）', () => {
+  assert.deepStrictEqual(L.mergeReportedKeys(['a', 'b'], ['b', 'c']), ['a', 'b', 'c']);
+  assert.deepStrictEqual(L.mergeReportedKeys([], ['a', 'a']), ['a']); // 新規内の重複も1回
+  assert.deepStrictEqual(L.mergeReportedKeys(['a'], []), ['a']);
+  assert.deepStrictEqual(L.mergeReportedKeys(null, null), []);
+});
+
 // ============================================================================
 // E群: 状態遷移（次状態の計算のみ・非破壊）
 // ============================================================================

@@ -368,6 +368,32 @@
     return out;
   }
 
+  // 未送信の note_key（差分同期）＝ allKeys のうち sentKeys に無いもの。順序は allKeys を維持。
+  //   allKeys: readNoteKeys の結果など。sentKeys: 送信済み配列（無ければ空扱い）。純粋・非破壊。
+  function unsentNoteKeys(allKeys, sentKeys) {
+    if (!Array.isArray(allKeys)) return [];
+    var sentSet = {};
+    if (Array.isArray(sentKeys)) {
+      for (var i = 0; i < sentKeys.length; i++) sentSet[sentKeys[i]] = true;
+    }
+    var out = [];
+    for (var j = 0; j < allKeys.length; j++) {
+      if (!sentSet[allKeys[j]]) out.push(allKeys[j]);
+    }
+    return out;
+  }
+
+  // 送信済み集合に新しい note_key をマージした配列を返す（重複なし・非破壊）。
+  //   prevSent: 既存の送信済み配列。addKeys: 今回成功した note_key。順序は prev→新規追加順。
+  function mergeReportedKeys(prevSent, addKeys) {
+    var out = [];
+    var seen = {};
+    function push(k) { if (k && !seen[k]) { seen[k] = true; out.push(k); } }
+    if (Array.isArray(prevSent)) prevSent.forEach(push);
+    if (Array.isArray(addKeys)) addKeys.forEach(push);
+    return out;
+  }
+
   // ---- E群: 状態遷移（次状態の計算のみ。副作用は app.js 側） ----
   //   いずれも入力オブジェクトを破壊せず、新オブジェクトを返す（非破壊）。
 
@@ -1127,6 +1153,8 @@
     modeForCreator: modeForCreator,
     isDigTargetInParticipants: isDigTargetInParticipants,
     readNoteKeys: readNoteKeys,
+    unsentNoteKeys: unsentNoteKeys,
+    mergeReportedKeys: mergeReportedKeys,
     // ---- 状態遷移（次状態の計算） ----
     awardKeyOutcome: awardKeyOutcome,
     challengeBossOutcome: challengeBossOutcome,

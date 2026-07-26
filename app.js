@@ -75,6 +75,9 @@
       //   noteId は正規化（trim）済みを正とし、各モードはこれを参照する（playerNoteId()）。
       //   空なら loadState 時に旧 modes.*.player から昇格する（migrateUserNoteId）。
       user: { noteId: '', displayName: '', iconUrl: '' },
+      // 発掘報告の送信済み note_key（差分同期）。被験体（targetNoteId）ごとの配列。
+      //   発掘者は playerNoteId() 単一なので分けない。送信成功時に追記（saveState で永続）。
+      digReportedKeys: {},
     };
   }
 
@@ -1825,6 +1828,11 @@
         // 全モード共有のプレイヤー note ID。旧 modes.*.player から昇格する（冪等・非破壊）。
         //   migrateUserNoteId が正規化して1本化する。version 済みなら旧 player を再参照しない。
         user: L.migrateUserNoteId({ modes: L.migrateModes(parsed), user: parsed.user }, L.normalizeNoteId),
+        // 発掘報告の送信済み note_key（差分同期）。この行を落とすと再訪でボタンが再活性する。
+        digReportedKeys:
+          parsed.digReportedKeys && typeof parsed.digReportedKeys === 'object'
+            ? parsed.digReportedKeys
+            : base.digReportedKeys,
       };
     } catch (e) {
       return defaultState();
@@ -1884,6 +1892,11 @@
       modes: L.migrateModes(incoming),
       // 全モード共有のプレイヤー note ID（loadState と同じ移行を通す）。
       user: L.migrateUserNoteId({ modes: L.migrateModes(incoming), user: incoming.user }, L.normalizeNoteId),
+      // 発掘報告の送信済み note_key（差分同期）。
+      digReportedKeys:
+        incoming.digReportedKeys && typeof incoming.digReportedKeys === 'object'
+          ? incoming.digReportedKeys
+          : base.digReportedKeys,
     };
     state = next;
     var saved = saveState();
@@ -2636,6 +2649,32 @@
   // 発掘（dig）：被験体判定・発掘報告
   // ---------------------------------------------------------------------------
 
+  // 送信済み note_key（差分同期）の名前空間。遅延初期化。
+  function ensureDigReportedKeys() {
+    if (!state.digReportedKeys || typeof state.digReportedKeys !== 'object') {
+      state.digReportedKeys = {};
+    }
+    return state.digReportedKeys;
+  }
+  // 被験体（targetNoteId）ごとの送信済み note_key 配列。無ければ空配列。
+  function reportedKeysFor(targetNoteId) {
+    var arr = ensureDigReportedKeys()[targetNoteId];
+    return Array.isArray(arr) ? arr : [];
+  }
+  // その被験体の未送信 note_key（読了済み − 送信済み）。
+  function unsentKeysFor(creatorId) {
+    var readKeys = L.readNoteKeys(articlesOf(creatorId), function (articleId) {
+      return isRead(creatorId, articleId);
+    });
+    return L.unsentNoteKeys(readKeys, reportedKeysFor(creatorId));
+  }
+  // 送信成功した note_key を送信済みに追記（重複なし）。呼び出し側で saveState。
+  function addReportedKeys(targetNoteId, keys) {
+    var map = ensureDigReportedKeys();
+    map[targetNoteId] = L.mergeReportedKeys(reportedKeysFor(targetNoteId), keys);
+    return map[targetNoteId];
+  }
+
   // 参加者一覧を取得する。配列を返す。失敗時は null（＝発掘機能を出さないだけ）。
   function fetchParticipants() {
     return fetch(DIG_PARTICIPANTS_API)
@@ -2686,6 +2725,18 @@
     if (els.digReportModal) els.digReportModal.classList.add('hidden');
   }
 
+  // 送信後の結果を案内人イラスト付きで出す（関西弁・accepted で文言を出し分け）。
+  function showDigResult(accepted) {
+    if (!els.digResultModal || !els.digResultText) return;
+    els.digResultText.textContent = accepted >= 1
+      ? accepted + '件、無事掘り起こしたで。'
+      : 'その記事はもう掘り起こしてるで。';
+    els.digResultModal.classList.remove('hidden');
+  }
+  function closeDigResult() {
+    if (els.digResultModal) els.digResultModal.classList.add('hidden');
+  }
+
   // 発掘報告を送信する（確認モーダルの「発掘報告する」）。
   function submitDigReport() {
     if (digReportInFlight) return;
@@ -2701,10 +2752,8 @@
       }
       return;
     }
-    // その被験体で読了済みの記事の note_key 配列。
-    var noteKeys = L.readNoteKeys(articlesOf(creatorId), function (articleId) {
-      return isRead(creatorId, articleId);
-    });
+    // 送るのは未送信分だけ（差分同期）。読了済み − 送信済み。
+    var noteKeys = unsentKeysFor(creatorId);
 
     digReportInFlight = true;
     if (els.digReportSubmit) {
@@ -2725,10 +2774,14 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data) throw new Error('report failed');
+        // 送信を試みて成功応答が返った note_key はすべて送信済みに記録（accepted/duplicates 問わず）。
+        addReportedKeys(creatorId, noteKeys);
+        saveState();
         closeDigReport();
-        // 結果は案内人の一言で最小に（関西弁）。accepted 件数を伝える。
+        renderCreatorCards(); // 未送信0になったカードのボタンを非活性へ反映
+        // 結果は案内人イラスト付きで（関西弁）。accepted 件数で文言を出し分け。
         var accepted = typeof data.accepted === 'number' ? data.accepted : noteKeys.length;
-        showSystemMessage(['［ 発掘案内人 ］', '', accepted + '件、無事掘り起こしたで。']);
+        showDigResult(accepted);
       })
       .catch(function () {
         if (els.digReportError) {
@@ -3436,6 +3489,9 @@
     digReportError: document.getElementById('dig-report-error'),
     digReportCancel: document.getElementById('dig-report-cancel'),
     digReportSubmit: document.getElementById('dig-report-submit'),
+    digResultModal: document.getElementById('dig-result-modal'),
+    digResultText: document.getElementById('dig-result-text'),
+    digResultClose: document.getElementById('dig-result-close'),
     kitacoreBattle: document.getElementById('kitacore-battle'),
     kitacoreBattleImg: document.getElementById('kitacore-battle-img'),
     kitacoreBattleText: document.getElementById('kitacore-battle-text'),
@@ -3874,6 +3930,10 @@
       } else if (!playerNoteId()) {
         digBtn.disabled = true;
         digBtn.title = '「読みに行く」でプレイヤー名（note ID）を登録してや。';
+      } else if (unsentKeysFor(c.id).length < 1) {
+        // 読了済みをすべて報告済み → 送るものが無いので非活性（差分同期）。
+        digBtn.disabled = true;
+        digBtn.title = '掘り起こす記事はもう全部報告済みやで。';
       } else {
         digBtn.addEventListener('click', function () {
           openDigReport(c.id);
@@ -5830,6 +5890,9 @@
     }
     if (els.digReportCancel) {
       els.digReportCancel.addEventListener('click', closeDigReport);
+    }
+    if (els.digResultClose) {
+      els.digResultClose.addEventListener('click', closeDigResult);
     }
     // ランクエリア全体のタップは廃止。カードを開くのはランクバッジ（称号名）だけ。
     //   キタコレ＝paintKitacoreHeader、ニゲキレ＝renderNigekireHeader で各バッジに click 登録済み。
