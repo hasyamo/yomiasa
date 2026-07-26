@@ -376,6 +376,30 @@
   // 案内人イラストは index.html の #dig-report-modal 内 <img src> に直書き
   //   （assets/dig/raid-main-character-bustup.webp）。JS では出し分けないので定数化しない。
 
+  // 発掘レイドのフィーチャーフラグ。企画開始（2026-08-01）まで既定は OFF。
+  //   ・?dig=1 で ON（localStorage に記憶。以後は通常URLでも ON）＝CCCメンバーの事前テスト用
+  //   ・?dig=0 で記憶をクリア（OFF に戻す）
+  //   ・8/1 に DIG_FEATURE_DEFAULT を true にしてリリースすれば全員 ON
+  //   OFF の間は被験体判定・チップ・発掘報告ボタン・レイド認証をすべて出さない。
+  var DIG_FEATURE_DEFAULT = false;
+  var DIG_FLAG_KEY = 'yomiasa:digFeature';
+  // URL の ?dig= を1回だけ反映する（読み込み時に評価）。戻り値は現在の有効/無効。
+  function resolveDigFeature() {
+    var param = null;
+    try {
+      param = new URLSearchParams(window.location.search).get('dig');
+    } catch (e) { /* URLSearchParams 非対応環境は無視 */ }
+    try {
+      if (param === '1') localStorage.setItem(DIG_FLAG_KEY, '1');
+      else if (param === '0') localStorage.removeItem(DIG_FLAG_KEY);
+      if (localStorage.getItem(DIG_FLAG_KEY) === '1') return true;
+    } catch (e) { /* localStorage 不可でも既定にフォールバック */ }
+    return DIG_FEATURE_DEFAULT;
+  }
+  // 読み込み時に1回確定（以後は同一セッションでこの値を使う）。
+  var digFeatureOn = resolveDigFeature();
+  function digEnabled() { return digFeatureOn; }
+
   // 閾値キーの正順（ランク段 1..6 に対応）。既存データの reachedThresholds 復元に使う。
   //   rankStage=3 → ['escape3','escape6','escape9']、rankStage=5 → +['point5','point10']。
   var NIGEKIRE_THRESHOLD_ORDER = NIGEKIRE_THRESHOLDS.escape
@@ -2627,6 +2651,7 @@
   //   取得失敗時はフラグを触らない（既存機能を壊さない）。判定結果を Promise<bool> で返す。
   function markDigTargetForCreator(creator) {
     if (!creator) return Promise.resolve(false);
+    if (!digEnabled()) return Promise.resolve(false); // 企画開始前は判定しない
     return fetchParticipants().then(function (participants) {
       if (!participants) return false; // 取得失敗 → 何もしない
       var isTarget = L.isDigTargetInParticipants(participants, creator.id);
@@ -3724,11 +3749,23 @@
     var name = document.createElement('div');
     name.className = 'creator-card-name';
     name.textContent = c.displayName || c.id;
-    var idEl = document.createElement('div');
+    // ID 行：@id の後ろに、被験体なら「被験体」チップを添える。
+    var idRow = document.createElement('div');
+    idRow.className = 'creator-card-id-row';
+    var idEl = document.createElement('span');
     idEl.className = 'creator-card-id';
     idEl.textContent = '@' + c.id;
+    idRow.appendChild(idEl);
     head.appendChild(name);
-    head.appendChild(idEl);
+    head.appendChild(idRow);
+    // 被験体（掘られる側）チップ。@id の下に1行で添える（文言が長いので横並びにしない）。
+    //   企画開始前（digEnabled=false）は保存済みフラグがあっても出さない。
+    if (c.isDigTarget && digEnabled()) {
+      var chip = document.createElement('span');
+      chip.className = 'dig-target-chip';
+      chip.textContent = '初期記事発掘レイド 被験体';
+      head.appendChild(chip);
+    }
     top.appendChild(head);
 
     var menu = document.createElement('div');
@@ -3825,7 +3862,8 @@
     // 発掘報告ボタン（被験体＝掘られる側のカードにだけ・追加時に判定済みの isDigTarget）。
     //   活性条件は「読了1件以上」かつ「プレイヤー note ID が登録済み」。
     //   note ID 未登録なら「読みに行く」でレイド参加の入力を促す（selectCreator）。
-    if (c.isDigTarget) {
+    //   企画開始前（digEnabled=false）は保存済みフラグがあっても出さない。
+    if (c.isDigTarget && digEnabled()) {
       var digBtn = document.createElement('button');
       digBtn.className = 'btn dig-report-btn';
       digBtn.type = 'button';
@@ -3860,8 +3898,9 @@
     // 発掘レイド：被験体クリエイターの「読みに行く」でプレイヤー名が未登録なら、
     //   記事一覧へ進む前にプレイヤー名の入力を促す（初期記事発掘レイドへの参加）。
     //   キタコレ/ニゲキレで入力済みなら初期表示され、確認して進める。登録済みなら素通り。
+    //   企画開始前（digEnabled=false）は促さない。
     var c = getCreator(id);
-    if (c && c.isDigTarget && !playerNoteId()) {
+    if (c && c.isDigTarget && digEnabled() && !playerNoteId()) {
       openPlayerInput(id, {
         label: '［ システム ］初期記事発掘レイドへの参加のため、プレイヤー名を入力してください。',
         onSuccess: function () { goTo('read'); },

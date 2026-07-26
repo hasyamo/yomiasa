@@ -269,12 +269,35 @@ body {
   white-space: nowrap;
 }
 
+.creator-card-id-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .creator-card-id {
   font-size: 12px;
   color: var(--ink-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 被験体（掘られる側）チップ。@id の下に1行で添える。
+   LP の配色に合わせ、掘られる側はグレー（掘る側＝紫、掘られる側＝グレー）。 */
+.dig-target-chip {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink-subtle);
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
 }
 
 .creator-card-menu {
