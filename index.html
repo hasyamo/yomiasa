@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.9" />
+    <link rel="stylesheet" href="style.css?v=0.1.10" />
   </head>
   <body>
     <div id="app">
@@ -379,6 +379,47 @@
       </div>
     </div>
 
+    <!-- ===================== 発掘報告：送信前の確認（案内人・システム風） ===================== -->
+    <!-- システムメッセージ(.kitacore-system)の見た目を流用し、左に案内人イラストを足す。 -->
+    <div id="dig-report-modal" class="kitacore-system dig-report hidden" role="dialog" aria-modal="true" aria-labelledby="dig-report-title">
+      <div class="kitacore-system-window dig-report-window">
+        <div class="dig-report-body">
+          <div class="dig-report-figure">
+            <img class="dig-guide-img" src="assets/dig/raid-main-character-bustup.webp" alt="発掘案内人" loading="lazy" />
+          </div>
+          <div class="dig-report-textcol">
+            <p id="dig-report-title" class="dig-report-title">［ 発掘案内人 ］発掘報告</p>
+            <p id="dig-report-confirm" class="dig-report-confirm">この被験体の記事、発掘報告として送るで。ええか？</p>
+            <p class="dig-report-note">発掘数と note ID が公開されるで。</p>
+            <p id="dig-report-error" class="dig-report-error hidden"></p>
+          </div>
+        </div>
+        <div id="dig-report-actions" class="system-confirm-actions">
+          <button id="dig-report-cancel" class="system-confirm-btn">キャンセル</button>
+          <button id="dig-report-submit" class="system-confirm-btn is-primary">発掘報告する</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== 発掘報告：送信後の結果（案内人・イラスト付き） ===================== -->
+    <!-- 確認モーダルと同じ .dig-report レイアウトを流用（左＝イラスト／右＝案内人の一言）。 -->
+    <div id="dig-result-modal" class="kitacore-system dig-report hidden" role="dialog" aria-modal="true" aria-labelledby="dig-result-title">
+      <div class="kitacore-system-window dig-report-window">
+        <div class="dig-report-body">
+          <div class="dig-report-figure">
+            <img class="dig-guide-img" src="assets/dig/raid-main-character-bustup.webp" alt="発掘案内人" loading="lazy" />
+          </div>
+          <div class="dig-report-textcol">
+            <p id="dig-result-title" class="dig-report-title">［ 発掘案内人 ］</p>
+            <p id="dig-result-text" class="dig-report-confirm"></p>
+          </div>
+        </div>
+        <div class="system-confirm-actions">
+          <button id="dig-result-close" class="system-confirm-btn is-primary">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===================== キタコレ：ランクカード ===================== -->
     <div id="kitacore-rank-card" class="kitacore-quiz hidden" role="dialog" aria-modal="true">
       <div class="kitacore-quiz-window kitacore-rank-card-window">
@@ -451,7 +492,7 @@
     </div>
 
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="logic.js?v=0.1.9"></script>
-    <script src="app.js?v=0.1.9"></script>
+    <script src="logic.js?v=0.1.10"></script>
+    <script src="app.js?v=0.1.10"></script>
   </body>
 </html>

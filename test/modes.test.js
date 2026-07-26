@@ -421,6 +421,82 @@ test('modeForCreator: null/不正でも落ちない', () => {
 });
 
 // ============================================================================
+// D-3群: 発掘（dig）純ロジック
+// ============================================================================
+
+const PARTICIPANTS = [
+  { noteId: 'hasyamo', roleTags: ['掘られる側', '掘る側'] },       // 被験体 かつ 掘る側
+  { noteId: 'nenkoro_life', roleTags: ['掘られる側', '見て楽しむ側'] }, // 被験体
+  { noteId: 'watch_only', roleTags: ['見て楽しむ側'] },            // 被験体でない
+];
+
+test('isDigTargetInParticipants: roleTags に「掘られる側」を含む noteId は true', () => {
+  assert.strictEqual(L.isDigTargetInParticipants(PARTICIPANTS, 'hasyamo'), true);
+  assert.strictEqual(L.isDigTargetInParticipants(PARTICIPANTS, 'nenkoro_life'), true);
+});
+
+test('isDigTargetInParticipants: 「掘られる側」を含まない/未登録は false', () => {
+  assert.strictEqual(L.isDigTargetInParticipants(PARTICIPANTS, 'watch_only'), false);
+  assert.strictEqual(L.isDigTargetInParticipants(PARTICIPANTS, 'unknown'), false);
+});
+
+test('isDigTargetInParticipants: noteId は trim して比較する', () => {
+  assert.strictEqual(L.isDigTargetInParticipants(PARTICIPANTS, '  hasyamo  '), true);
+});
+
+test('isDigTargetInParticipants: 不正入力でも落ちない（false）', () => {
+  assert.strictEqual(L.isDigTargetInParticipants(null, 'hasyamo'), false);
+  assert.strictEqual(L.isDigTargetInParticipants(PARTICIPANTS, ''), false);
+  assert.strictEqual(L.isDigTargetInParticipants([{ noteId: 'x' }], 'x'), false); // roleTags なし
+});
+
+test('readNoteKeys: 読了記事の note_key を url から抜き、重複なしで返す', () => {
+  const articles = [
+    { id: 'n1', url: 'https://note.com/hasyamo/n/aaa111' },
+    { id: 'n2', url: 'https://note.com/hasyamo/n/bbb222' }, // 未読
+    { id: 'n3', url: 'https://note.com/hasyamo/n/ccc333' },
+  ];
+  const readSet = { n1: true, n3: true };
+  const out = L.readNoteKeys(articles, (id) => !!readSet[id]);
+  assert.deepStrictEqual(out, ['aaa111', 'ccc333']);
+});
+
+test('readNoteKeys: note_key が取れない url は除外・重複は1回', () => {
+  const articles = [
+    { id: 'n1', url: 'https://note.com/hasyamo/n/aaa111' },
+    { id: 'n2', url: 'not-a-note-url' },                    // key 抜けない
+    { id: 'n3', url: 'https://note.com/hasyamo/n/aaa111' }, // n1 と同一 key
+  ];
+  const out = L.readNoteKeys(articles, () => true);
+  assert.deepStrictEqual(out, ['aaa111']);
+});
+
+test('readNoteKeys: 不正入力でも落ちない（[]）', () => {
+  assert.deepStrictEqual(L.readNoteKeys(null, () => true), []);
+  assert.deepStrictEqual(L.readNoteKeys([], () => true), []);
+  assert.deepStrictEqual(L.readNoteKeys([{ id: 'n1', url: 'x' }], null), []);
+});
+
+test('unsentNoteKeys: 送信済みを除いた未送信を順序維持で返す', () => {
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b', 'c'], ['b']), ['a', 'c']);
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b'], ['a', 'b']), []); // 全部送信済み
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b'], []), ['a', 'b']); // 未送信なし
+  assert.deepStrictEqual(L.unsentNoteKeys(['a', 'b'], null), ['a', 'b']);
+});
+
+test('unsentNoteKeys: 不正入力でも落ちない（[]）', () => {
+  assert.deepStrictEqual(L.unsentNoteKeys(null, ['a']), []);
+  assert.deepStrictEqual(L.unsentNoteKeys(undefined, undefined), []);
+});
+
+test('mergeReportedKeys: 既存＋新規を重複なしで結合（順序維持）', () => {
+  assert.deepStrictEqual(L.mergeReportedKeys(['a', 'b'], ['b', 'c']), ['a', 'b', 'c']);
+  assert.deepStrictEqual(L.mergeReportedKeys([], ['a', 'a']), ['a']); // 新規内の重複も1回
+  assert.deepStrictEqual(L.mergeReportedKeys(['a'], []), ['a']);
+  assert.deepStrictEqual(L.mergeReportedKeys(null, null), []);
+});
+
+// ============================================================================
 // E群: 状態遷移（次状態の計算のみ・非破壊）
 // ============================================================================
 

@@ -331,6 +331,69 @@
     return null;
   }
 
+  // ---- 発掘（dig）純ロジック ----
+
+  // 発掘の被験体（掘られる側）判定。参加者API のレスポンス配列から noteId 一致の
+  //   参加者を探し、その roleTags に「掘られる側」を含むかを返す（純粋）。
+  //   participants: [{ noteId, roleTags:[...] }, ...]。noteId は正規化（trim）して比較する。
+  var DIG_TARGET_ROLE = '掘られる側';
+  function isDigTargetInParticipants(participants, noteId) {
+    if (!Array.isArray(participants)) return false;
+    var want = normalizeNoteId(noteId);
+    if (!want) return false;
+    for (var i = 0; i < participants.length; i++) {
+      var p = participants[i];
+      if (!p || normalizeNoteId(p.noteId) !== want) continue;
+      return Array.isArray(p.roleTags) && p.roleTags.indexOf(DIG_TARGET_ROLE) !== -1;
+    }
+    return false;
+  }
+
+  // そのクリエイターの記事のうち読了済みの note_key 配列を返す（純粋・非破壊）。
+  //   articles: [{ id, url }, ...]、isReadFn(articleId)→boolean を受け取り、
+  //   読了記事の url から note_key（articleKeyFromUrl）を抜いて重複なしで返す。
+  //   note_key が取れない記事は黙って除外する。
+  function readNoteKeys(articles, isReadFn) {
+    if (!Array.isArray(articles) || typeof isReadFn !== 'function') return [];
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < articles.length; i++) {
+      var a = articles[i];
+      if (!a || !isReadFn(a.id)) continue;
+      var key = articleKeyFromUrl(a.url);
+      if (!key || seen[key]) continue;
+      seen[key] = true;
+      out.push(key);
+    }
+    return out;
+  }
+
+  // 未送信の note_key（差分同期）＝ allKeys のうち sentKeys に無いもの。順序は allKeys を維持。
+  //   allKeys: readNoteKeys の結果など。sentKeys: 送信済み配列（無ければ空扱い）。純粋・非破壊。
+  function unsentNoteKeys(allKeys, sentKeys) {
+    if (!Array.isArray(allKeys)) return [];
+    var sentSet = {};
+    if (Array.isArray(sentKeys)) {
+      for (var i = 0; i < sentKeys.length; i++) sentSet[sentKeys[i]] = true;
+    }
+    var out = [];
+    for (var j = 0; j < allKeys.length; j++) {
+      if (!sentSet[allKeys[j]]) out.push(allKeys[j]);
+    }
+    return out;
+  }
+
+  // 送信済み集合に新しい note_key をマージした配列を返す（重複なし・非破壊）。
+  //   prevSent: 既存の送信済み配列。addKeys: 今回成功した note_key。順序は prev→新規追加順。
+  function mergeReportedKeys(prevSent, addKeys) {
+    var out = [];
+    var seen = {};
+    function push(k) { if (k && !seen[k]) { seen[k] = true; out.push(k); } }
+    if (Array.isArray(prevSent)) prevSent.forEach(push);
+    if (Array.isArray(addKeys)) addKeys.forEach(push);
+    return out;
+  }
+
   // ---- E群: 状態遷移（次状態の計算のみ。副作用は app.js 側） ----
   //   いずれも入力オブジェクトを破壊せず、新オブジェクトを返す（非破壊）。
 
@@ -1088,6 +1151,10 @@
     normalizeNoteId: normalizeNoteId,
     migrateUserNoteId: migrateUserNoteId,
     modeForCreator: modeForCreator,
+    isDigTargetInParticipants: isDigTargetInParticipants,
+    readNoteKeys: readNoteKeys,
+    unsentNoteKeys: unsentNoteKeys,
+    mergeReportedKeys: mergeReportedKeys,
     // ---- 状態遷移（次状態の計算） ----
     awardKeyOutcome: awardKeyOutcome,
     challengeBossOutcome: challengeBossOutcome,

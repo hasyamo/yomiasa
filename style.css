@@ -269,12 +269,35 @@ body {
   white-space: nowrap;
 }
 
+.creator-card-id-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .creator-card-id {
   font-size: 12px;
   color: var(--ink-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 被験体（掘られる側）チップ。@id の下に1行で添える。
+   LP の配色に合わせ、掘られる側はグレー（掘る側＝紫、掘られる側＝グレー）。 */
+.dig-target-chip {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink-subtle);
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
 }
 
 .creator-card-menu {
@@ -3309,4 +3332,111 @@ button.kitacore-rank-text:focus-visible {
 @keyframes nigekire-outfit-pop {
   from { opacity: 0; transform: scale(0.86); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+/* ===================== 発掘（dig） ===================== */
+
+/* カードの発掘報告ボタン。LP のプラム紫で塗りつぶし（「読みに行く」と並ぶ副次アクション）。 */
+.dig-report-btn {
+  background: #3d2b56;
+  border-color: #3d2b56;
+  color: #ffffff;
+}
+.dig-report-btn:not(:disabled):hover,
+.dig-report-btn:not(:disabled):active {
+  background: #4d3769;
+  border-color: #4d3769;
+}
+
+/* 確認モーダル。システムメッセージ(.kitacore-system)の見た目を流用し、
+   窓を少し広げて左に案内人イラスト・右に確認文を置く。 */
+.dig-report-window {
+  max-width: 560px;
+  cursor: default;
+}
+.dig-report-body {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+.dig-report-figure {
+  flex: 0 0 40%;
+  align-self: stretch;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.5);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dig-guide-img {
+  width: 100%;
+  height: 100%;
+  max-height: 320px;
+  /* 縦長のバストアップを切らずに全体を見せる（cover だと下が見切れる）。 */
+  object-fit: contain;
+  object-position: center;
+  display: block;
+}
+.dig-report-textcol {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  /* システムメッセージと同じ端末フォント・発光の文字色 */
+  font-family: 'Courier New', ui-monospace, monospace;
+  color: #e0f2fe;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.55);
+}
+.dig-report-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.dig-report-confirm {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.9;
+  letter-spacing: 0.04em;
+}
+.dig-report-note {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(186, 230, 253, 0.7);
+  text-shadow: none;
+  letter-spacing: 0.06em;
+}
+.dig-report-error {
+  margin: 0;
+  font-size: 12px;
+  color: #fecaca;
+  text-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
+}
+.dig-report-error.hidden {
+  display: none;
+}
+/* [キャンセル][発掘報告する] は常に横並び（狭い画面で縦積み・折り返しにしない）。 */
+.dig-report #dig-report-actions {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dig-report #dig-report-actions .system-confirm-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;   /* [ ] 込みで1行に収める */
+  padding: 8px 4px;
+  letter-spacing: 0.04em; /* 既定より詰めて狭い幅でも収まるように */
+}
+
+/* 狭い画面では縦積み（イラストを上・テキストを下）。
+   縦長画像を切らずに全体を見せるため高さを広げる（contain 前提）。 */
+@media (max-width: 480px) {
+  .dig-report-body { flex-direction: column; }
+  .dig-report-figure { flex-basis: auto; }
+  .dig-guide-img { max-height: 44vh; }
 }
