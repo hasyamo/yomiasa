@@ -331,6 +331,43 @@
     return null;
   }
 
+  // ---- 発掘（dig）純ロジック ----
+
+  // 発掘の被験体（掘られる側）判定。参加者API のレスポンス配列から noteId 一致の
+  //   参加者を探し、その roleTags に「掘られる側」を含むかを返す（純粋）。
+  //   participants: [{ noteId, roleTags:[...] }, ...]。noteId は正規化（trim）して比較する。
+  var DIG_TARGET_ROLE = '掘られる側';
+  function isDigTargetInParticipants(participants, noteId) {
+    if (!Array.isArray(participants)) return false;
+    var want = normalizeNoteId(noteId);
+    if (!want) return false;
+    for (var i = 0; i < participants.length; i++) {
+      var p = participants[i];
+      if (!p || normalizeNoteId(p.noteId) !== want) continue;
+      return Array.isArray(p.roleTags) && p.roleTags.indexOf(DIG_TARGET_ROLE) !== -1;
+    }
+    return false;
+  }
+
+  // そのクリエイターの記事のうち読了済みの note_key 配列を返す（純粋・非破壊）。
+  //   articles: [{ id, url }, ...]、isReadFn(articleId)→boolean を受け取り、
+  //   読了記事の url から note_key（articleKeyFromUrl）を抜いて重複なしで返す。
+  //   note_key が取れない記事は黙って除外する。
+  function readNoteKeys(articles, isReadFn) {
+    if (!Array.isArray(articles) || typeof isReadFn !== 'function') return [];
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < articles.length; i++) {
+      var a = articles[i];
+      if (!a || !isReadFn(a.id)) continue;
+      var key = articleKeyFromUrl(a.url);
+      if (!key || seen[key]) continue;
+      seen[key] = true;
+      out.push(key);
+    }
+    return out;
+  }
+
   // ---- E群: 状態遷移（次状態の計算のみ。副作用は app.js 側） ----
   //   いずれも入力オブジェクトを破壊せず、新オブジェクトを返す（非破壊）。
 
@@ -1088,6 +1125,8 @@
     normalizeNoteId: normalizeNoteId,
     migrateUserNoteId: migrateUserNoteId,
     modeForCreator: modeForCreator,
+    isDigTargetInParticipants: isDigTargetInParticipants,
+    readNoteKeys: readNoteKeys,
     // ---- 状態遷移（次状態の計算） ----
     awardKeyOutcome: awardKeyOutcome,
     challengeBossOutcome: challengeBossOutcome,

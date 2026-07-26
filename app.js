@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.9';
+  var APP_VERSION = '0.1.10';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -79,8 +79,10 @@
   }
 
   // モード1個分の空 state（defaultState の旧 kitacore リテラルと同一形）。
+  //   activated: そのモードの発動フロー（入力→認証）を一度でも踏んだか。初回ON時に立つ。
+  //     以後アバターのダブルタップは入力モーダルなしで即ON/OFFトグル（player.id とは独立）。
   function blankModeState() {
-    return { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {} };
+    return { mode: {}, counts: {}, collected: {}, totalWai: 0, keys: {}, defeatedBosses: {}, quizCleared: {}, player: null, quizTaps: 0, pendingPostBoss: {}, activated: false };
   }
 
   // state.modes 名前空間の遅延初期化。
@@ -105,6 +107,9 @@
     if (m.player !== null && typeof m.player !== 'object') m.player = null;
     if (typeof m.quizTaps !== 'number') m.quizTaps = 0;
     if (!m.pendingPostBoss || typeof m.pendingPostBoss !== 'object') m.pendingPostBoss = {};
+    // 発動済みフラグ。既存データ（未定義）は false 始まりでよい（次のON時に入力を1回踏むだけ）。
+    //   ※ m.player からは導出しない（player.id 昇格が発動状態に化けるバグの元）。
+    if (typeof m.activated !== 'boolean') m.activated = false;
     // ── ニゲキレ固有サブキー（キタコレでは触らない）──
     //   共通型（mode/collected/player）はそのまま流用し、7人財布・通過・成功数だけ足す。
     if (modeKey === 'nigekire') {
@@ -362,6 +367,14 @@
   };
   // サーバー（CF/yomiasa-site・README の本番URL）。
   var NIGEKIRE_OUTFIT_API = 'https://yomiasa-site.hasyamo.workers.dev';
+
+  // ── 発掘（dig）──
+  //   参加者一覧（被験体＝掘られる側の判定元）と、発掘報告の送信先。
+  var DIG_PARTICIPANTS_API = 'https://yomiasa-dig-raid.hasyamo.workers.dev/api/participants';
+  var DIG_REPORT_API = NIGEKIRE_OUTFIT_API + '/api/dig/report';
+  var DIG_RAID_SLUG = 'dig-ccc';
+  // 案内人イラストは index.html の #dig-report-modal 内 <img src> に直書き
+  //   （assets/dig/raid-main-character-bustup.webp）。JS では出し分けないので定数化しない。
 
   // 閾値キーの正順（ランク段 1..6 に対応）。既存データの reachedThresholds 復元に使う。
   //   rankStage=3 → ['escape3','escape6','escape9']、rankStage=5 → +['point5','point10']。
@@ -690,11 +703,12 @@
       linesModeKey = null;
       return;
     }
-    // ON：そのモードが未登録なら入力モーダル → 認証成功で activateMode。
-    //   判定は「そのモード自身の player」（従来挙動を変えない）。モーダルの初期値は
-    //   全モード共有の user.noteId から埋める（openPlayerInput）ので、別モードで入力済みなら
-    //   確認するだけで済む（再入力不要・ただし発動フロー 1→2→3 は毎回踏む）。
-    if (!m.player || !m.player.id) {
+    // ON：そのモードを一度も発動していなければ（初回）入力モーダル → 認証成功で activateMode。
+    //   判定は m.activated（発動済みフラグ）。player.id の有無や共有 user.noteId では判定しない
+    //   （レイド認証で note ID が埋まっても、そのモードを発動したことにはならない）。
+    //   モーダルの初期値は user.noteId から埋まる（別モードで入力済みなら確認だけで済む）。
+    //   activated 済み（2回目以降）は入力モーダルを出さず即ON/OFFトグルする。
+    if (!m.activated) {
       openPlayerInput(creatorId);
       return;
     }
@@ -707,6 +721,7 @@
     if (!def) return;
     var m = ensureMode(def.key);
     m.mode[creatorId] = { at: new Date().toISOString() };
+    m.activated = true; // 一度でも発動したら以後ダブルタップは即トグル（入力モーダルなし）
     saveState();
     renderCreatorCards();
     linesModeKey = def.key;
@@ -714,11 +729,22 @@
     linesModeKey = null;
   }
 
-  // プレイヤーID入力モーダル。認証成功で player を保存し activateMode。
+  // プレイヤーID入力モーダル。認証成功で note ID を保存し、続けて onSuccess を呼ぶ。
+  //   opts.label   : ラベル文言（省略時はキタコレの既定「プレイヤー名を入力せよ。」）。
+  //   opts.onSuccess: 認証成功後の処理（省略時はモード発動 activateMode）。
+  //     モード発動はアバターのダブルタップ経由のときだけ。発掘レイドの入力では
+  //     onSuccess に「読みに行くへ進む」を渡し、モードは発動させない。
+  var DEFAULT_PLAYER_LABEL = '［ システム ］プレイヤー名を入力せよ。';
   var pendingModeCreatorId = null;
-  function openPlayerInput(creatorId) {
+  var pendingPlayerOnSuccess = null;
+  function openPlayerInput(creatorId, opts) {
+    opts = opts || {};
     pendingModeCreatorId = creatorId;
+    pendingPlayerOnSuccess = typeof opts.onSuccess === 'function' ? opts.onSuccess : null;
     if (!els.kitacorePlayer) return;
+    if (els.kitacorePlayerLabel) {
+      els.kitacorePlayerLabel.textContent = opts.label || DEFAULT_PLAYER_LABEL;
+    }
     // 既に note ID があれば初期値として埋める（全モード共有＝再入力不要）。初回は空欄。
     els.kitacorePlayerInput.value = playerNoteId();
     els.kitacorePlayerInput.classList.remove('hidden');
@@ -736,6 +762,7 @@
 
   function closePlayerInput() {
     pendingModeCreatorId = null;
+    pendingPlayerOnSuccess = null;
     pendingPlayerProfile = null;
     if (els.kitacorePlayer) els.kitacorePlayer.classList.add('hidden');
   }
@@ -786,19 +813,29 @@
     // 2回目：プレビュー確認済み → 決定
     if (pendingPlayerProfile) {
       var creatorId = pendingModeCreatorId;
-      // 保存先は全モード共有の state.user（setPlayerNoteId が正規化＋移行済み印を立てる）。
+      var onSuccess = pendingPlayerOnSuccess; // close で消える前に退避
+      // 保存先は全モード共有の state.user（setPlayerNoteId が正規化して保存）。
       //   旧 modes.*.player も互換のため当該モードに残す（読みは playerNoteId() 経由に一本化済み）。
+      //   モードを持たないクリエイター（被験体だけ）の認証では書く先が無いので user だけ更新。
       setPlayerNoteId(pendingPlayerProfile);
-      var m = modeStateFor(creatorId) || ensureMode('kitacore');
-      m.player = {
-        id: pendingPlayerProfile.id,
-        displayName: pendingPlayerProfile.displayName,
-        iconUrl: pendingPlayerProfile.iconUrl,
-      };
+      // 旧 modes.*.player も互換のため当該モードに残す（読みは playerNoteId() 経由に一本化済み）。
+      //   ※発動済み判定は m.player ではなく m.activated（下記）で持つ。ここで書いても
+      //     モード発動状態には影響しない。
+      var m = modeStateFor(creatorId);
+      if (m) {
+        m.player = {
+          id: pendingPlayerProfile.id,
+          displayName: pendingPlayerProfile.displayName,
+          iconUrl: pendingPlayerProfile.iconUrl,
+        };
+      }
       saveState();
       pendingPlayerProfile = null;
       closePlayerInput();
-      activateMode(creatorId);
+      // 認証後の処理。onSuccess 指定時はそれ（発掘レイド＝読みに行くへ進む）。
+      //   未指定時は既定のモード発動（アバターのダブルタップ経由）。
+      if (onSuccess) onSuccess();
+      else activateMode(creatorId);
       return;
     }
     // 1回目：ID入力 → プロフィール取得
@@ -2571,6 +2608,116 @@
     return 'assets/ohakano/' + meta.dir + '/' + charKey + '.png';
   }
 
+  // ---------------------------------------------------------------------------
+  // 発掘（dig）：被験体判定・発掘報告
+  // ---------------------------------------------------------------------------
+
+  // 参加者一覧を取得する。配列を返す。失敗時は null（＝発掘機能を出さないだけ）。
+  function fetchParticipants() {
+    return fetch(DIG_PARTICIPANTS_API)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        return data && Array.isArray(data.participants) ? data.participants : null;
+      })
+      .catch(function () { return null; });
+  }
+
+  // クリエイターが被験体（掘られる側）か判定して creator.isDigTarget に保存する。
+  //   追加のたびにその場で fetch（判定結果はクリエイターに持たせ、描画では再取得しない）。
+  //   取得失敗時はフラグを触らない（既存機能を壊さない）。判定結果を Promise<bool> で返す。
+  function markDigTargetForCreator(creator) {
+    if (!creator) return Promise.resolve(false);
+    return fetchParticipants().then(function (participants) {
+      if (!participants) return false; // 取得失敗 → 何もしない
+      var isTarget = L.isDigTargetInParticipants(participants, creator.id);
+      creator.isDigTarget = isTarget;
+      saveState();
+      return isTarget;
+    });
+  }
+
+  // 発掘報告の確認モーダルを開く（案内人が喋る・関西弁）。
+  //   発掘者 note ID は認証済み前提（未登録なら被験体追加時に認証させている）。
+  var pendingDigTargetId = null;
+  var digReportInFlight = false;
+  function openDigReport(creatorId) {
+    var c = getCreator(creatorId);
+    if (!c) return;
+    pendingDigTargetId = creatorId;
+    if (!els.digReportModal) return;
+    if (els.digReportError) {
+      els.digReportError.textContent = '';
+      els.digReportError.classList.add('hidden');
+    }
+    if (els.digReportSubmit) {
+      els.digReportSubmit.disabled = false;
+      els.digReportSubmit.textContent = '発掘報告する';
+    }
+    els.digReportModal.classList.remove('hidden');
+  }
+
+  function closeDigReport() {
+    pendingDigTargetId = null;
+    if (els.digReportModal) els.digReportModal.classList.add('hidden');
+  }
+
+  // 発掘報告を送信する（確認モーダルの「発掘報告する」）。
+  function submitDigReport() {
+    if (digReportInFlight) return;
+    var creatorId = pendingDigTargetId;
+    var c = getCreator(creatorId);
+    if (!c) return;
+    var readerNoteId = playerNoteId();
+    if (!readerNoteId) {
+      // 認証済み前提だが、万一空なら報告できない旨を出して止める。
+      if (els.digReportError) {
+        els.digReportError.textContent = 'note ID が未登録や。被験体を登録し直して認証してや。';
+        els.digReportError.classList.remove('hidden');
+      }
+      return;
+    }
+    // その被験体で読了済みの記事の note_key 配列。
+    var noteKeys = L.readNoteKeys(articlesOf(creatorId), function (articleId) {
+      return isRead(creatorId, articleId);
+    });
+
+    digReportInFlight = true;
+    if (els.digReportSubmit) {
+      els.digReportSubmit.disabled = true;
+      els.digReportSubmit.textContent = '送信中…';
+    }
+
+    fetch(DIG_REPORT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        raidSlug: DIG_RAID_SLUG,
+        readerNoteId: readerNoteId,
+        targetNoteId: creatorId,
+        noteKeys: noteKeys,
+      }),
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) throw new Error('report failed');
+        closeDigReport();
+        // 結果は案内人の一言で最小に（関西弁）。accepted 件数を伝える。
+        var accepted = typeof data.accepted === 'number' ? data.accepted : noteKeys.length;
+        showSystemMessage(['［ 発掘案内人 ］', '', accepted + '件、無事掘り起こしたで。']);
+      })
+      .catch(function () {
+        if (els.digReportError) {
+          els.digReportError.textContent = '送信に失敗したわ。もういっぺん試してや。';
+          els.digReportError.classList.remove('hidden');
+        }
+        if (els.digReportSubmit) {
+          els.digReportSubmit.disabled = false;
+          els.digReportSubmit.textContent = '発掘報告する';
+        }
+      })
+      .then(function () { digReportInFlight = false; });
+  }
+
   // 解放済み一覧をサーバーから取り直してローカルへ反映（§7 キャッシュ）。
   //   失敗しても致命ではない（キャッシュで表示を続ける）。
   function refreshNigekireOutfitUnlocks() {
@@ -3253,11 +3400,17 @@
     kitacoreQuizResult: document.getElementById('kitacore-quiz-result'),
     kitacoreQuizClose: document.getElementById('kitacore-quiz-close'),
     kitacorePlayer: document.getElementById('kitacore-player'),
+    kitacorePlayerLabel: document.getElementById('kitacore-player-label'),
     kitacorePlayerInput: document.getElementById('kitacore-player-input'),
     kitacorePlayerPreview: document.getElementById('kitacore-player-preview'),
     kitacorePlayerError: document.getElementById('kitacore-player-error'),
     kitacorePlayerAuth: document.getElementById('kitacore-player-auth'),
     kitacorePlayerCancel: document.getElementById('kitacore-player-cancel'),
+    digReportModal: document.getElementById('dig-report-modal'),
+    digReportConfirm: document.getElementById('dig-report-confirm'),
+    digReportError: document.getElementById('dig-report-error'),
+    digReportCancel: document.getElementById('dig-report-cancel'),
+    digReportSubmit: document.getElementById('dig-report-submit'),
     kitacoreBattle: document.getElementById('kitacore-battle'),
     kitacoreBattleImg: document.getElementById('kitacore-battle-img'),
     kitacoreBattleText: document.getElementById('kitacore-battle-text'),
@@ -3669,6 +3822,28 @@
     action.appendChild(go);
     card.appendChild(action);
 
+    // 発掘報告ボタン（被験体＝掘られる側のカードにだけ・追加時に判定済みの isDigTarget）。
+    //   活性条件は「読了1件以上」かつ「プレイヤー note ID が登録済み」。
+    //   note ID 未登録なら「読みに行く」でレイド参加の入力を促す（selectCreator）。
+    if (c.isDigTarget) {
+      var digBtn = document.createElement('button');
+      digBtn.className = 'btn dig-report-btn';
+      digBtn.type = 'button';
+      digBtn.textContent = '発掘報告';
+      if (stats.read < 1) {
+        digBtn.disabled = true;
+        digBtn.title = '記事を1件以上読むと発掘報告できるで。';
+      } else if (!playerNoteId()) {
+        digBtn.disabled = true;
+        digBtn.title = '「読みに行く」でプレイヤー名（note ID）を登録してや。';
+      } else {
+        digBtn.addEventListener('click', function () {
+          openDigReport(c.id);
+        });
+      }
+      action.appendChild(digBtn);
+    }
+
     return card;
   }
 
@@ -3681,6 +3856,19 @@
     }
     // 遷移しただけではバッジを消さない（記事一覧で取得して件数を取り込むまで残す）
     clearStatus();
+
+    // 発掘レイド：被験体クリエイターの「読みに行く」でプレイヤー名が未登録なら、
+    //   記事一覧へ進む前にプレイヤー名の入力を促す（初期記事発掘レイドへの参加）。
+    //   キタコレ/ニゲキレで入力済みなら初期表示され、確認して進める。登録済みなら素通り。
+    var c = getCreator(id);
+    if (c && c.isDigTarget && !playerNoteId()) {
+      openPlayerInput(id, {
+        label: '［ システム ］初期記事発掘レイドへの参加のため、プレイヤー名を入力してください。',
+        onSuccess: function () { goTo('read'); },
+      });
+      return;
+    }
+
     goTo('read');
   }
 
@@ -4759,7 +4947,18 @@
 
     closeAddModal();
     clearStatus();
-    goTo('read');
+
+    // 記事一覧へは自動遷移しない。クリエイター一覧に留まり、追加したカードを表示する。
+    goTo('list');
+
+    // 被験体（掘られる側）かどうかを参加者APIで判定し creator.isDigTarget に保存する。
+    //   追加のたびにその場で fetch（結果はクリエイターに持たせ、カード描画では再取得しない）。
+    //   ※ここではモード発動も認証もしない。モード発動はアバターのダブルタップのみ。
+    //     プレイヤー名入力は被験体の「読みに行く」タップ時に促す（selectCreator）。
+    //   判定は非同期なので、確定後にカードを再描画して発掘報告ボタンを反映する。
+    markDigTargetForCreator(creator).then(function () {
+      if (currentRoute() === 'list') renderCreatorCards();
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -5586,6 +5785,12 @@
     }
     if (els.kitacorePlayerCancel) {
       els.kitacorePlayerCancel.addEventListener('click', closePlayerInput);
+    }
+    if (els.digReportSubmit) {
+      els.digReportSubmit.addEventListener('click', submitDigReport);
+    }
+    if (els.digReportCancel) {
+      els.digReportCancel.addEventListener('click', closeDigReport);
     }
     // ランクエリア全体のタップは廃止。カードを開くのはランクバッジ（称号名）だけ。
     //   キタコレ＝paintKitacoreHeader、ニゲキレ＝renderNigekireHeader で各バッジに click 登録済み。
