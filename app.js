@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.11';
+  var APP_VERSION = '0.1.12';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -158,6 +158,25 @@
       // ※ lastCollectedChar / finalCheckDone は推し選択構造では使わない（残置は無害・参照しない）。
       if (m.finalCheckChar !== null && typeof m.finalCheckChar !== 'string') m.finalCheckChar = null; // 今出ている節目のキャラkey（都度セット）
       // 旧 charPoints（v1 ポイント制）は残っていても無害（v2 では使わない）。初期化はしない。
+    }
+    // ── ねんころ固有サブキー（AI研究所モード・設計 §11）──
+    //   共通型（mode/counts/collected/player）はそのまま流用し、研究ポイント関連だけ足す。
+    //   counts[articleKey] = { chatgpt, sora, total, countedAt }（記事本文のキーワード件数）。
+    //   collected[articleKey] = true（研究チップ回収済み・二重回収防止）。
+    //   ランクは totalResearchPoints から算出（保存しない・0ptは研究準備中）。
+    if (modeKey === 'nenkoro') {
+      if (typeof m.totalResearchPoints !== 'number' || !isFinite(m.totalResearchPoints)) m.totalResearchPoints = 0;
+      if (m.totalResearchPoints < 0) m.totalResearchPoints = 0;
+      // キーワード別累積（記録用・内訳表示）。研究ポイントの正は totalResearchPoints。
+      if (!m.keywordTotals || typeof m.keywordTotals !== 'object') m.keywordTotals = { chatgpt: 0, sora: 0 };
+      if (typeof m.keywordTotals.chatgpt !== 'number') m.keywordTotals.chatgpt = 0;
+      if (typeof m.keywordTotals.sora !== 'number') m.keywordTotals.sora = 0;
+      // 表示済み節目（ランクkey）。再表示防止の源泉（設計 §9）。
+      if (!Array.isArray(m.seenMilestones)) m.seenMilestones = [];
+      // 研究員カードの背景に選んだ立ち絵（ランクkey）。null=現ランクを既定にする。
+      //   NIKKE の立ち絵切り替え相当。取得済み（通過済み）ランクからのみ選べる。
+      if (m.selectedBg !== null && typeof m.selectedBg !== 'string') m.selectedBg = null;
+      if (typeof m.selectedBg === 'undefined') m.selectedBg = null;
     }
     return m;
   }
@@ -521,6 +540,112 @@
     hiyori:  '「私を選んだんだね。大丈夫、逃げようとしたらちゃんと止めるからね」',
   };
 
+  // ===========================================================================
+  // ねんころモード（AI研究所モード）静的定義。
+  //   設計正本 nenkoro-mode-implementation-design.md v1.0。
+  //   発動対象＝ねんころさん（note ID nenkoro_life）。記事本文の ChatGPT／そらちゃんを
+  //   数えて研究ポイントが貯まり、ランクとそらちゃん画像が育つ収集主体モード（戦闘なし）。
+  //   収集＝キタコレ型2段階（本文で数える→記事行チップをタップで回収）。
+  //   ランク・ゲージ＝1本ゲージ（totalResearchPoints からランク算出・0ptは研究準備中）。
+  //   節目演出＝ニゲキレのカットイン枠を流用（そらちゃん成長画像＋ランク名・一言・トラブル名）。
+  // ===========================================================================
+  var NENKORO_ID = 'nenkoro_life';
+
+  // 対象キーワード（設計 §4.1・初期2種）。pattern は g フラグ付きの正規表現。
+  //   chatgpt: 大小区別なし（/ChatGPT/gi）。sora: 完全一致（/そらちゃん/g）。
+  //   将来 GPT/Images/Codex を足しうるので配列で持つ（logic.js は key を機械処理）。
+  var NENKORO_KEYWORDS = [
+    { key: 'chatgpt', label: 'ChatGPT',   pattern: /ChatGPT/gi },
+    { key: 'sora',    label: 'そらちゃん', pattern: /そらちゃん/g },
+  ];
+
+  // スタート状態（Lv0・画像なし＝ランク扱いしない・設計 §7）。0pt のときだけ表示する。
+  var NENKORO_INITIAL_STATUS = { key: 'preparing', name: '研究準備中' };
+  // 研究準備中（立ち絵がまだ無い）ときにカード背景へ敷く砂嵐画像。
+  var NENKORO_PREPARING_IMAGE = 'assets/nenkoro/preparing.webp';
+
+  // 進捗バーの最大値（絶対1本ゲージ・キタコレの KITACORE_GOAL(2000) と同じ役割）。
+  //   ゲージは totalResearchPoints／700 の絶対ゲージ（区間ゲージにしない）。表示は「120／700」単位なし。
+  var NENKORO_GOAL = 700;
+
+  // ランク定義（6段階・設計 §7 の表が正）。閾値 10/40/100/220/400/700。
+  //   image = そらちゃん成長画像（assets/nenkoro/<key>.webp・実物差し替えは同名上書きで済む）。
+  //   line  = ランクアップ文言（カットイン中央）。trouble = 研究トラブル名（フレーバー・独立表示）。
+  //   ※ランクは totalResearchPoints から算出し保存しない（logic.js の nenkoroRankOf）。
+  var NENKORO_RANKS = [
+    { key: 'apprentice', minPoints: 10,  name: '見習い研究員',       image: 'assets/nenkoro/apprentice.webp', line: '白衣を着た。研究は、ここから始まる。',            trouble: 'プロンプト迷子' },
+    { key: 'researcher', minPoints: 40,  name: '研究員',             image: 'assets/nenkoro/researcher.webp', line: '研究室ができた。データを集める準備は整った。',      trouble: 'クレジット不足' },
+    { key: 'chief',      minPoints: 100, name: '主任研究員',         image: 'assets/nenkoro/chief.webp',      line: '研究成果が、ちょっと王子級になってきた。',          trouble: 'サブスク値上げ' },
+    { key: 'principal',  minPoints: 220, name: '主席研究員',         image: 'assets/nenkoro/principal.webp',  line: '寝起きでも、研究記録だけは残っている。',            trouble: '締切' },
+    { key: 'director',   minPoints: 400, name: 'AI研究所長',         image: 'assets/nenkoro/director.webp',   line: 'AI研究所が完成した。ここからは研究所長の仕事だ。',  trouble: 'API制限' },
+    { key: 'master',     minPoints: 700, name: 'AI研究所マスター',   image: 'assets/nenkoro/master.webp',     line: '429の波まで、研究データに変えてしまった。',        trouble: '429' },
+  ];
+
+  // ランクkey → ランク定義（見つからなければ null）。カットイン・カードで画像/文言を引く。
+  function nenkoroRankByKey(rankKey) {
+    if (!rankKey) return null;
+    var hit = NENKORO_RANKS.filter(function (r) { return r.key === rankKey; });
+    return hit.length ? hit[0] : null;
+  }
+
+  // 取得済み（通過済み）ランクkeyの配列＝背景に選べる立ち絵の候補（NIKKE の所持立ち絵相当）。
+  function nenkoroUnlockedRankKeys() {
+    var nm = ensureMode('nenkoro');
+    var passed = Array.isArray(nm.seenMilestones) ? nm.seenMilestones : [];
+    // NENKORO_RANKS の並び（昇順）で、通過済みのものだけ返す。
+    return NENKORO_RANKS.filter(function (r) { return passed.indexOf(r.key) !== -1; })
+      .map(function (r) { return r.key; });
+  }
+
+  // 研究員カードの背景に敷くランク定義を解決する。
+  //   selectedBg が取得済みならそれ。無ければ現ランク（通過済み最上位）。どちらも無ければ null（背景なし）。
+  function nenkoroCardBgRank() {
+    var nm = ensureMode('nenkoro');
+    var unlocked = nenkoroUnlockedRankKeys();
+    if (nm.selectedBg && unlocked.indexOf(nm.selectedBg) !== -1) {
+      return nenkoroRankByKey(nm.selectedBg);
+    }
+    // 未選択（または無効な選択）は現ランク＝通過済み最上位。
+    var cur = L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, nm.seenMilestones);
+    if (!cur.isPreparing) return nenkoroRankByKey(cur.key);
+    // 研究準備中（立ち絵なし）は砂嵐を背景に敷く（縦長レイアウトを保つ）。
+    return { key: 'preparing', name: cur.name, image: NENKORO_PREPARING_IMAGE, isPreparing: true };
+  }
+
+  // ランクバッジの階級キー（キタコレ／ニゲキレと共通の階級グラデを流用・独自色を作らない）。
+  //   ねんころ6ランクを、既存のニゲキレ階級（nige2..nige7＝D→SS の6段グラデ）へ1対1で対応。
+  //   研究準備中（0pt）はランク未満なので最下位のグレー（nige1）。
+  //   ※返すのは「rank-」を除いた素のキー（paintKitacoreHeader が 'rank-'+key を付ける）。
+  var NENKORO_RANK_BADGE_KEY = {
+    preparing:  'nige1', // 研究準備中＝グレー（未階級）
+    apprentice: 'nige2', // 見習い研究員
+    researcher: 'nige3', // 研究員
+    chief:      'nige4', // 主任研究員
+    principal:  'nige5', // 主席研究員
+    director:   'nige6', // AI研究所長
+    master:     'nige7', // AI研究所マスター
+  };
+  function nenkoroBadgeKey(rankKey) {
+    return NENKORO_RANK_BADGE_KEY[rankKey] || 'nige1';
+  }
+
+  // モード発動メッセージ（AI研究所モード起動）。
+  function nenkoroWakeLines() {
+    return [
+      '［ システム ］',
+      'AI研究所モードを起動しました。',
+      '記事を読むと ChatGPT／そらちゃんの研究データが集まります。',
+    ];
+  }
+
+  // モード終了メッセージ。
+  function nenkoroSleepLines() {
+    return [
+      '［ システム ］',
+      'AI研究所モードを終了しました。研究データは保存されています。',
+    ];
+  }
+
   // charKey → NIGEKIRE_CHARACTERS の1件（見つからなければ null）。
   function nigekireCharByKey(charKey) {
     if (!charKey) return null;
@@ -570,6 +695,22 @@
         firstTry:   nigekireFirstTryLines,   // §18 一発成功（char を受ける）
         failure:    nigekireFailureLines,    // §19 失敗（char を受ける）
         rankUpdate: nigekireRankUpdateLines, // §20 生活ランク更新（rankName を受ける）
+      },
+    },
+    // ── ねんころモード（AI研究所モード）──
+    //   boss/quiz 概念は無い。キーワード収集主体・研究ポイント→ランク→そらちゃん画像。
+    //   keywords/ranks/initialStatus は上の定数を参照（二重定義しない）。
+    nenkoro: {
+      key: 'nenkoro',
+      targetCreatorId: NENKORO_ID,           // 'nenkoro_life'（modeForCreator が逆引き）
+      challengeType: 'keyword_collect',      // 新種別（収集主体・戦闘なし）
+      goal: NENKORO_GOAL,                    // 進捗バー最大（絶対1本ゲージ 0→700・キタコレと統一）
+      keywords: NENKORO_KEYWORDS,            // ChatGPT（/gi）・そらちゃん（/g・完全一致）
+      initialStatus: NENKORO_INITIAL_STATUS, // 研究準備中（Lv0・画像なし）
+      ranks: NENKORO_RANKS,                  // 6段階（画像・文言・トラブルは §7）
+      lines: {
+        wake:  nenkoroWakeLines,             // モード発動メッセージ
+        sleep: nenkoroSleepLines,            // モード終了メッセージ
       },
     },
   };
@@ -905,6 +1046,11 @@
       renderNigekireCard();
       return;
     }
+    // アクティブモードがねんころなら研究員カードを描く（キタコレ/ニゲキレのカードは無改変）。
+    if (selectedCard && activeModeKey(selectedCard.id) === 'nenkoro' && isModeOnFor(selectedCard.id)) {
+      renderNenkoroCard();
+      return;
+    }
     var player = playerProfile();
     if (!player) return;
     // 対象クリエイターは選択中クリエイターから modeForCreator で解決。
@@ -923,8 +1069,8 @@
 
     var el = els.kitacoreRankCardContent;
     el.innerHTML = '';
-    el.classList.remove('nigekire-card'); // ニゲキレ描画の残りクラスを落とす（キタコレ表示は無改変）
-    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.remove('is-nigekire');
+    el.classList.remove('nigekire-card', 'nenkoro-card', 'has-bg'); // 他モード描画の残りクラスを落とす（キタコレ表示は無改変）
+    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.remove('is-nigekire', 'is-nenkoro');
 
     // アイコン + 表示名 + ID
     var playerRow = document.createElement('div');
@@ -1018,6 +1164,12 @@
   }
 
   function closeRankCard() {
+    // ねんころの立ち絵選択画面を開いているときは、閉じる（＝戻る）でカード表示へ戻す。
+    var content = els.kitacoreRankCardContent;
+    if (content && content.classList.contains('nenkoro-bg-select-view')) {
+      renderNenkoroCard();
+      return;
+    }
     if (els.kitacoreRankCard) els.kitacoreRankCard.classList.add('hidden');
   }
 
@@ -1030,9 +1182,13 @@
   function renderNigekireCard() {
     var el = els.kitacoreRankCardContent;
     el.innerHTML = '';
+    el.classList.remove('nenkoro-card', 'has-bg');
     el.classList.add('nigekire-card');
     // 窓側にも印を付ける（7人一覧を画面内に収めてスクロールさせるため・CSS で使う）。
-    if (el.parentNode && el.parentNode.classList) el.parentNode.classList.add('is-nigekire');
+    if (el.parentNode && el.parentNode.classList) {
+      el.parentNode.classList.remove('is-nenkoro');
+      el.parentNode.classList.add('is-nigekire');
+    }
 
     var m = ensureMode('nigekire');
     // v2：ランクは通過ベース（rankStage・§10-2）。収集数は次の節目トリガーで、ランク名は決めない。
@@ -1112,6 +1268,183 @@
     el.appendChild(list);
 
     els.kitacoreRankCard.classList.remove('hidden');
+  }
+
+  // ねんころ：研究員カード（AI研究所モードの詳細カード・設計 §10）。
+  //   キタコレ/ニゲキレのランクカード枠（#kitacore-rank-card）を流用。中身は研究所版。
+  //   プレイヤー＋ランク＋研究pt＋ChatGPT/そらちゃん累積＋現ランクのそらちゃん画像＋進捗。
+  //   語彙：研究/収集/到達。戦闘語彙は使わない。
+  function renderNenkoroCard() {
+    var el = els.kitacoreRankCardContent;
+    el.innerHTML = '';
+    el.classList.remove('nigekire-card', 'nenkoro-bg-select-view'); // 立ち絵選択画面のクラスも落とす
+    el.classList.add('nenkoro-card');
+    // 立ち絵選択画面で「戻る」に差し替えた下部ボタンを「閉じる」に戻す。
+    if (els.kitacoreRankCardClose) els.kitacoreRankCardClose.textContent = '閉じる';
+    if (el.parentNode && el.parentNode.classList) {
+      el.parentNode.classList.remove('is-nigekire');
+      el.parentNode.classList.add('is-nenkoro');
+    }
+
+    var nm = ensureMode('nenkoro');
+    // 表示ランクは通過済み節目（カットインを見た）から導出＝ヘッダーと一致（キタコレの撃破済みと同じ）。
+    var rank = L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, nm.seenMilestones);
+
+    // 背景にそらちゃん立ち絵を大きく敷く（NIKKE のキャラ詳細風）。研究準備中は背景なし。
+    //   選んだ立ち絵（selectedBg）優先・無ければ現ランク。立ち絵は cover で窓いっぱい。
+    var bgRank = nenkoroCardBgRank();
+    el.classList.toggle('has-bg', !!(bgRank && bgRank.image));
+    if (bgRank && bgRank.image) {
+      var bg = document.createElement('div');
+      bg.className = 'nenkoro-card-bg';
+      bg.style.backgroundImage = 'url("' + bgRank.image + '")';
+      el.appendChild(bg);
+    }
+
+    var player = playerProfile();
+    var researchPoints = (nm.keywordTotals.chatgpt || 0) + (nm.keywordTotals.sora || 0);
+    var todayRead = L.nenkoroReadTodayCount(state.readArticles, new Date().toISOString());
+
+    // 上から：アバター画像 → note ID → 研究PT → ランク名（すべて右寄せ）。
+
+    // ── プレイヤー（アイコン＋@id を縦並び・表示名なし）──
+    if (player) {
+      var playerCol = document.createElement('div');
+      playerCol.className = 'nenkoro-player';
+      var avatar = document.createElement('div');
+      avatar.className = 'add-preview-avatar nenkoro-player-avatar';
+      if (player.iconUrl) {
+        var pimg = document.createElement('img');
+        pimg.src = player.iconUrl;
+        pimg.alt = '';
+        pimg.addEventListener('error', function () {
+          if (pimg.parentNode) avatar.removeChild(pimg);
+          avatar.textContent = (player.displayName || player.id).charAt(0);
+        });
+        avatar.appendChild(pimg);
+      } else {
+        avatar.textContent = (player.displayName || player.id).charAt(0);
+      }
+      var pId = document.createElement('div');
+      pId.className = 'nenkoro-player-id';
+      pId.textContent = '@' + player.id;
+      playerCol.appendChild(avatar);
+      playerCol.appendChild(pId);
+      el.appendChild(playerCol);
+    }
+
+    // 立ち絵を大きく見せるためのスペーサー（アバターの直後・研究pt/ランク/STATUS を下部へまとめて寄せる）。
+    //   これで研究pt・ランク名が立ち絵の顔と被らず、STATUS の真上に集まる（NIKKE の上下分離）。
+    if (bgRank && bgRank.image) {
+      var spacer = document.createElement('div');
+      spacer.className = 'nenkoro-card-spacer';
+      el.appendChild(spacer);
+    }
+
+    // ── 研究ポイント帯（グレー背景）＝NIKKE の「LV」帯に対応。STATUS の真上に寄せる。 ──
+    var ptPlate = document.createElement('div');
+    ptPlate.className = 'nenkoro-pt-plate';
+    ptPlate.innerHTML = '研究pt <b>' + researchPoints + '</b>';
+    el.appendChild(ptPlate);
+
+    // ── ランク名（研究PTの下）。色はキタコレのランクバッジ（階級グラデ）に合わせる。 ──
+    var rankName = document.createElement('div');
+    rankName.className = 'nenkoro-rank-name';
+    var rankBadge = document.createElement('span');
+    rankBadge.className = 'kitacore-rank-text rank-' +
+      nenkoroBadgeKey(rank.isPreparing ? 'preparing' : rank.key);
+    rankBadge.textContent = rank.name;
+    rankName.appendChild(rankBadge);
+    el.appendChild(rankName);
+
+    // ── STATUS：1枚の薄いグレー矩形パネルの中に「STATUS」見出し＋白チップ3つを乗せる ──
+    var statusPanel = document.createElement('div');
+    statusPanel.className = 'nenkoro-status-panel';
+    var statusHead = document.createElement('div');
+    statusHead.className = 'nenkoro-status-head';
+    statusHead.textContent = 'STATUS';
+    statusPanel.appendChild(statusHead);
+    var statChips = [
+      { label: '今日読んだ記事', value: todayRead },
+      { label: 'ChatGPT 出現数', value: nm.keywordTotals.chatgpt || 0 },
+      { label: 'そらちゃん 出現数', value: nm.keywordTotals.sora || 0 },
+    ];
+    statChips.forEach(function (it) {
+      var chip = document.createElement('div');
+      chip.className = 'nenkoro-stat-chip';
+      var lab = document.createElement('span');
+      lab.className = 'nenkoro-stat-chip-label';
+      lab.textContent = it.label;
+      var val = document.createElement('span');
+      val.className = 'nenkoro-stat-chip-value';
+      val.textContent = String(it.value);
+      chip.appendChild(lab);
+      chip.appendChild(val);
+      statusPanel.appendChild(chip);
+    });
+    el.appendChild(statusPanel);
+
+    // 背景変更ボタン（取得済みの立ち絵から選ぶ）。取得済みが1枚以下なら出さない。絵文字は使わない。
+    if (nenkoroUnlockedRankKeys().length >= 2) {
+      var bgBtn = document.createElement('button');
+      bgBtn.type = 'button';
+      bgBtn.className = 'nenkoro-bg-change-btn';
+      bgBtn.textContent = '背景変更';
+      bgBtn.addEventListener('click', function () { openNenkoroBgSelect(); });
+      el.appendChild(bgBtn);
+    }
+
+    els.kitacoreRankCard.classList.remove('hidden');
+  }
+
+  // 背景変更：モーダルの中身を丸ごと「立ち絵選択画面」に書き換えて大きく表示する（NIKKE の立ち絵切り替え）。
+  //   取得済み（通過済み）立ち絵を大きなタイルで並べる。選ぶと selectedBg を保存してカードへ戻る。
+  //   「戻る」でカード表示へ戻る。
+  function openNenkoroBgSelect() {
+    var el = els.kitacoreRankCardContent;
+    if (!el) return;
+    var nm = ensureMode('nenkoro');
+    var unlocked = nenkoroUnlockedRankKeys();
+
+    el.innerHTML = '';
+    el.classList.remove('has-bg'); // 選択画面では背景立ち絵は敷かない
+    el.classList.add('nenkoro-bg-select-view');
+
+    var head = document.createElement('div');
+    head.className = 'nenkoro-bg-select-head';
+    head.textContent = '背景にする立ち絵を選ぶ';
+    el.appendChild(head);
+
+    var grid = document.createElement('div');
+    grid.className = 'nenkoro-bg-select-grid';
+    var curBg = nenkoroCardBgRank();
+    var curKey = curBg ? curBg.key : null;
+    unlocked.forEach(function (key) {
+      var r = nenkoroRankByKey(key);
+      if (!r) return;
+      var cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'nenkoro-bg-select-cell' + (key === curKey ? ' is-current' : '');
+      var img = document.createElement('img');
+      img.src = r.image;
+      img.alt = r.name;
+      img.loading = 'lazy';
+      cell.appendChild(img);
+      var cap = document.createElement('span');
+      cap.className = 'nenkoro-bg-select-cap';
+      cap.textContent = r.name;
+      cell.appendChild(cap);
+      cell.addEventListener('click', function () {
+        nm.selectedBg = key;
+        saveState();
+        renderNenkoroCard(); // 背景を切り替えてカード表示へ戻す
+      });
+      grid.appendChild(cell);
+    });
+    el.appendChild(grid);
+
+    // 下部の共通ボタン（閉じる）を「戻る」に差し替える（closeRankCard がこの画面では戻る動作になる）。
+    if (els.kitacoreRankCardClose) els.kitacoreRankCardClose.textContent = '戻る';
   }
 
   // ニゲキレ：カルーセル1枚分（1キャラ）の DOM を組む（v2・生活カード4段階）。
@@ -2190,6 +2523,8 @@
   var kitacoreInFlight = {};
   // ニゲキレ一言検出の取得中フラグ（キタコレとは別マップ＝混線させない）。
   var nigekireInFlight = {};
+  // ねんころ研究データ収集の取得中フラグ（他モードとは別マップ）。
+  var nenkoroInFlight = {};
 
   // HTML からタグを除去し最低限の実体参照をデコードして素テキストにする。
   //   実体は logic.js（L.stripHtml）。呼び出し側は無変更。
@@ -2291,6 +2626,55 @@
       });
   }
 
+  // ねんころ：この記事のキーワード件数が計測済みか（研究チップの表示前提）。
+  function isNenkoroCounted(articleId) {
+    var nm = ensureMode('nenkoro');
+    return !!(nm.counts && nm.counts[articleId]);
+  }
+  // ねんころ：この記事の研究チップを回収済みか（二重回収防止）。
+  function isNenkoroCollected(articleId) {
+    var nm = ensureMode('nenkoro');
+    return !!(nm.collected && nm.collected[articleId]);
+  }
+
+  // ねんころ：記事本文を取り ChatGPT／そらちゃんの件数を数えて counts に保存（＝収集）。
+  //   キタコレの fetchAndCountArticle と同方式（プロキシで本文取得→件数を数える）だが、
+  //   別 state（nenkoro.counts）・別 in-flight（nenkoroInFlight）で完全に分離する。
+  //   計測済み/取得中/key抽出失敗/body不正 はスキップ。await されない想定で呼ぶ。
+  //   ※対象は本文のみ（設計 §4.2）。json.data.body を stripHtml して数える
+  //     （タイトル/UI/コメント/関連記事は body に入らない＝対象外）。
+  function fetchAndCountNenkoro(article, creatorId) {
+    if (!article || !article.id) return;
+    if (isNenkoroCounted(article.id) || nenkoroInFlight[article.id]) return;
+    var key = articleKeyFromUrl(article.url);
+    if (!key) return; // スラッグ抽出失敗はスキップ
+    nenkoroInFlight[article.id] = true;
+    var url = PROXY_URL + '?path=' + encodeURIComponent('/api/v3/notes/' + key);
+    fetch(url)
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (json) {
+        var body = json && json.data ? json.data.body : null;
+        if (typeof body !== 'string') return; // 形式不正は未計測のまま握りつぶす
+        var nm = ensureMode('nenkoro');
+        var out = L.nenkoroCountKeywords(stripHtml(body), NENKORO_KEYWORDS);
+        out.countedAt = new Date().toISOString();
+        nm.counts[article.id] = out; // { chatgpt, sora, total, countedAt }
+        saveState();
+        // ねんころ表示中なら該当クリエイターの一覧を作り直して研究チップを出す。
+        if (currentRoute() === 'read' && state.selectedCreatorId === creatorId) {
+          renderArticles();
+        }
+      })
+      .catch(function () {
+        /* ネットワーク失敗等は未計測のまま（次タップで再試行） */
+      })
+      .then(function () {
+        delete nenkoroInFlight[article.id];
+      });
+  }
+
   // ワイ語チップを回収する（＝ポイント加算）。
   // 収集済み・未回収・ワイ>0 のときだけ totalWai に加算し collected を立てる。
   function collectWai(articleId) {
@@ -2308,6 +2692,32 @@
       var boss = KITACORE_POST_BOSSES.find(function (b) { return b.key === out.summonBossKey; });
       if (boss) showPostBoss(boss);
     }
+  }
+
+  // ねんころ：研究チップを回収する（＝研究ポイント加算・設計 §5/§6）。
+  //   total>0 かつ未回収のときだけ totalResearchPoints に加算し collected を立てる。
+  //   加算後はヘッダーを描き直すだけ。新到達の節目があればヘッダーに「到達カード」が出る。
+  //   カットイン（暗転＋大画像）はそのカードのボタンをタップして初めて出す
+  //   （キタコレ/ニゲキレと同じ2段構え。回収した瞬間にいきなり全画面にしない）。
+  function collectNenkoro(articleKey) {
+    var nm = ensureMode('nenkoro');
+    var out = L.nenkoroCollectOutcome(
+      nm.counts, nm.collected, nm.totalResearchPoints, nm.keywordTotals, articleKey
+    );
+    if (!out.ok) return; // 未収集 / 二重回収 / 0件
+    nm.totalResearchPoints = out.nextTotal;
+    nm.collected = out.nextCollected;
+    nm.keywordTotals = out.nextKeywordTotals;
+    saveState();
+    renderNenkoroHeader(); // 到達カードはヘッダー側で描く（複数同時通過は低い順に1枚ずつ）
+  }
+
+  // ねんころ：未表示の節目のうち最も低いランクを1つ返す（無ければ null）。
+  //   ヘッダーの到達カード・カットインはこの1件を対象にする（複数同時通過は低い順に1枚ずつ）。
+  function nextNenkoroMilestone() {
+    var nm = ensureMode('nenkoro');
+    var pending = L.nenkoroPendingMilestones(NENKORO_RANKS, nm.seenMilestones, nm.totalResearchPoints);
+    return pending.length ? pending[0] : null;
   }
 
   // 覚醒後ボスカードを表示する（挑戦待ち状態にセット）。
@@ -3106,6 +3516,53 @@
     if (charKey) openNigekireFinalCheck(charKey);
   }
 
+  // ---------------------------------------------------------------------------
+  // ねんころ 節目カットイン（AI研究所モード・設計 §9）。
+  //   キタコレ/ニゲキレと同じ2段構え：ヘッダーに「到達カード」→ボタンをタップして
+  //   初めてこの全画面カットイン（暗転＋大画像）に進む。回収した瞬間には出さない。
+  //   ニゲキレのカットイン枠を流用した専用オーバーレイ #nenkoro-cutin。
+  //   暗転→そらちゃん成長画像→ランク名・一言・研究トラブル名の3段→画面タップで閉じる。
+  //   閉じたら seenMilestones に積んでヘッダーを描き直す（次の到達カードが低い順に出る）。
+  // ---------------------------------------------------------------------------
+
+  // 今カットインに出しているランクkey（タップで閉じる→seenMilestones 記録の受け渡し用）。
+  var activeNenkoroMilestoneKey = null;
+
+  // ランク到達カットインを開く。画像・文言・トラブルは NENKORO_RANKS（§7）から引く。
+  function openNenkoroCutin(rankKey) {
+    if (!els.nenkoroCutin) return;
+    var rank = nenkoroRankByKey(rankKey);
+    if (!rank) return;
+    if (els.nenkoroCutinImg) {
+      // 画像は必ずランク定義から引く（実物差し替えは NENKORO_RANKS の image を上書きするだけ）。
+      els.nenkoroCutinImg.src = rank.image;
+      els.nenkoroCutinImg.alt = rank.name;
+    }
+    if (els.nenkoroCutinName) els.nenkoroCutinName.textContent = rank.name;
+    if (els.nenkoroCutinLine) els.nenkoroCutinLine.textContent = rank.line || '';
+    if (els.nenkoroCutinTrouble) {
+      els.nenkoroCutinTrouble.textContent = rank.trouble ? '研究トラブル記録：' + rank.trouble : '';
+    }
+    activeNenkoroMilestoneKey = rankKey;
+    els.nenkoroCutin.classList.remove('hidden');
+  }
+
+  // カットインのタップ → 表示済みに記録して閉じ、ヘッダーを描き直す。
+  //   次の未表示節目があればヘッダーに到達カードが出る（自動で次のカットインは出さない）。
+  function onNenkoroCutinTap() {
+    var rankKey = activeNenkoroMilestoneKey;
+    activeNenkoroMilestoneKey = null;
+    if (els.nenkoroCutin) els.nenkoroCutin.classList.add('hidden');
+    if (rankKey) {
+      var nm = ensureMode('nenkoro');
+      if (nm.seenMilestones.indexOf(rankKey) === -1) {
+        nm.seenMilestones.push(rankKey);
+        saveState();
+      }
+    }
+    renderNenkoroHeader(); // 次の到達カード（低い順）を出す。尽きればカードは消える。
+  }
+
   // 最終確認画面（§10）。「○○の最終確認」＋キャラ別セリフ＋[確認を通過する]（クイズなし・儀式）。
   function openNigekireFinalCheck(charKey) {
     if (!els.nigekireFinal) return;
@@ -3526,6 +3983,14 @@
     nigekireFinalTitle: document.getElementById('nigekire-final-title'),
     nigekireFinalLine: document.getElementById('nigekire-final-line'),
     nigekireFinalPass: document.getElementById('nigekire-final-pass'),
+
+    // ねんころ 節目カットイン（AI研究所モード・キタコレ/ニゲキレ DOM とは分離）。
+    nenkoroCutin: document.getElementById('nenkoro-cutin'),
+    nenkoroCutinCard: document.getElementById('nenkoro-cutin-card'),
+    nenkoroCutinImg: document.getElementById('nenkoro-cutin-img'),
+    nenkoroCutinName: document.getElementById('nenkoro-cutin-name'),
+    nenkoroCutinLine: document.getElementById('nenkoro-cutin-line'),
+    nenkoroCutinTrouble: document.getElementById('nenkoro-cutin-trouble'),
     nigekireDebugBtns: document.getElementById('nigekire-debug-btns'),
     nigekireDebugAddAll: document.getElementById('nigekire-debug-add-all'),
     nigekireDebugAddTsukiko: document.getElementById('nigekire-debug-add-tsukiko'),
@@ -3534,6 +3999,11 @@
     nigekireDebugPass: document.getElementById('nigekire-debug-pass'),
     nigekireDebugClear: document.getElementById('nigekire-debug-clear'),
     nigekireDebugOshi: document.getElementById('nigekire-debug-oshi'),
+    // デバッグ（ねんころ）：研究pt注入・クリア（他モードと排他）。
+    nenkoroDebugBtns: document.getElementById('nenkoro-debug-btns'),
+    nenkoroDebugAdd10: document.getElementById('nenkoro-debug-add10'),
+    nenkoroDebugAdd100: document.getElementById('nenkoro-debug-add100'),
+    nenkoroDebugClear: document.getElementById('nenkoro-debug-clear'),
     // 推し選択モーダル（初回選択・キャラ変更で共用）。
     nigekireOshi: document.getElementById('nigekire-oshi'),
     nigekireOshiTitle: document.getElementById('nigekire-oshi-title'),
@@ -4435,6 +4905,37 @@
       }
     }
 
+    // ── ねんころ：研究チップ（キタコレ型2段階）＋タップ回収 ──
+    //   記事を開いて本文を計測済み（counts[id] あり）なら研究チップを1つ出す。
+    //   内訳（ChatGPT n／そらちゃん n）と合計を表示。total>0未回収=タップ可。
+    //   0件 / 回収済み=非活性（キタコレのワイチップと同じ .article-wai を流用）。
+    if (activeModeKey(creatorId) === 'nenkoro' && isModeOnFor(creatorId) && isNenkoroCounted(article.id)) {
+      var nenEntry = ensureMode('nenkoro').counts[article.id];
+      var nenCollected = isNenkoroCollected(article.id);
+      var nenTotal = typeof nenEntry.total === 'number' ? nenEntry.total : 0;
+      var nenClaimable = nenTotal > 0 && !nenCollected;
+      var research = document.createElement('button');
+      research.type = 'button';
+      research.className =
+        'article-wai nenkoro-chip' +
+        (nenCollected ? ' is-collected' : '') +
+        (nenClaimable ? ' is-claimable' : ' is-locked');
+      // 内訳ツールチップ（ChatGPT 3 ／ そらちゃん 2）。本文は「🧪 研究データ 5」。
+      research.title = 'ChatGPT ' + (nenEntry.chatgpt || 0) + ' ／ そらちゃん ' + (nenEntry.sora || 0);
+      research.textContent = nenCollected
+        ? '🧪 研究データ ' + nenTotal + ' ✓'
+        : '🧪 研究データ ' + nenTotal;
+      research.disabled = !nenClaimable;
+      if (nenClaimable) {
+        research.addEventListener('click', function () {
+          collectNenkoro(article.id);
+          renderArticles();
+          updateReadStatsHeader(); // 研究ポイント→研究所UI（ヘッダー）へ反映
+        });
+      }
+      meta.appendChild(research);
+    }
+
     body.appendChild(meta);
 
     wrap.appendChild(body);
@@ -4479,6 +4980,7 @@
     //   別モードで排他利用＝同一クリエイターに両モードが同時発動することはない）。
     renderKitacoreHeader();
     renderNigekireHeader();
+    renderNenkoroHeader();
   }
 
   // ニゲキレ：ヘッダー（v2・生活ランクバッジ＋最推し＋1本ゲージ）。モードON のときだけ表示。
@@ -4496,8 +4998,9 @@
 
     if (els.kitacoreRankArea) els.kitacoreRankArea.classList.remove('hidden');
     if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
-    // キタコレ用 debug は常に隠す（排他）。ニゲキレ用は下で ?debug=1 のとき出す。
+    // キタコレ/ねんころ用 debug は常に隠す（排他）。ニゲキレ用は下で ?debug=1 のとき出す。
     if (els.debugBtns) els.debugBtns.classList.add('hidden');
+    if (els.nenkoroDebugBtns) els.nenkoroDebugBtns.classList.add('hidden');
 
     // ニゲキレ用 debug ボタン群: ?debug=1 かつ 記事取得済み のときだけ表示（キタコレと同方式・排他）。
     var hasArticles = c && (state.articlesByCreator[c.id] || []).length > 0;
@@ -4651,6 +5154,125 @@
     els.kitacoreProgress.appendChild(wrap);
   }
 
+  // ねんころ：研究所UI（ヘッダー・AI研究所モード）。モードON のときだけ表示。
+  //   キタコレの paintKitacoreHeader と完全同型＝ランクバッジ（タップで詳細カード）＋
+  //   進捗バー（totalResearchPoints／700・全角スラッシュ・単位なし）だけ。独自レイアウトは作らない。
+  //   キタコレ/ニゲキレと同じ #kitacore-rank-area / #kitacore-stats / #kitacore-progress を
+  //   排他利用する（対象 creator が異なるため衝突しない）。ボス概念は無いので #kitacore-boss は隠す。
+  function renderNenkoroHeader() {
+    var c = getSelectedCreator();
+    var on = c && activeModeKey(c.id) === 'nenkoro' && isModeOnFor(c.id);
+    // ねんころ非該当時は何もしない（キタコレ側の hidden 制御を尊重＝二重制御しない）。
+    if (!on) return;
+
+    if (els.kitacoreRankArea) els.kitacoreRankArea.classList.remove('hidden');
+    if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
+    // 他モードの debug ボタンは排他で隠す。
+    if (els.debugBtns) els.debugBtns.classList.add('hidden');
+    if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.add('hidden');
+
+    var nm = ensureMode('nenkoro');
+    var pt = nm.totalResearchPoints || 0;
+    // 表示ランクは「通過済み節目（カットインを見た）」から導出＝キタコレの撃破済みボスと同じ考え方。
+    //   ポイントが閾値を超えてもカットインを見るまでランクは上がらない（バーだけ先に進む）。
+    var rank = L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, nm.seenMilestones);
+    // キタコレと同一経路（ランクバッジ＋絶対ゲージ N／700）。バー表示は単位なし・全角スラッシュ。
+    paintKitacoreHeader(
+      'ランク ' + rank.name,
+      nenkoroBadgeKey(rank.isPreparing ? 'preparing' : rank.key),
+      pt,
+      NENKORO_GOAL,
+      pt + '／' + NENKORO_GOAL
+    );
+
+    els.kitacoreStats.classList.remove('is-nigekire');
+    els.kitacoreStats.classList.add('is-nenkoro');
+    var todayRead = L.nenkoroReadTodayCount(state.readArticles, new Date().toISOString());
+
+    // 「今日読んだ記事」はランクチップ（#kitacore-stats のランクバッジ）の右側に置く。
+    //   paintKitacoreHeader が入れたランクバッジと同じ flex 行に追加＝バッジの隣に並ぶ。
+    var todayEl = document.createElement('span');
+    todayEl.className = 'nenkoro-today';
+    todayEl.innerHTML = '<span class="nenkoro-stat-label">今日読んだ記事</span> ' + todayRead;
+    els.kitacoreStats.appendChild(todayEl);
+
+    // 残り2項目（ChatGPT出現数・そらちゃん出現数）はバーの上に1行で（短いので折り返さない）。
+    var summary = document.createElement('div');
+    summary.className = 'nenkoro-stat-line';
+    var statItems = [
+      { label: 'ChatGPT 出現数', value: nm.keywordTotals.chatgpt || 0 },
+      { label: 'そらちゃん 出現数', value: nm.keywordTotals.sora || 0 },
+    ];
+    statItems.forEach(function (it, i) {
+      if (i > 0) summary.appendChild(document.createTextNode('　・　'));
+      var lab = document.createElement('span');
+      lab.className = 'nenkoro-stat-label';
+      lab.textContent = it.label;
+      summary.appendChild(lab);
+      summary.appendChild(document.createTextNode(' ' + it.value));
+    });
+    els.kitacoreStats.appendChild(summary);
+
+    // 節目：未表示の到達ランクがあればヘッダーに「到達カード」を出す（#kitacore-boss を流用）。
+    //   キタコレのボスカード・ニゲキレの最終確認カードと同じ場所・同じ2段構え。
+    //   カードのボタンをタップして初めてカットイン（全画面）に進む。
+    renderNenkoroMilestoneCard();
+
+    // ねんころ用 debug ボタン群: ?debug=1 かつ 記事取得済み のときだけ表示（キタコレ/ニゲキレと同方式・排他）。
+    var hasArticles = c && (state.articlesByCreator[c.id] || []).length > 0;
+    if (els.nenkoroDebugBtns) els.nenkoroDebugBtns.classList.toggle('hidden', !(DEBUG_MODE && hasArticles));
+  }
+
+  // ねんころ：ヘッダーの節目「研究トラブル発生」カード（キタコレのボスカードと同型・#kitacore-boss）。
+  //   ポイントが次ランク閾値へ達すると、そのランクの研究トラブル（締切・API制限…）が発生した
+  //   というメッセージを出す＝キタコレの「次なる試練＋ボス名」に相当（＝立ちはだかる障害）。
+  //   [対処する] をタップ → カットイン → 閉じた瞬間にレベルアップ確定（rank が上がる）。
+  //   そらちゃんの成長画像（＝ごほうび）はカードには出さない（カットインで初めて見せる）。
+  function renderNenkoroMilestoneCard() {
+    if (!els.kitacoreBoss) return;
+    var rank = nextNenkoroMilestone();
+    if (!rank) {
+      els.kitacoreBoss.innerHTML = '';
+      els.kitacoreBoss.classList.remove('nenkoro-milestone-card');
+      els.kitacoreBoss.classList.add('hidden');
+      return;
+    }
+    var def = nenkoroRankByKey(rank.key);
+    var trouble = def && def.trouble ? def.trouble : '研究トラブル';
+    els.kitacoreBoss.innerHTML = '';
+    els.kitacoreBoss.classList.remove('hidden');
+    els.kitacoreBoss.classList.add('nenkoro-milestone-card');
+
+    // サムネはトラブルの警告アイコン（そらちゃん画像＝ごほうびはカットインまで伏せる）。
+    var thumb = document.createElement('div');
+    thumb.className = 'kitacore-boss-thumb nenkoro-trouble-thumb';
+    thumb.textContent = '⚠';
+
+    var info = document.createElement('div');
+    info.className = 'kitacore-boss-info';
+    var label = document.createElement('div');
+    label.className = 'kitacore-boss-label';
+    label.textContent = '研究トラブル発生';
+    var name = document.createElement('div');
+    name.className = 'kitacore-boss-name';
+    name.textContent = trouble;
+    var title = document.createElement('div');
+    title.className = 'kitacore-boss-title';
+    title.textContent = '対処すれば研究が前進する';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'kitacore-boss-btn';
+    btn.textContent = '対処する';
+    btn.addEventListener('click', function () { openNenkoroCutin(rank.key); });
+    info.appendChild(label);
+    info.appendChild(name);
+    info.appendChild(title);
+    info.appendChild(btn);
+
+    els.kitacoreBoss.appendChild(thumb);
+    els.kitacoreBoss.appendChild(info);
+  }
+
   // キタコレ：ヘッダーにランク行＋進捗バーを出す。モードON のときだけ表示。
   //   覚醒前（A級ボス未撃破）= 覚醒前ランク（E/C/A）＋鍵の数。
   //   覚醒後（wing 撃破済み）= ワイ語ハンターランク＋ワイ累計バー。
@@ -4658,8 +5280,9 @@
     var c = getSelectedCreator();
     var on = c && activeModeKey(c.id) === 'kitacore' && isModeOn(c.id);
     if (els.kitacoreRankArea) els.kitacoreRankArea.classList.toggle('hidden', !on);
-    // ニゲキレ用 debug ボタンはキタコレ描画中は常に隠す（排他・キタコレ挙動は無改変）。
+    // ニゲキレ/ねんころ用 debug ボタンはキタコレ描画中は常に隠す（排他・キタコレ挙動は無改変）。
     if (els.nigekireDebugBtns) els.nigekireDebugBtns.classList.add('hidden');
+    if (els.nenkoroDebugBtns) els.nenkoroDebugBtns.classList.add('hidden');
     if (!on) {
       if (els.kitacoreBoss) els.kitacoreBoss.classList.add('hidden');
       if (els.debugBtns) els.debugBtns.classList.add('hidden');
@@ -4695,7 +5318,7 @@
       return;
     }
     els.kitacoreBoss.innerHTML = '';
-    els.kitacoreBoss.classList.remove('hidden');
+    els.kitacoreBoss.classList.remove('hidden', 'nenkoro-milestone-card'); // ねんころ到達カードの残りクラスを落とす
 
     var thumb = document.createElement('div');
     thumb.className = 'kitacore-boss-thumb';
@@ -4746,7 +5369,7 @@
       return;
     }
     els.kitacoreBoss.innerHTML = '';
-    els.kitacoreBoss.classList.remove('hidden');
+    els.kitacoreBoss.classList.remove('hidden', 'nenkoro-milestone-card'); // ねんころ到達カードの残りクラスを落とす
 
     var thumb = document.createElement('div');
     thumb.className = 'kitacore-boss-thumb';
@@ -4806,8 +5429,8 @@
   //   badgeText/badgeKey = ランクバッジ。barCur/barMax/barText = 進捗バー。
   function paintKitacoreHeader(badgeText, badgeKey, barCur, barMax, barText) {
     els.kitacoreStats.innerHTML = '';
-    // キタコレは横並び stats（ニゲキレの縦積みクラスが残っていたら外す）。
-    els.kitacoreStats.classList.remove('is-nigekire');
+    // キタコレは横並び stats（他モードのクラスが残っていたら外す。nenkoro は呼び出し後に再付与）。
+    els.kitacoreStats.classList.remove('is-nigekire', 'is-nenkoro');
     // ランクバッジ＝ボタン。タップで詳細カード（称号名だけがタップ領域・§9操作統一）。
     var rank = document.createElement('button');
     rank.type = 'button';
@@ -5295,6 +5918,11 @@
     if (activeModeKey(creatorId) === 'nigekire' && isModeOnFor(creatorId)) {
       fetchAndDetectNigekireChar(article, creatorId);
     }
+    // ねんころ：モードON なら遷移前に裏で本文を取り ChatGPT／そらちゃんの件数を数える。
+    //   （回収は後で記事行の研究チップをタップ＝ここでは研究ポイントを入れない）
+    if (activeModeKey(creatorId) === 'nenkoro' && isModeOnFor(creatorId)) {
+      fetchAndCountNenkoro(article, creatorId);
+    }
   }
 
   function takePendingArticle() {
@@ -5375,6 +6003,12 @@
     if (id === NIGEKIRE_ID) {
       var nm = ensureMode('nigekire');
       state.modes.nigekire = L.cleanupNigekireOnDelete(nm, id === NIGEKIRE_ID);
+    }
+    // この creator がねんころ対象（nenkoro_life）なら、ねんころ state も掃除する。
+    //   ニゲキレ同様、唯一の対象を削除＝そのモードの進行を丸ごとリセット（亡霊 state を残さない）。
+    if (id === NENKORO_ID) {
+      var nk = ensureMode('nenkoro');
+      state.modes.nenkoro = L.cleanupNenkoroOnDelete(nk, id === NENKORO_ID);
     }
     delete state.articlesByCreator[id];
     // この creator の読了状態も掃除
@@ -5976,6 +6610,12 @@
     if (els.nigekireCutin) {
       els.nigekireCutin.addEventListener('click', onNigekireCutinTap);
     }
+
+    // ── ねんころ 節目カットインの配線（キタコレ/ニゲキレ DOM とは分離）──
+    //   画面（背景/カード）タップで閉じる→次の未表示節目へ（onNenkoroCutinTap）。
+    if (els.nenkoroCutin) {
+      els.nenkoroCutin.addEventListener('click', onNenkoroCutinTap);
+    }
     //   最終確認：[確認を通過する]で通過処理（active char を渡す）。
     if (els.nigekireFinalPass) {
       els.nigekireFinalPass.addEventListener('click', function () {
@@ -6089,6 +6729,43 @@
         m.escapeCounts = {};
         m.oshiPassCounts = {};
         m.finalCheckChar = null;
+        saveState();
+        renderRoute();
+        updateReadStatsHeader();
+      });
+    }
+
+    // ── ねんころ DEBUG ボタン（研究pt注入・クリア）──
+    //   研究ポイントを足してヘッダーを描き直す（到達カードはヘッダーに出る＝実回収と同じ2段構え）。
+    //   内訳（keywordTotals.chatgpt）にも同数を足して研究員カードの表示と整合させる。
+    //   到達カードはヘッダー側に出る（実回収と同じ2段構え。いきなりカットインは出さない）。
+    function debugAddNenkoroPoints(n) {
+      var c = getSelectedCreator();
+      if (!c || activeModeKey(c.id) !== 'nenkoro') return;
+      var nm = ensureMode('nenkoro');
+      nm.totalResearchPoints = (nm.totalResearchPoints || 0) + n;
+      nm.keywordTotals.chatgpt = (nm.keywordTotals.chatgpt || 0) + n; // 内訳も整合（便宜上 ChatGPT 側へ）
+      saveState();
+      renderNenkoroHeader();
+      updateReadStatsHeader();
+    }
+    if (els.nenkoroDebugAdd10) {
+      els.nenkoroDebugAdd10.addEventListener('click', function () { debugAddNenkoroPoints(10); });
+    }
+    if (els.nenkoroDebugAdd100) {
+      els.nenkoroDebugAdd100.addEventListener('click', function () { debugAddNenkoroPoints(100); });
+    }
+    if (els.nenkoroDebugClear) {
+      els.nenkoroDebugClear.addEventListener('click', function () {
+        if (!window.confirm('ねんころ（AI研究所モード）の進行データ（研究ポイント・収集・節目）をすべてクリアします。よろしいですか？')) return;
+        var c = getSelectedCreator();
+        if (!c || activeModeKey(c.id) !== 'nenkoro') return;
+        var nm = ensureMode('nenkoro');
+        nm.counts = {};
+        nm.collected = {};
+        nm.totalResearchPoints = 0;
+        nm.keywordTotals = { chatgpt: 0, sora: 0 };
+        nm.seenMilestones = []; // 節目も戻す（クリア後に育て直すと再びカットインが出る）
         saveState();
         renderRoute();
         updateReadStatsHeader();

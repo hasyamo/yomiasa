@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.11" />
+    <link rel="stylesheet" href="style.css?v=0.1.12" />
   </head>
   <body>
     <div id="app">
@@ -119,6 +119,13 @@
               <button id="nigekire-debug-escape" class="debug-btn" type="button">逃げ切き+1</button>
               <button id="nigekire-debug-pass" class="debug-btn" type="button">節目を通過</button>
               <button id="nigekire-debug-clear" class="debug-btn debug-btn-danger" type="button">クリア</button>
+            </div>
+            <!-- デバッグ用（ねんころ）：研究pt注入・クリア（開発中のみ・他モードと排他） -->
+            <div id="nenkoro-debug-btns" class="debug-btns nenkoro-debug-btns hidden">
+              <span class="debug-label">DEBUG</span>
+              <button id="nenkoro-debug-add10" class="debug-btn" type="button">研究+10</button>
+              <button id="nenkoro-debug-add100" class="debug-btn" type="button">研究+100</button>
+              <button id="nenkoro-debug-clear" class="debug-btn debug-btn-danger" type="button">クリア</button>
             </div>
             <div id="kitacore-progress" class="read-progress"></div>
           </div>
@@ -465,6 +472,23 @@
       </div>
     </div>
 
+    <!-- ============= ねんころ：節目カットイン（AI研究所モード・そらちゃん成長画像） ============= -->
+    <!-- 暗転・そらちゃん成長画像・ランク名／一言／研究トラブル名の3段。画面タップで閉じる。 -->
+    <div id="nenkoro-cutin" class="nenkoro-cutin hidden" role="dialog" aria-modal="true" aria-label="研究ランク到達">
+      <div class="nenkoro-cutin-stage">
+        <div id="nenkoro-cutin-card" class="nenkoro-cutin-card">
+          <img id="nenkoro-cutin-img" class="nenkoro-cutin-img" alt="" />
+        </div>
+        <p id="nenkoro-cutin-name" class="nenkoro-cutin-name"></p>
+        <div class="nenkoro-cutin-text-wrap">
+          <p class="nenkoro-cutin-sys">［ 研究記録 ］</p>
+          <p id="nenkoro-cutin-line" class="nenkoro-cutin-line"></p>
+          <p id="nenkoro-cutin-trouble" class="nenkoro-cutin-trouble"></p>
+          <div class="nenkoro-cutin-hint">画面をタップして閉じる</div>
+        </div>
+      </div>
+    </div>
+
     <!-- ============= ニゲキレ：推し選択モーダル（7人から1人・初回選択とキャラ変更で共用） ============= -->
     <div id="nigekire-oshi" class="kitacore-quiz nigekire-oshi hidden" role="dialog" aria-modal="true" aria-labelledby="nigekire-oshi-title">
       <div class="kitacore-quiz-window nigekire-oshi-window">
@@ -492,7 +516,7 @@
     </div>
 
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="logic.js?v=0.1.11"></script>
-    <script src="app.js?v=0.1.11"></script>
+    <script src="logic.js?v=0.1.12"></script>
+    <script src="app.js?v=0.1.12"></script>
   </body>
 </html>

@@ -2,7 +2,7 @@
  * アプリシェル（HTML/CSS/JS/アイコン）をキャッシュし、オフラインでも起動できるようにする。
  * note記事の取得（プロキシ経由）はネットワーク優先で、キャッシュしない。
  */
-var CACHE = 'yomiasa-v0.1.11';
+var CACHE = 'yomiasa-v0.1.12';
 
 // スコープ基準（/yomiasa/）からの相対でアプリシェルを列挙。
 // style.css / app.js は index.html と同じ ?v= 付きURLでプリキャッシュする
