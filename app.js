@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.12';
+  var APP_VERSION = '0.1.13';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -2444,6 +2444,190 @@
       })
       .catch(function () {
         return null;
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 600件上限フォールバック（GraphQLアーカイブ補完）
+  //
+  // note contents API はサーバ側で約600件で打ち切られる（totalCount も約600に
+  // 丸められるため、通常APIだけでは不足に気づけない）。プロフィールAPIの
+  // noteCount（実記事数）と突き合わせ、足りないときだけ月別アーカイブの
+  // GraphQL（プロキシ経由・クエリはWorker側で固定）で年単位に遡って補完する。
+  // 記事600件未満のクリエイターと通常の差分取得ではこの経路は一切動かない。
+  // ---------------------------------------------------------------------------
+
+  // 通常APIの totalCount がこの値以上のときだけ、実記事数の確認に進む。
+  // （実測ではサーバ打ち切り時の totalCount は601。これ未満なら丸めは起きていない）
+  var ARCHIVE_CHECK_THRESHOLD = 550;
+  // アーカイブGraphQLを遡る下限年（noteのサービス開始は2014年）
+  var ARCHIVE_MIN_YEAR = 2013;
+  // GraphQLリクエストの間隔（note側への負荷配慮）
+  var ARCHIVE_REQUEST_INTERVAL_MS = 300;
+
+  function archiveDelay(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  // プロフィールAPIから実記事数を取る。失敗時は null。
+  function fetchCreatorNoteCount(creatorId) {
+    return fetch(PROXY_URL + '?id=' + encodeURIComponent(creatorId))
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .then(function (json) {
+        var data = json && json.data;
+        return data && typeof data.noteCount === 'number' ? data.noteCount : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  // GraphQLの publishedAt（UTC "Z" 形式）を既存記事と同じ JST "+09:00" 形式へ。
+  // 記事のソート・差分判定は publishedAt の文字列比較で行っているため、形式を
+  // 揃えないと並び順と新着判定が壊れる。
+  function toJstIso(iso) {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return iso || '';
+    var d = new Date(t + 9 * 3600 * 1000);
+    function pad(n) {
+      return (n < 10 ? '0' : '') + n;
+    }
+    return (
+      d.getUTCFullYear() +
+      '-' +
+      pad(d.getUTCMonth() + 1) +
+      '-' +
+      pad(d.getUTCDate()) +
+      'T' +
+      pad(d.getUTCHours()) +
+      ':' +
+      pad(d.getUTCMinutes()) +
+      ':' +
+      pad(d.getUTCSeconds()) +
+      '+09:00'
+    );
+  }
+
+  // 記事URLから note key（/n/xxxx）を取り出す。補完の重複排除は key で行う
+  // （GraphQL側の id は通常APIの数値IDと形式が違うため、key が共通の照合軸）。
+  function keyFromArticleUrl(url) {
+    var m = typeof url === 'string' ? url.match(/\/n\/([A-Za-z0-9]+)/) : null;
+    return m ? m[1] : null;
+  }
+
+  function normalizeArchiveNode(node, creatorId) {
+    var common = node.common || {};
+    var oc = node.openContents || {};
+    var link = common.link || {};
+    return {
+      // 通常APIの id（'n'+数値）と衝突しない接頭辞。key はクリエイター内で一意。
+      id: 'g' + node.key,
+      title: oc.title || '(無題)',
+      url: link.absoluteUrl || 'https://note.com/' + creatorId + '/n/' + node.key,
+      publishedAt: toJstIso(common.publishedAt || ''),
+      likeCount: typeof common.likeCount === 'number' ? common.likeCount : 0,
+      commentCount: typeof common.commentCount === 'number' ? common.commentCount : 0,
+      thumbnailUrl: (oc.thumbnailImage && oc.thumbnailImage.url) || '',
+    };
+  }
+
+  // アーカイブGraphQLで不足分を補完する。
+  //   haveArticles : 手元にある記事（normalizeArticle と同形式）
+  //   noteCount    : プロフィールAPIの実記事数（目標値）
+  // 手元の最古記事の「年」から1年ずつ遡り、各年を新しい順に50件ずつページングする。
+  // 空の年でも止めない（休止年の先を取り逃さないため）。停止条件は
+  // 「合計が noteCount に到達」または「ARCHIVE_MIN_YEAR まで遡った」のみ。
+  // 戻り値: 追加分の配列（順不同。呼び出し側でマージ後にソートする）。
+  // 途中で失敗しても reject せず、そこまでに取れた分を返す（劣化動作）。
+  function fetchArchivesBackfill(creatorId, noteCount, haveArticles, onProgress) {
+    var knownKeys = new Set();
+    haveArticles.forEach(function (a) {
+      var k = keyFromArticleUrl(a.url);
+      if (k) knownKeys.add(k);
+    });
+
+    var added = [];
+
+    function total() {
+      return haveArticles.length + added.length;
+    }
+
+    var oldestYear = null;
+    haveArticles.forEach(function (a) {
+      var y = parseInt(String(a.publishedAt).slice(0, 4), 10);
+      if (!isNaN(y) && (oldestYear === null || y < oldestYear)) oldestYear = y;
+    });
+    var year = oldestYear !== null ? oldestYear : new Date().getFullYear();
+
+    function fetchYearPage(y, after) {
+      return fetch(PROXY_URL + 'graphql/archives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urlname: creatorId, year: y, after: after }),
+      })
+        .then(function (res) {
+          if (!res.ok) throw new Error('http ' + res.status);
+          return res.json();
+        })
+        .then(function (json) {
+          var conn = json && json.data && json.data.noteArchivesConnectionByUrlname;
+          if (!conn || !Array.isArray(conn.edges)) return;
+
+          conn.edges.forEach(function (edge) {
+            var node = edge && edge.node;
+            if (!node || !node.key || knownKeys.has(node.key)) return;
+            knownKeys.add(node.key);
+            added.push(normalizeArchiveNode(node, creatorId));
+          });
+          if (typeof onProgress === 'function') onProgress(total());
+
+          if (conn.pageInfo && conn.pageInfo.hasNextPage && total() < noteCount) {
+            var cursor = conn.pageInfo.endCursor;
+            return archiveDelay(ARCHIVE_REQUEST_INTERVAL_MS).then(function () {
+              return fetchYearPage(y, cursor);
+            });
+          }
+        });
+    }
+
+    function nextYear() {
+      if (year < ARCHIVE_MIN_YEAR || total() >= noteCount) {
+        return Promise.resolve(added);
+      }
+      var y = year;
+      year -= 1;
+      return fetchYearPage(y, null)
+        .catch(function () {
+          // 年単位の失敗は握りつぶして次の年へ（部分的にでも補完する）
+        })
+        .then(function () {
+          return archiveDelay(ARCHIVE_REQUEST_INTERVAL_MS);
+        })
+        .then(nextYear);
+    }
+
+    return nextYear();
+  }
+
+  // 補完が必要か判定して実行する。戻り値: 追加分の配列（不要・失敗時は []）。
+  //   totalCountHint : 通常APIの totalCount（丸め検知のゲート。null なら記事数で代替）
+  function maybeArchiveBackfill(creatorId, articles, totalCountHint, onProgress) {
+    var hint =
+      typeof totalCountHint === 'number' ? totalCountHint : articles.length;
+    if (hint < ARCHIVE_CHECK_THRESHOLD) {
+      return Promise.resolve([]);
+    }
+    return fetchCreatorNoteCount(creatorId)
+      .then(function (noteCount) {
+        if (noteCount === null || articles.length >= noteCount) return [];
+        return fetchArchivesBackfill(creatorId, noteCount, articles, onProgress);
+      })
+      .catch(function () {
+        return [];
       });
   }
 
@@ -6086,41 +6270,67 @@
           }
         }
 
-        // 取得＝最新状態を取り込んだので seen を最新に合わせる → バッジは消える。
-        // 最新公開日は取得後の記事一覧から算出（page1が取れない端ケースの保険）。
-        if (typeof result.totalCount === 'number') {
-          c.seenTotalCount = result.totalCount;
-        }
-        var newLatestPub = result.latestPublishedAt || maxPublishedAt(state.articlesByCreator[c.id]);
-        if (newLatestPub) c.seenLatestPublishedAt = newLatestPub;
-        latestStatus[c.id] = {
-          totalCount: typeof result.totalCount === 'number' ? result.totalCount : c.seenTotalCount,
-          latestPublishedAt: c.seenLatestPublishedAt || null,
-        };
-        c.lastFetchedAt = new Date().toISOString();
-
-        var saved = saveState();
-        if (saved !== true) {
-          setStatus(saved, 'error');
-          return;
-        }
-
-        // 結果メッセージ
-        if (!isFirstFetch) {
-          var addedNow = state.articlesByCreator[c.id].length - existing.length;
-          if (addedNow > 0) {
-            setStatus('新着 ' + addedNow + '件を取得しました。', 'info');
-          } else {
-            setStatus('新着はありませんでした。', 'info');
+        // 600件上限フォールバック: 通常APIが打ち切られていた場合のみ、アーカイブ
+        // GraphQLで過去分を補完する。過去に600件で頭打ちのまま保存された既存
+        // データも、このパスを通る次回の取得で自己修復される。
+        return maybeArchiveBackfill(
+          c.id,
+          state.articlesByCreator[c.id] || [],
+          result.totalCount,
+          onProgress
+        ).then(function (backfilled) {
+          if (backfilled.length > 0) {
+            var merged = (state.articlesByCreator[c.id] || []).concat(backfilled);
+            merged.sort(function (a, b) {
+              return a.publishedAt < b.publishedAt ? 1 : a.publishedAt > b.publishedAt ? -1 : 0;
+            });
+            state.articlesByCreator[c.id] = merged;
           }
-        } else {
-          clearStatus();
-        }
 
-        renderReadView();
-        if (isFirstFetch && !c.initialSetupDone) {
-          openSetupModal(c.id);
-        }
+          // 取得＝最新状態を取り込んだので seen を最新に合わせる → バッジは消える。
+          // 最新公開日は取得後の記事一覧から算出（page1が取れない端ケースの保険）。
+          if (typeof result.totalCount === 'number') {
+            c.seenTotalCount = result.totalCount;
+          }
+          var newLatestPub = result.latestPublishedAt || maxPublishedAt(state.articlesByCreator[c.id]);
+          if (newLatestPub) c.seenLatestPublishedAt = newLatestPub;
+          latestStatus[c.id] = {
+            totalCount: typeof result.totalCount === 'number' ? result.totalCount : c.seenTotalCount,
+            latestPublishedAt: c.seenLatestPublishedAt || null,
+          };
+          c.lastFetchedAt = new Date().toISOString();
+
+          var saved = saveState();
+          if (saved !== true) {
+            setStatus(saved, 'error');
+            return;
+          }
+
+          // 結果メッセージ（過去記事の補完分は「新着」と分けて伝える）
+          if (!isFirstFetch) {
+            var addedNow = state.articlesByCreator[c.id].length - existing.length;
+            var newNow = addedNow - backfilled.length;
+            if (backfilled.length > 0 && newNow > 0) {
+              setStatus(
+                '新着 ' + newNow + '件・過去記事 ' + backfilled.length + '件を取得しました。',
+                'info'
+              );
+            } else if (backfilled.length > 0) {
+              setStatus('過去記事 ' + backfilled.length + '件を取得しました。', 'info');
+            } else if (addedNow > 0) {
+              setStatus('新着 ' + addedNow + '件を取得しました。', 'info');
+            } else {
+              setStatus('新着はありませんでした。', 'info');
+            }
+          } else {
+            clearStatus();
+          }
+
+          renderReadView();
+          if (isFirstFetch && !c.initialSetupDone) {
+            openSetupModal(c.id);
+          }
+        });
       })
       .catch(function () {
         setStatus(
