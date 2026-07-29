@@ -953,6 +953,51 @@ test('cleanupNigekireOnDelete: 非破壊（入力 state を書き換えない）
   assert.notStrictEqual(out, s); // 新オブジェクト
 });
 
+// ---- cleanupNenkoroOnDelete ----
+
+function freshNenkoro(overrides) {
+  return Object.assign(
+    {
+      mode: { nenkoro_life: { at: 'x' } },
+      counts: { a1: { chatgpt: 2, sora: 1, total: 3 } },
+      collected: { a1: true },
+      totalResearchPoints: 107,
+      keywordTotals: { chatgpt: 64, sora: 43 },
+      seenMilestones: ['apprentice', 'researcher', 'chief'],
+      selectedBg: 'researcher',
+    },
+    overrides || {}
+  );
+}
+
+test('cleanupNenkoroOnDelete: isTargetCreator=true で全 state がリセット', () => {
+  const out = L.cleanupNenkoroOnDelete(freshNenkoro(), true);
+  assert.deepStrictEqual(out.mode, {});
+  assert.deepStrictEqual(out.counts, {});
+  assert.deepStrictEqual(out.collected, {});
+  assert.strictEqual(out.totalResearchPoints, 0);
+  assert.deepStrictEqual(out.keywordTotals, { chatgpt: 0, sora: 0 });
+  assert.deepStrictEqual(out.seenMilestones, []);
+  assert.strictEqual(out.selectedBg, null);
+});
+
+test('cleanupNenkoroOnDelete: isTargetCreator=false は変更なし（将来の防御）', () => {
+  const s = freshNenkoro();
+  const out = L.cleanupNenkoroOnDelete(s, false);
+  assert.strictEqual(out.totalResearchPoints, 107);
+  assert.deepStrictEqual(out.keywordTotals, { chatgpt: 64, sora: 43 });
+  assert.deepStrictEqual(out.seenMilestones, ['apprentice', 'researcher', 'chief']);
+  assert.strictEqual(out.selectedBg, 'researcher');
+});
+
+test('cleanupNenkoroOnDelete: 非破壊（入力 state を書き換えない）', () => {
+  const s = freshNenkoro();
+  const before = JSON.stringify(s);
+  const out = L.cleanupNenkoroOnDelete(s, true);
+  assert.strictEqual(JSON.stringify(s), before); // 入力そのまま
+  assert.notStrictEqual(out, s); // 新オブジェクト
+});
+
 // ---- 今回のバグの本質を守る: modeForCreator（横断の逆引き）を実 MODE_DEFS で ----
 
 test('modeForCreator[本質]: hasyamo は nigekire、ktcrs1107 は kitacore、無関係は null', () => {
@@ -1927,4 +1972,179 @@ test('交換所[★核心]: 解放してもポイントは減らない', () => {
   assert.strictEqual(after.allowance, 3);
   // 減るのは「残り枠」だけで、ポイント由来の allowance ではない。
   assert.strictEqual(after.remaining, 2);
+});
+
+// ============================================================================
+// ねんころモード（AI研究所モード）純ロジック
+//   設計正本 nenkoro-mode-implementation-design.md §7/§15。
+//   app.js の定数と同一（ゴールデン基準）。
+// ============================================================================
+
+const NENKORO_INITIAL_STATUS = { key: 'preparing', name: '研究準備中' };
+const NENKORO_RANKS = [
+  { key: 'apprentice', minPoints: 10,  name: '見習い研究員' },
+  { key: 'researcher', minPoints: 40,  name: '研究員' },
+  { key: 'chief',      minPoints: 100, name: '主任研究員' },
+  { key: 'principal',  minPoints: 220, name: '主席研究員' },
+  { key: 'director',   minPoints: 400, name: 'AI研究所長' },
+  { key: 'master',     minPoints: 700, name: 'AI研究所マスター' },
+];
+const NENKORO_KEYWORDS = [
+  { key: 'chatgpt', label: 'ChatGPT', pattern: /ChatGPT/gi },
+  { key: 'sora', label: 'そらちゃん', pattern: /そらちゃん/g },
+];
+
+test('nenkoroCountKeywords: ChatGPTは大小無視・そらちゃんは完全一致で数える', () => {
+  const out = L.nenkoroCountKeywords('ChatGPTとchatgptとそらちゃん', NENKORO_KEYWORDS);
+  assert.strictEqual(out.chatgpt, 2); // 大小区別なし
+  assert.strictEqual(out.sora, 1);
+  assert.strictEqual(out.total, 3);
+});
+
+test('nenkoroCountKeywords: 0件は全0・total0', () => {
+  const out = L.nenkoroCountKeywords('なにもない本文', NENKORO_KEYWORDS);
+  assert.strictEqual(out.chatgpt, 0);
+  assert.strictEqual(out.sora, 0);
+  assert.strictEqual(out.total, 0);
+});
+
+test('nenkoroCountKeywords: 非文字列は全0（本文取得不可の防御）', () => {
+  const out = L.nenkoroCountKeywords(null, NENKORO_KEYWORDS);
+  assert.strictEqual(out.total, 0);
+  assert.strictEqual(out.chatgpt, 0);
+});
+
+test('nenkoroCountKeywords: 連続呼び出しで同値（g フラグの lastIndex 事故がない）', () => {
+  const a = L.nenkoroCountKeywords('ChatGPT ChatGPT', NENKORO_KEYWORDS);
+  const b = L.nenkoroCountKeywords('ChatGPT ChatGPT', NENKORO_KEYWORDS);
+  assert.strictEqual(a.chatgpt, 2);
+  assert.strictEqual(b.chatgpt, 2);
+});
+
+test('nenkoroRankOf: 0ptは研究準備中（ランク扱いしない・画像なし）', () => {
+  const r = L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 0);
+  assert.strictEqual(r.key, 'preparing');
+  assert.strictEqual(r.name, '研究準備中');
+  assert.strictEqual(r.isPreparing, true);
+});
+
+test('nenkoroRankOf: 10pt未満は研究準備中', () => {
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 9).isPreparing, true);
+});
+
+test('nenkoroRankOf: 閾値からランク算出（10=見習い / 40=研究員 / 100=主任）', () => {
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 10).key, 'apprentice');
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 39).key, 'apprentice');
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 40).key, 'researcher');
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 100).key, 'chief');
+});
+
+test('nenkoroRankOf: 最終ランク（700以上）はマスター', () => {
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 700).key, 'master');
+  assert.strictEqual(L.nenkoroRankOf(NENKORO_RANKS, NENKORO_INITIAL_STATUS, 9999).key, 'master');
+});
+
+test('nenkoroRankFromPassed: 通過済み節目が無ければ研究準備中', () => {
+  const r = L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, []);
+  assert.strictEqual(r.key, 'preparing');
+  assert.strictEqual(r.isPreparing, true);
+});
+
+test('nenkoroRankFromPassed[★核心]: ポイントが超えても通過するまでランクは上がらない', () => {
+  // seenMilestones が空＝カットイン未視聴なら、pt に関係なくランクは研究準備中。
+  //   （表示ランクは通過済み節目からのみ導出＝キタコレの撃破済みボスと同じ）
+  const r = L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, []);
+  assert.strictEqual(r.isPreparing, true);
+});
+
+test('nenkoroRankFromPassed: 通過済みの中で最上位を返す', () => {
+  assert.strictEqual(
+    L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, ['apprentice']).key, 'apprentice');
+  assert.strictEqual(
+    L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, ['apprentice', 'researcher', 'chief']).key, 'chief');
+  // 順不同でも最上位（minPoints最大）を返す
+  assert.strictEqual(
+    L.nenkoroRankFromPassed(NENKORO_RANKS, NENKORO_INITIAL_STATUS, ['chief', 'apprentice']).key, 'chief');
+});
+
+test('nenkoroCollectOutcome: total>0未回収は加算＋内訳更新', () => {
+  const counts = { a1: { chatgpt: 3, sora: 2, total: 5 } };
+  const out = L.nenkoroCollectOutcome(counts, {}, 0, { chatgpt: 0, sora: 0 }, 'a1');
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.gained, 5);
+  assert.strictEqual(out.nextTotal, 5);
+  assert.strictEqual(out.nextCollected.a1, true);
+  assert.strictEqual(out.nextKeywordTotals.chatgpt, 3);
+  assert.strictEqual(out.nextKeywordTotals.sora, 2);
+});
+
+test('nenkoroCollectOutcome: 二重回収は ok:false', () => {
+  const counts = { a1: { chatgpt: 3, sora: 2, total: 5 } };
+  const out = L.nenkoroCollectOutcome(counts, { a1: true }, 5, { chatgpt: 3, sora: 2 }, 'a1');
+  assert.strictEqual(out.ok, false);
+});
+
+test('nenkoroCollectOutcome: 未収集/0件は ok:false', () => {
+  assert.strictEqual(L.nenkoroCollectOutcome({}, {}, 0, {}, 'x').ok, false);
+  const zero = { a1: { chatgpt: 0, sora: 0, total: 0 } };
+  assert.strictEqual(L.nenkoroCollectOutcome(zero, {}, 0, {}, 'a1').ok, false);
+});
+
+test('nenkoroCollectOutcome[★核心]: 研究pt＝キーワード別累積の和と一致', () => {
+  // 2記事回収 → totalPoints が keywordTotals の総和と一致することを固定。
+  const counts = {
+    a1: { chatgpt: 3, sora: 2, total: 5 },
+    a2: { chatgpt: 1, sora: 4, total: 5 },
+  };
+  let total = 0;
+  let kt = { chatgpt: 0, sora: 0 };
+  let collected = {};
+  ['a1', 'a2'].forEach((k) => {
+    const out = L.nenkoroCollectOutcome(counts, collected, total, kt, k);
+    total = out.nextTotal;
+    kt = out.nextKeywordTotals;
+    collected = out.nextCollected;
+  });
+  assert.strictEqual(total, 10);
+  assert.strictEqual(kt.chatgpt + kt.sora, total); // 研究pt = キーワード別累積の和
+});
+
+test('nenkoroPendingMilestones: 未表示の到達ランクを低い順に返す', () => {
+  // 0pt→100pt へ一気に到達（見習い10・研究員40・主任100 を同時通過）。
+  const out = L.nenkoroPendingMilestones(NENKORO_RANKS, [], 100);
+  assert.deepStrictEqual(out.map((r) => r.key), ['apprentice', 'researcher', 'chief']);
+});
+
+test('nenkoroPendingMilestones: 表示済みは除く（再表示防止）', () => {
+  const out = L.nenkoroPendingMilestones(NENKORO_RANKS, ['apprentice', 'researcher'], 100);
+  assert.deepStrictEqual(out.map((r) => r.key), ['chief']);
+});
+
+test('nenkoroPendingMilestones: 未到達ランクは含めない', () => {
+  const out = L.nenkoroPendingMilestones(NENKORO_RANKS, [], 39); // 見習い(10)のみ到達
+  assert.deepStrictEqual(out.map((r) => r.key), ['apprentice']);
+});
+
+test('nenkoroPendingMilestones: 0pt は空（研究準備中は節目なし）', () => {
+  assert.deepStrictEqual(L.nenkoroPendingMilestones(NENKORO_RANKS, [], 0), []);
+});
+
+
+test('nenkoroReadTodayCount: JST境界で今日読んだ記事だけ数える', () => {
+  // now = 2026-07-27 10:00 JST（= 2026-07-27T01:00:00Z）
+  const now = '2026-07-27T01:00:00Z';
+  const reads = {
+    a: { status: 'read', readAt: '2026-07-26T23:00:00Z' }, // 今日 08:00 JST
+    b: { status: 'read', readAt: '2026-07-27T14:00:00Z' }, // 今日 23:00 JST
+    c: { status: 'read', readAt: '2026-07-26T14:00:00Z' }, // 昨日 23:00 JST
+    d: { status: 'read', readAt: '2026-07-27T23:00:00Z' }, // 明日 08:00 JST
+    e: { status: 'read' },                                  // readAt無し→除外
+  };
+  assert.strictEqual(L.nenkoroReadTodayCount(reads, now), 2); // a と b のみ
+});
+
+test('nenkoroReadTodayCount: 空/不正は0', () => {
+  assert.strictEqual(L.nenkoroReadTodayCount({}, '2026-07-27T01:00:00Z'), 0);
+  assert.strictEqual(L.nenkoroReadTodayCount(null, '2026-07-27T01:00:00Z'), 0);
+  assert.strictEqual(L.nenkoroReadTodayCount({ a: { status: 'read', readAt: '2026-07-27T00:00:00Z' } }, 'bad'), 0);
 });

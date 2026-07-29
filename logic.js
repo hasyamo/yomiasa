@@ -1124,6 +1124,201 @@
     return next;
   }
 
+  // ねんころ state の掃除。isTargetCreator（=creatorId が NENKORO_ID 本体=唯一の対象）なら、
+  //   ポイント逆算（記事→キーワード→pt）が煩雑なため進行を丸ごとリセット（亡霊 state を残さない）。
+  //   ニゲキレ版と同方針。対象でなければ変更なし（＝入力と同値の新オブジェクトを返す）。非破壊。
+  function cleanupNenkoroOnDelete(nenkoroState, isTargetCreator) {
+    var s = nenkoroState && typeof nenkoroState === 'object' ? nenkoroState : {};
+    var next = Object.assign({}, s);
+    if (isTargetCreator) {
+      next.mode = {};
+      next.counts = {};
+      next.collected = {};
+      next.totalResearchPoints = 0;
+      next.keywordTotals = { chatgpt: 0, sora: 0 };
+      next.seenMilestones = [];
+      next.selectedBg = null;
+    }
+    return next;
+  }
+
+  // ===========================================================================
+  // ねんころモード（AI研究所モード）純ロジック
+  //   設計正本 nenkoro-mode-implementation-design.md §4〜§11。
+  //   収集＝キーワード出現数を数える（本文のみ）。1件=研究ポイント1。
+  //   ランクは totalResearchPoints から算出（保存しない）。0pt は「研究準備中」。
+  //   すべて副作用なし・非破壊。
+  // ===========================================================================
+
+  // 本文テキストから各キーワードの出現数を数える。
+  //   keywords = [{ key, label, pattern }]（pattern は g フラグ付きの正規表現）。
+  //   ※呼び出しごとに新しい正規表現を new RegExp で作り直す（g フラグの lastIndex 残留事故を避ける）。
+  //   戻り値: { <key>: number, ..., total: number }。text 非文字列は全 0。
+  function nenkoroCountKeywords(text, keywords) {
+    var s = typeof text === 'string' ? text : '';
+    var list = Array.isArray(keywords) ? keywords : [];
+    var out = {};
+    var total = 0;
+    for (var i = 0; i < list.length; i++) {
+      var kw = list[i];
+      if (!kw || typeof kw.key !== 'string' || !kw.pattern) continue;
+      // pattern の source/flags から毎回作り直す（g を必ず立てる。lastIndex 共有を断つ）。
+      var flags = (kw.pattern.flags || '').replace('g', '') + 'g';
+      var re = new RegExp(kw.pattern.source, flags);
+      var n = (s.match(re) || []).length;
+      out[kw.key] = n;
+      total += n;
+    }
+    out.total = total;
+    return out;
+  }
+
+  // 研究ポイントが到達している閾値ランク（＝節目カードを出す判定用・設計 §7）。
+  //   ranks = [{ key, minPoints, name }, ...]（minPoints 昇順）。閾値以上の最上位ランクを返す。
+  //   ※これは「ポイントが達しているか」の判定であって、表示ランクではない。
+  //     キタコレの kitacoreWaiRankOf（ワイ数→ボス出現トリガー）に相当する。
+  //     表示ランクは nenkoroRankFromPassed（カットインを見た＝通過した節目から導出）を使う。
+  //   initialStatus = { key, name }（研究準備中）。最初の閾値未満なら initialStatus を返す。
+  //   戻り値: { key, name, minPoints, isPreparing }。ranks 不正/points<最小閾値 は initialStatus。
+  function nenkoroRankOf(ranks, initialStatus, totalPoints) {
+    var init = initialStatus && typeof initialStatus === 'object'
+      ? initialStatus : { key: 'preparing', name: '' };
+    var list = Array.isArray(ranks) ? ranks : [];
+    var p = typeof totalPoints === 'number' && isFinite(totalPoints) ? totalPoints : 0;
+    var found = null;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r || typeof r.minPoints !== 'number') continue;
+      if (p >= r.minPoints) found = r; // 昇順前提で最後にマッチしたもの＝最上位
+    }
+    if (!found) {
+      return { key: init.key || 'preparing', name: init.name || '', minPoints: 0, isPreparing: true };
+    }
+    return {
+      key: typeof found.key === 'string' ? found.key : '',
+      name: typeof found.name === 'string' ? found.name : '',
+      minPoints: found.minPoints,
+      isPreparing: false,
+    };
+  }
+
+  // 通過済み節目（カットインを見た＝レベルアップ確定したランクkey）から表示ランクを導出する。
+  //   キタコレの kitacoreRankOf（撃破済みボスから導出）と同じ考え方＝
+  //   「ポイントが閾値を超えてもカットインを見るまでランクは上がらない」を実現する。
+  //   ranks = [{ key, minPoints, name }]（昇順）。passedKeys = 通過済みランクkey配列（seenMilestones）。
+  //   passedKeys のうち minPoints が最大のランクを返す。空なら initialStatus（研究準備中）。
+  //   戻り値: { key, name, minPoints, isPreparing }。
+  function nenkoroRankFromPassed(ranks, initialStatus, passedKeys) {
+    var init = initialStatus && typeof initialStatus === 'object'
+      ? initialStatus : { key: 'preparing', name: '' };
+    var list = Array.isArray(ranks) ? ranks : [];
+    var passed = Array.isArray(passedKeys) ? passedKeys : [];
+    var found = null;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r || typeof r.key !== 'string' || typeof r.minPoints !== 'number') continue;
+      if (passed.indexOf(r.key) === -1) continue; // まだ通過していない＝ランクに数えない
+      if (!found || r.minPoints > found.minPoints) found = r; // 通過済みの中で最上位
+    }
+    if (!found) {
+      return { key: init.key || 'preparing', name: init.name || '', minPoints: 0, isPreparing: true };
+    }
+    return {
+      key: found.key,
+      name: typeof found.name === 'string' ? found.name : '',
+      minPoints: found.minPoints,
+      isPreparing: false,
+    };
+  }
+
+  // ※1本ゲージは絶対ゲージ（totalResearchPoints／NENKORO_GOAL=700）＝キタコレと同一構造。
+  //   区間ゲージ（現ランク→次ランク）は誤りだったため廃止。描画は app.js の
+  //   paintKitacoreHeader（totalWai／KITACORE_GOAL と同じ経路）に乗せるので logic 関数は不要。
+
+  // 研究チップ回収（＝研究ポイント加算・設計 §5/§6）。
+  //   counts[articleKey] = { chatgpt, sora, total }。total>0 かつ未回収のときだけ加算。
+  //   counts なし / collected[articleKey] あり / total<=0 なら { ok:false }。
+  //   回収可なら { ok:true, nextTotal, nextCollected, nextKeywordTotals, gained } を返す（非破壊）。
+  //   nextKeywordTotals は keywordTotals にキーワード別内訳を足したもの。
+  function nenkoroCollectOutcome(counts, collected, totalPoints, keywordTotals, articleKey) {
+    counts = counts && typeof counts === 'object' ? counts : {};
+    collected = collected && typeof collected === 'object' ? collected : {};
+    keywordTotals = keywordTotals && typeof keywordTotals === 'object' ? keywordTotals : {};
+    var entry = counts[articleKey];
+    if (!entry || typeof entry !== 'object') return { ok: false }; // 未収集
+    if (collected[articleKey]) return { ok: false }; // 二重回収防止
+    var total = typeof entry.total === 'number' ? entry.total : 0;
+    if (total <= 0) return { ok: false }; // 0件は回収対象外
+    var nextCollected = Object.assign({}, collected);
+    nextCollected[articleKey] = true;
+    // キーワード別内訳を加算（total 以外の数値キーを内訳とみなす）。
+    var nextKeywordTotals = Object.assign({}, keywordTotals);
+    Object.keys(entry).forEach(function (k) {
+      if (k === 'total' || k === 'countedAt') return;
+      if (typeof entry[k] !== 'number') return;
+      var prev = typeof nextKeywordTotals[k] === 'number' ? nextKeywordTotals[k] : 0;
+      nextKeywordTotals[k] = prev + entry[k];
+    });
+    var base = typeof totalPoints === 'number' && isFinite(totalPoints) ? totalPoints : 0;
+    return {
+      ok: true,
+      gained: total,
+      nextTotal: base + total,
+      nextCollected: nextCollected,
+      nextKeywordTotals: nextKeywordTotals,
+    };
+  }
+
+  // 今日（JST境界）読んだ記事の数（記事一覧ヘッダーの「今日読んだ記事」表示用）。
+  //   readArticles = { key: { status:'read', readAt: ISO文字列 } }（app.js の形）。
+  //   nowIso = 現在時刻の ISO 文字列（テスト可能にするため引数で受ける）。
+  //   readAt を JST(+9h) の暦日に直し、now の JST 暦日と一致する read エントリを数える。
+  //   readAt 無し / パース不能 / 未読 は除外。純関数。
+  function nenkoroReadTodayCount(readArticles, nowIso) {
+    var map = readArticles && typeof readArticles === 'object' ? readArticles : {};
+    var now = parseDate(nowIso);
+    if (!now) return 0;
+    var nowJst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    var y = nowJst.getUTCFullYear();
+    var m = nowJst.getUTCMonth();
+    var d = nowJst.getUTCDate();
+    var count = 0;
+    Object.keys(map).forEach(function (k) {
+      var e = map[k];
+      if (!e || typeof e !== 'object' || e.status !== 'read' || !e.readAt) return;
+      var ra = parseDate(e.readAt);
+      if (!ra) return;
+      var raJst = new Date(ra.getTime() + 9 * 60 * 60 * 1000);
+      if (raJst.getUTCFullYear() === y && raJst.getUTCMonth() === m && raJst.getUTCDate() === d) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  // 未表示の節目（新到達ランク）を低い順に返す（設計 §9・複数閾値同時通過対応）。
+  //   ranks = [{ key, minPoints, name }]（昇順）。seenMilestones = 表示済みランクkey配列。
+  //   totalPoints 到達済み かつ seen に無いランクを minPoints 昇順で返す。
+  //   戻り値: [rankObj, ...]（空配列可）。ランクは §7 の1対1（画像・文言はランクkeyから引く）。
+  function nenkoroPendingMilestones(ranks, seenMilestones, totalPoints) {
+    var list = Array.isArray(ranks) ? ranks.slice() : [];
+    var seen = Array.isArray(seenMilestones) ? seenMilestones : [];
+    var p = typeof totalPoints === 'number' && isFinite(totalPoints) ? totalPoints : 0;
+    // minPoints 昇順に整える（定義が昇順でなくても壊れないように）。
+    list.sort(function (a, b) {
+      var am = a && typeof a.minPoints === 'number' ? a.minPoints : 0;
+      var bm = b && typeof b.minPoints === 'number' ? b.minPoints : 0;
+      return am - bm;
+    });
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r || typeof r.minPoints !== 'number' || typeof r.key !== 'string') continue;
+      if (p >= r.minPoints && seen.indexOf(r.key) === -1) out.push(r);
+    }
+    return out;
+  }
+
   return {
     entryKey: entryKey,
     parseDate: parseDate,
@@ -1196,5 +1391,13 @@
     // ---- クリエイター削除時のモード掃除（純関数・非破壊） ----
     cleanupKitacoreOnDelete: cleanupKitacoreOnDelete,
     cleanupNigekireOnDelete: cleanupNigekireOnDelete,
+    cleanupNenkoroOnDelete: cleanupNenkoroOnDelete,
+    // ---- ねんころモード（AI研究所モード）純ロジック ----
+    nenkoroCountKeywords: nenkoroCountKeywords,
+    nenkoroRankOf: nenkoroRankOf,
+    nenkoroRankFromPassed: nenkoroRankFromPassed,
+    nenkoroCollectOutcome: nenkoroCollectOutcome,
+    nenkoroPendingMilestones: nenkoroPendingMilestones,
+    nenkoroReadTodayCount: nenkoroReadTodayCount,
   };
 });

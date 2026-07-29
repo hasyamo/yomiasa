@@ -3440,3 +3440,449 @@ button.kitacore-rank-text:focus-visible {
   .dig-report-figure { flex-basis: auto; }
   .dig-guide-img { max-height: 44vh; }
 }
+
+/* ===========================================================================
+   ねんころモード（AI研究所モード）
+   ===========================================================================
+   色は独自に作らず、キタコレ／ニゲキレと共通のものを流用する：
+     - 収集チップ    = .article-wai（キタコレの金色定義がそのまま効く・ニゲキレと同方針）
+     - ランクバッジ  = .kitacore-rank-text の階級グラデ（rank-nige2..7 を1対1で流用）
+     - 1本ゲージ     = #kitacore-progress のゴールド（他2モードと同一）
+     - カットイン    = キタコレのボス演出と同じゴールド発光＋共通の暗転
+   ねんころ専用クラスはレイアウト（並び・余白）だけを持ち、色は持たない。 */
+
+/* ── 研究チップ（記事行）＝ .article-wai を併用。色は上書きしない（折り返しだけ抑える）。 */
+.nenkoro-chip {
+  white-space: nowrap;
+}
+
+/* ── ヘッダーはキタコレの paintKitacoreHeader を流用（ランクバッジ＋バー）。
+   その間に集計1行（今日読んだ記事・ChatGPT出現数・そらちゃん出現数）を控えめに足すだけ。
+   #kitacore-stats は flex 横並びなので、is-nenkoro で折り返しを許可して集計行を次の行へ落とす。 */
+#kitacore-stats.is-nenkoro {
+  flex-wrap: wrap;
+}
+/* 「今日読んだ記事」はランクチップの右隣（同じ flex 行）。 */
+.nenkoro-today {
+  font-size: 12px;
+  color: var(--ink-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* ChatGPT/そらちゃんの行はランク行の次に落とす（flex-basis:100%）。1行で折り返さない。 */
+.nenkoro-stat-line {
+  flex-basis: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* ラベル文字だけ少しだけ強調（濃さ＋やや太字）。数値は行の既定色のまま。 */
+.nenkoro-stat-label {
+  color: var(--ink-muted);
+  font-weight: 700;
+}
+
+/* ── 節目「到達カード」（ヘッダー・#kitacore-boss を流用）。キタコレのボスカードと同じ
+   レイアウトのまま、色だけ研究所テーマ（ゴールド）に上書き＝敵カードに見せない。
+   キタコレ/ニゲキレのボス赤テーマは無改変（このクラスが付いたときだけ上書き）。 */
+.kitacore-boss.nenkoro-milestone-card {
+  border-color: rgba(212, 175, 55, 0.5);
+  background: linear-gradient(145deg, #1a160c, #0c0b08);
+}
+.nenkoro-milestone-card .kitacore-boss-label {
+  color: #f3d27a;
+}
+.nenkoro-milestone-card .kitacore-boss-btn {
+  border-color: #d4af37;
+  background: linear-gradient(145deg, #d4af37, #a87f12);
+  color: #1a160c;
+}
+/* トラブルカードのサムネは⚠アイコン（そらちゃん画像は伏せる）。ボス画像枠と同じ64px角に中央寄せ。 */
+.nenkoro-trouble-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  color: #f3d27a;
+  background: rgba(212, 175, 55, 0.08);
+}
+
+/* ── 研究員カード（NIKKE のキャラ詳細風）。背景に現ランク/選択ランクのそらちゃん立ち絵を
+   大きく敷き、下部に STATUS を寄せる。背景を大きく見せるため窓を縦長にする。 */
+/* 背景ありのときは窓を縦長に（立ち絵を大きく見せる）。 */
+.kitacore-rank-card-window.is-nenkoro {
+  display: flex;
+  flex-direction: column;
+  max-width: 380px;
+  height: 88vh;
+  max-height: 88vh;
+  min-height: 0;
+  padding: 0;                 /* 立ち絵を縁まで敷くため窓の padding をゼロに */
+  overflow: hidden;
+}
+.kitacore-rank-card-window.is-nenkoro .kitacore-rank-card-content.has-bg {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
+  padding: 18px 18px 16px;    /* 内容の余白は content 側で持つ */
+  gap: 10px;
+  justify-content: flex-start;
+  position: relative;
+  overflow: hidden;
+}
+/* 立ち絵：窓いっぱいに cover。padding を打ち消して縁まで敷く。 */
+.nenkoro-card-bg {
+  position: absolute;
+  top: -18px;
+  right: -18px;
+  bottom: -16px;
+  left: -18px;
+  z-index: 0;
+  background-position: top center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+/* 立ち絵の上に暗いグラデ（上は薄く顔・全身を見せ、下だけ濃くして STATUS を読ませる）。 */
+.nenkoro-card-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(8, 17, 38, 0.15) 0%,
+    rgba(8, 17, 38, 0.05) 40%,
+    rgba(8, 17, 38, 0.7) 78%,
+    rgba(8, 17, 38, 0.95) 100%
+  );
+}
+/* 背景ありのときは、各行を背景より前面に出す（bg 以外の直下要素を z 上げ）。
+   ただし背景変更ボタンは絶対配置（左上）なので除外する（position:relative で潰さない）。 */
+.kitacore-rank-card-content.has-bg > *:not(.nenkoro-card-bg):not(.nenkoro-bg-change-btn) {
+  position: relative;
+  z-index: 1;
+}
+/* 立ち絵を大きく見せるためのスペーサー（帯/STATUS を下へ押し下げる）。 */
+.nenkoro-card-spacer {
+  flex: 1 1 auto;
+  min-height: 40px;
+}
+
+/* ── 研究ポイント帯（上部・グレー背景）。NIKKE の「LV.614/200」帯に対応。右寄せ・小さめ。 */
+/* 研究pt帯：大きさ・高さはランク名チップ（.kitacore-rank-text）に合わせる。 */
+.nenkoro-pt-plate {
+  align-self: flex-end;          /* 右寄せ */
+  margin-top: 6px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 108px;              /* 研究pt が4桁でも収まる幅 */
+  padding: 3px 10px;             /* ランク名チップに合わせる */
+  border-radius: 5px;
+  /* メタリックなグレーのグラデ＋縁のハイライトで立体感を出す。 */
+  background: linear-gradient(180deg, rgba(82, 89, 107, 0.95), rgba(45, 51, 66, 0.95));
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 11px;               /* ランク名チップに合わせる */
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: rgba(226, 232, 240, 0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 2px 8px rgba(2, 6, 23, 0.45);
+}
+.nenkoro-pt-plate b {
+  font-size: 11px;               /* 数値も高さを揃える（帯を膨らませない） */
+  font-weight: 800;
+  color: #f5a524;                /* NIKKE のステータス数値のようなオレンジ */
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+/* プレイヤー（アイコン＋@id を縦並び・表示名なし）。右寄せ・ランク名の上。 */
+.nenkoro-player {
+  align-self: flex-end;          /* 右寄せ */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  margin-top: 8px;
+}
+.nenkoro-player-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(2, 6, 23, 0.5);
+}
+.nenkoro-player-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nenkoro-player-id {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(226, 232, 240, 0.9);
+  text-shadow: 0 1px 3px rgba(2, 6, 23, 0.9);
+}
+
+/* ランク名（プレイヤーの下）。右寄せ。色はキタコレのランクバッジ（階級グラデ）に揃える。
+   幅は研究pt帯と統一（min-width: 108px）。 */
+.nenkoro-rank-name {
+  align-self: flex-end;          /* 右寄せ */
+  margin-top: 4px;
+  display: flex;
+}
+.nenkoro-rank-name .kitacore-rank-text {
+  min-width: 108px;              /* 研究pt帯と幅を統一 */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  padding: 3px 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+/* ── STATUS：1枚の薄いグレー矩形パネル。中に「STATUS」見出し＋白チップ3つを乗せる。 */
+.nenkoro-status-panel {
+  align-self: flex-end;          /* 右寄せ */
+  width: 46%;
+  max-width: 180px;
+  box-sizing: border-box;
+  margin-top: 6px;              /* 研究pt/ランクと1つの下部クラスタにまとめる */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.32);   /* 薄いグレーの矩形（土台・フラットのまま） */
+}
+/* STATUS 見出し（グレーチップ・幅は下の白チップに合わせてパネル幅いっぱい）。 */
+.nenkoro-status-head {
+  align-self: stretch;                   /* 幅を白チップに合わせる（パネル幅いっぱい） */
+  box-sizing: border-box;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: rgba(241, 245, 249, 0.95);
+  padding: 3px 10px;
+  border-radius: 5px;
+  /* メタリックなグレーのグラデ＋縁ハイライト。 */
+  background: linear-gradient(180deg, rgba(90, 98, 116, 0.98), rgba(58, 65, 81, 0.98));
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 1px 3px rgba(2, 6, 23, 0.4);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+/* 白いチップ（ラベル左・数値右）。上から下への淡いグラデ＋縁＋落ち影で立体感を出す。 */
+.nenkoro-stat-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #ffffff, #eef2f7);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 3px rgba(2, 6, 23, 0.28);
+}
+.nenkoro-stat-chip-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+}
+.nenkoro-stat-chip-value {
+  font-size: 13px;
+  font-weight: 800;
+  color: #f5a524;                /* 研究pt と同じオレンジ（NIKKE のステータス数値） */
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* 背景変更ボタン（取得済み立ち絵から選ぶ）。左上（アバターの逆位置）に絶対配置・絵文字なし。 */
+.nenkoro-bg-change-btn {
+  appearance: none;
+  position: absolute;
+  top: 34px;
+  left: 18px;
+  z-index: 1;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  background: rgba(60, 66, 82, 0.9);
+  color: rgba(241, 245, 249, 0.95);
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.nenkoro-bg-change-btn:hover { filter: brightness(1.2); }
+.nenkoro-bg-change-btn:active { transform: translateY(1px); }
+
+/* 閉じるボタンは他モードと共通（.kitacore-quiz-close）。ねんころ専用の上書きはしない。
+   窓の padding を 0 にしているぶん、閉じるボタンの周りだけ余白を持たせて他モードと揃える。 */
+.kitacore-rank-card-window.is-nenkoro .kitacore-quiz-close {
+  margin: 12px 16px 16px;
+  width: auto;
+}
+
+/* 立ち絵選択画面：モーダルの中身を丸ごと差し替える大きな表示（カード内の小オーバーレイではない）。 */
+.kitacore-rank-card-content.nenkoro-bg-select-view {
+  padding: 16px;
+  gap: 12px;
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+.nenkoro-bg-select-head {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #e0f2fe;
+  text-align: center;
+}
+/* 2列で大きく並べる（1枚が大きく見える）。 */
+.nenkoro-bg-select-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.nenkoro-bg-select-cell {
+  appearance: none;
+  padding: 0;
+  border: 2px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  cursor: pointer;
+  position: relative;
+  aspect-ratio: 600 / 1067;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.nenkoro-bg-select-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+.nenkoro-bg-select-cell.is-current {
+  border-color: #f3d27a;
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.7);
+}
+.nenkoro-bg-select-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 4px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f1f5f9;
+  background: linear-gradient(to top, rgba(2, 6, 23, 0.92), rgba(2, 6, 23, 0));
+  text-align: center;
+}
+
+/* ── 節目カットイン（そらちゃん成長画像＋ランク名／一言／トラブル）──
+   キタコレのボス演出と同じ暗転（濃紺）＋ゴールド発光で揃える（独自色は作らない）。 */
+.nenkoro-cutin {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 90% at 50% 42%,
+      rgba(212, 175, 55, 0.12) 0%,
+      rgba(212, 175, 55, 0.04) 45%,
+      rgba(2, 6, 23, 0) 75%),
+    rgba(2, 6, 23, 0.95);
+}
+.nenkoro-cutin.hidden { display: none; }
+.nenkoro-cutin-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+}
+.nenkoro-cutin-card {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(212, 175, 55, 0.7);
+  box-shadow:
+    0 0 48px rgba(212, 175, 55, 0.4),
+    0 0 12px rgba(212, 175, 55, 0.4);
+}
+.nenkoro-cutin-img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 54vh;
+  min-height: 0;
+  object-fit: contain;
+}
+.nenkoro-cutin-name {
+  margin: 14px 0 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #f3d27a; /* ゴールド（キタコレの覚醒演出と同系） */
+  text-shadow: 0 1px 3px rgba(2, 6, 23, 0.8);
+}
+.nenkoro-cutin-text-wrap {
+  margin-top: 12px;
+  width: 100%;
+  text-align: center;
+}
+.nenkoro-cutin-sys {
+  margin: 0;
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: rgba(203, 213, 225, 0.7);
+}
+.nenkoro-cutin-line {
+  margin: 8px 0 0;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #f1f5f9;
+}
+.nenkoro-cutin-trouble {
+  margin: 10px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(148, 163, 184, 0.85);
+}
+.nenkoro-cutin-hint {
+  margin-top: 16px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(203, 213, 225, 0.6);
+  animation: kitacore-blink 1.4s steps(1) infinite;
+}
