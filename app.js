@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.13';
+  var APP_VERSION = '0.1.14';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -398,12 +398,13 @@
   // 案内人イラストは index.html の #dig-report-modal 内 <img src> に直書き
   //   （assets/dig/raid-main-character-bustup.webp）。JS では出し分けないので定数化しない。
 
-  // 発掘レイドのフィーチャーフラグ。企画開始（2026-08-01）まで既定は OFF。
-  //   ・?dig=1 で ON（localStorage に記憶。以後は通常URLでも ON）＝CCCメンバーの事前テスト用
-  //   ・?dig=0 で記憶をクリア（OFF に戻す）
-  //   ・8/1 に DIG_FEATURE_DEFAULT を true にしてリリースすれば全員 ON
+  // 発掘レイドのフィーチャーフラグ。「発掘機能を含むビルドか」だけを表す。
+  //   ・?dig=1 で ON（localStorage に記憶。以後は通常URLでも ON）＝事前テスト用
+  //   ・?dig=0 で記憶をクリア（既定へ戻す）
   //   OFF の間は被験体判定・チップ・発掘報告ボタン・レイド認証をすべて出さない。
-  var DIG_FEATURE_DEFAULT = false;
+  //   ON でも「レイドが始まっているか」は別判定（レイドマスターの starts_at・digRaidStarted）。
+  //   ＝機能ONで事前配信しても、開始時刻まで発掘UIは出ない。2026-07-31 に true へ（8/1本開始）。
+  var DIG_FEATURE_DEFAULT = true;
   var DIG_FLAG_KEY = 'yomiasa:digFeature';
   // URL の ?dig= を1回だけ反映する（読み込み時に評価）。戻り値は現在の有効/無効。
   function resolveDigFeature() {
@@ -421,6 +422,48 @@
   // 読み込み時に1回確定（以後は同一セッションでこの値を使う）。
   var digFeatureOn = resolveDigFeature();
   function digEnabled() { return digFeatureOn; }
+
+  // レイドマスター（開始時刻）。起動時に1回だけ取得してセッション内に保持する。
+  //   永続化しない（起動のたび取り直す）。未取得・取得失敗の間は null のまま＝報告ボタンを出さない。
+  var digRaidStartsAt = null;
+  var DIG_RAID_API = NIGEKIRE_OUTFIT_API + '/api/dig/raids/' + DIG_RAID_SLUG;
+  // 開始時刻のテスト上書き。8/1 前でも動作確認できるようにする（?dig=1 と同じ流儀）。
+  //   ・?digstart=2026-07-01T00:00:00.000Z のように ISO 日時を渡すと、その値を開始時刻として扱う
+  //   ・?digstart=now で「今このセッションの読み込み時刻」を開始時刻にする（以後読んだ分だけ対象）
+  //   ・?digstart=0 で上書きをクリア（本番のレイドマスター値に戻す）
+  //   localStorage に記憶するので、以後は通常URLでも効く。本番の切替判断とは独立。
+  var DIG_START_OVERRIDE_KEY = 'yomiasa:digStartsAt';
+  function resolveDigStartOverride() {
+    var param = null;
+    try {
+      param = new URLSearchParams(window.location.search).get('digstart');
+    } catch (e) { /* URLSearchParams 非対応環境は無視 */ }
+    try {
+      if (param === '0') {
+        localStorage.removeItem(DIG_START_OVERRIDE_KEY);
+      } else if (param) {
+        var iso = param === 'now' ? new Date().toISOString() : param;
+        // 解釈できない値は保存しない（本番値のまま動かす）。
+        if (isFinite(Date.parse(iso))) localStorage.setItem(DIG_START_OVERRIDE_KEY, iso);
+      }
+      var saved = localStorage.getItem(DIG_START_OVERRIDE_KEY);
+      if (saved && isFinite(Date.parse(saved))) return saved;
+    } catch (e) { /* localStorage 不可なら上書きなし */ }
+    return null;
+  }
+  var digStartOverride = resolveDigStartOverride();
+
+  // レイド開始時刻（上書きがあればそれを優先）。未取得なら null。
+  function digStartsAt() {
+    return digStartOverride || digRaidStartsAt;
+  }
+  // レイドが開始済みか。開始時刻が未取得なら false（＝報告させない）。
+  function digRaidStarted() {
+    var startsAt = digStartsAt();
+    if (!startsAt) return false;
+    var t = Date.parse(startsAt);
+    return isFinite(t) && Date.now() >= t;
+  }
 
   // 閾値キーの正順（ランク段 1..6 に対応）。既存データの reachedThresholds 復元に使う。
   //   rankStage=3 → ['escape3','escape6','escape9']、rankStage=5 → +['point5','point10']。
@@ -2646,14 +2689,24 @@
     return !!(entry && entry.status === 'read');
   }
 
+  // 読了エントリ（{ status, source, readAt }）をそのまま返す。無ければ null。
+  //   readAt を見たい側（発掘報告の開始日フィルタ）が使う。isRead は真偽値だけなので使えない。
+  function readEntry(creatorId, articleId) {
+    return state.readArticles[readKey(creatorId, articleId)] || null;
+  }
+
   // 読了/未読をセットする。read=false ならエントリを削除（未読）。
+  //   readAt は「このアプリで実際に読んだ時刻」。初期既読セットアップ（bulk_initial）は
+  //   過去に読んだ分を後からまとめて登録する操作で、いつ読んだかは分からないので入れない。
+  //   ＝一括既読は「今日読んだ記事」にも発掘報告の対象にも数えない（どちらも readAt 必須）。
   function setRead(creatorId, articleId, read, source) {
     var key = readKey(creatorId, articleId);
     if (read) {
+      var src = source || SOURCE.MANUAL;
       state.readArticles[key] = {
         status: 'read',
-        source: source || SOURCE.MANUAL,
-        readAt: new Date().toISOString(),
+        source: src,
+        readAt: src === SOURCE.BULK_INITIAL ? null : new Date().toISOString(),
       };
     } else {
       delete state.readArticles[key];
@@ -3255,10 +3308,14 @@
     var arr = ensureDigReportedKeys()[targetNoteId];
     return Array.isArray(arr) ? arr : [];
   }
-  // その被験体の未送信 note_key（読了済み − 送信済み）。
+  // その被験体の未送信 note_key（レイド開始後に読了 − 送信済み）。
+  //   ボタンの活性判定と POST の noteKeys は同じこの関数を通す（表示とPOSTのズレを作らない）。
+  //   開始時刻が未取得なら空配列＝報告対象なし。開始前から既読だった記事は混ぜない。
   function unsentKeysFor(creatorId) {
+    var startsAt = digStartsAt();
+    if (!startsAt) return [];
     var readKeys = L.readNoteKeys(articlesOf(creatorId), function (articleId) {
-      return isRead(creatorId, articleId);
+      return L.isRaidReportableRead(readEntry(creatorId, articleId), startsAt);
     });
     return L.unsentNoteKeys(readKeys, reportedKeysFor(creatorId));
   }
@@ -3275,6 +3332,38 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         return data && Array.isArray(data.participants) ? data.participants : null;
+      })
+      .catch(function () { return null; });
+  }
+
+  // 発掘報告の失敗理由ごとの表示文言（案内人＝関西弁）。
+  //   CF側が返す error コードをそのままキーにする。未知のコードは DIG_ERROR_FALLBACK。
+  var DIG_ERROR_MESSAGES = {
+    raid_not_started: 'まだ発掘レイドは始まってへんで。開始したらもう一回押してや。',
+    raid_closed: 'この発掘レイドはもう終わっとるで。',
+    self_report_not_allowed: '自分の記事は発掘報告できへんで。',
+    empty_noteKeys: '報告できる記事がまだ無いで。記事読んでから試してや。',
+    invalid_readerNoteId: '発掘報告するには、あんたのnote ID登録してや。',
+    raid_not_found: '対象の発掘レイドが見つからんかったで。画面更新してもう一回試してや。',
+  };
+  var DIG_ERROR_FALLBACK = '送信に失敗したわ。もういっぺん試してや。';
+  function digErrorMessage(code) {
+    return (code && DIG_ERROR_MESSAGES[code]) || DIG_ERROR_FALLBACK;
+  }
+
+  // レイドマスター（開始時刻）を取得して digRaidStartsAt に入れる。
+  //   起動時に1回だけ。失敗しても致命ではない（報告ボタンが出ないだけ・CF側も開始前POSTを拒否する）。
+  //   digEnabled=false の間は呼ばない（発掘機能そのものを出さないので取る意味がない）。
+  function fetchDigRaid() {
+    if (!digEnabled()) return Promise.resolve(null);
+    return fetch(DIG_RAID_API)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        var startsAt = data && data.raid ? data.raid.startsAt : null;
+        if (typeof startsAt === 'string' && isFinite(Date.parse(startsAt))) {
+          digRaidStartsAt = startsAt;
+        }
+        return digRaidStartsAt;
       })
       .catch(function () { return null; });
   }
@@ -3385,7 +3474,17 @@
         noteKeys: noteKeys,
       }),
     })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      // 失敗時も本文を読む（CF側が error コードを返すので、理由別の文言を出すため）。
+      .then(function (r) {
+        return r.json()
+          .catch(function () { return null; })
+          .then(function (body) {
+            if (r.ok) return body;
+            var err = new Error('report failed');
+            err.digCode = body && body.error ? body.error : null;
+            throw err;
+          });
+      })
       .then(function (data) {
         if (!data) throw new Error('report failed');
         // 送信を試みて成功応答が返った note_key はすべて送信済みに記録（accepted/duplicates 問わず）。
@@ -3397,9 +3496,9 @@
         var accepted = typeof data.accepted === 'number' ? data.accepted : noteKeys.length;
         showDigResult(accepted);
       })
-      .catch(function () {
+      .catch(function (e) {
         if (els.digReportError) {
-          els.digReportError.textContent = '送信に失敗したわ。もういっぺん試してや。';
+          els.digReportError.textContent = digErrorMessage(e && e.digCode);
           els.digReportError.classList.remove('hidden');
         }
         if (els.digReportSubmit) {
@@ -4490,7 +4589,9 @@
     head.appendChild(idRow);
     // 被験体（掘られる側）チップ。@id の下に1行で添える（文言が長いので横並びにしない）。
     //   企画開始前（digEnabled=false）は保存済みフラグがあっても出さない。
-    if (c.isDigTarget && digEnabled()) {
+    //   レイド開始時刻前・レイドマスター未取得のときも出さない（digRaidStarted）。
+    //   ＝機能ONで事前配信しても、8/1 0:00 までレイド関連の表示は一切出さない。
+    if (c.isDigTarget && digEnabled() && digRaidStarted()) {
       var chip = document.createElement('span');
       chip.className = 'dig-target-chip';
       chip.textContent = '初期記事発掘レイド 被験体';
@@ -4593,21 +4694,23 @@
     //   活性条件は「読了1件以上」かつ「プレイヤー note ID が登録済み」。
     //   note ID 未登録なら「読みに行く」でレイド参加の入力を促す（selectCreator）。
     //   企画開始前（digEnabled=false）は保存済みフラグがあっても出さない。
-    if (c.isDigTarget && digEnabled()) {
+    //   レイド開始時刻前・レイドマスター未取得のときも出さない（digRaidStarted）。
+    //   ＝機能ONで事前配信しても、8/1 0:00 まではボタン自体が現れない。
+    if (c.isDigTarget && digEnabled() && digRaidStarted()) {
       var digBtn = document.createElement('button');
       digBtn.className = 'btn dig-report-btn';
       digBtn.type = 'button';
       digBtn.textContent = '発掘報告';
-      if (stats.read < 1) {
-        digBtn.disabled = true;
-        digBtn.title = '記事を1件以上読むと発掘報告できるで。';
-      } else if (!playerNoteId()) {
+      // 活性判定は unsentKeysFor（＝POST の noteKeys と同じ関数）で行う。
+      //   レイド開始後に読んだ記事だけが対象。開始前からの既読は数に入らない。
+      var unsentCount = unsentKeysFor(c.id).length;
+      if (!playerNoteId()) {
         digBtn.disabled = true;
         digBtn.title = '「読みに行く」でプレイヤー名（note ID）を登録してや。';
-      } else if (unsentKeysFor(c.id).length < 1) {
-        // 読了済みをすべて報告済み → 送るものが無いので非活性（差分同期）。
+      } else if (unsentCount < 1) {
+        // 開始後に読んだ記事が無い、または全部報告済み。どちらも送るものが無い。
         digBtn.disabled = true;
-        digBtn.title = '掘り起こす記事はもう全部報告済みやで。';
+        digBtn.title = 'レイドが始まってから読んだ記事が、まだ報告分として無いで。';
       } else {
         digBtn.addEventListener('click', function () {
           openDigReport(c.id);
@@ -4633,8 +4736,9 @@
     //   記事一覧へ進む前にプレイヤー名の入力を促す（初期記事発掘レイドへの参加）。
     //   キタコレ/ニゲキレで入力済みなら初期表示され、確認して進める。登録済みなら素通り。
     //   企画開始前（digEnabled=false）は促さない。
+    //   レイド開始時刻前・レイドマスター未取得のときも促さない（digRaidStarted）。
     var c = getCreator(id);
-    if (c && c.isDigTarget && digEnabled() && !playerNoteId()) {
+    if (c && c.isDigTarget && digEnabled() && digRaidStarted() && !playerNoteId()) {
       openPlayerInput(id, {
         label: '［ システム ］初期記事発掘レイドへの参加のため、プレイヤー名を入力してください。',
         onSuccess: function () { goTo('read'); },
@@ -6988,8 +7092,14 @@
     registerServiceWorker();
     loadKitacoreQuizzes();
     loadNigekireQuizzes();
-    // 起動時に既存クリエイターの被験体判定を最新化（0.1.9以前から登録済みの被験体を拾う）。
-    refreshAllDigTargets();
+    // 起動時にレイドマスター（開始時刻）を取得 → 既存クリエイターの被験体判定を最新化。
+    //   開始時刻が取れるまで発掘UI（チップ・報告ボタン・レイド認証）は出ないので、
+    //   取得後にカードを再描画して反映する。取得失敗時は出ないまま（CF側も開始前POSTを拒否）。
+    fetchDigRaid().then(function () {
+      if (digRaidStarted() && currentRoute() === 'list') renderCreatorCards();
+      // 0.1.9以前から登録済みの被験体を拾う（判定は digEnabled のみで走る）。
+      return refreshAllDigTargets();
+    });
   }
 
   init();

@@ -141,8 +141,10 @@ body {
   min-height: 44px;
 }
 
-.btn:hover,
-.btn:active {
+/* 無効化中はホバーで色を変えない（変えると色付きボタンの地色が薄色に上書きされ、
+   .btn:disabled の opacity と重なって文字が読めなくなる）。 */
+.btn:not(:disabled):hover,
+.btn:not(:disabled):active {
   background: var(--surface-alt);
 }
 

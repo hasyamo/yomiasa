@@ -489,6 +489,36 @@ test('unsentNoteKeys: 不正入力でも落ちない（[]）', () => {
   assert.deepStrictEqual(L.unsentNoteKeys(undefined, undefined), []);
 });
 
+test('isRaidReportableRead: レイド開始以降に読んだ記事だけ true', () => {
+  const startsAt = '2026-07-31T15:00:00.000Z'; // JST 8/1 00:00
+  const read = (readAt) => ({ status: 'read', source: 'manual', readAt });
+  // 開始後に読了 → 対象
+  assert.strictEqual(L.isRaidReportableRead(read('2026-08-01T02:00:00.000Z'), startsAt), true);
+  // 開始時刻ちょうど → 対象（>= 判定）
+  assert.strictEqual(L.isRaidReportableRead(read(startsAt), startsAt), true);
+  // 開始前に読了 → 対象外（既読バックログを発掘成果に混ぜない）
+  assert.strictEqual(L.isRaidReportableRead(read('2026-07-30T00:00:00.000Z'), startsAt), false);
+  // 1ミリ秒前でも対象外
+  assert.strictEqual(L.isRaidReportableRead(read('2026-07-31T14:59:59.999Z'), startsAt), false);
+});
+
+test('isRaidReportableRead: 未読・readAt欠損・不正値・startsAt未取得は false', () => {
+  const startsAt = '2026-07-31T15:00:00.000Z';
+  // 未読（status が read でない）
+  assert.strictEqual(L.isRaidReportableRead({ status: 'unread', readAt: '2026-08-02T00:00:00.000Z' }, startsAt), false);
+  // readAt 欠損（0.2 以前の古いエントリ想定）
+  assert.strictEqual(L.isRaidReportableRead({ status: 'read' }, startsAt), false);
+  assert.strictEqual(L.isRaidReportableRead({ status: 'read', readAt: '' }, startsAt), false);
+  // readAt が不正値
+  assert.strictEqual(L.isRaidReportableRead({ status: 'read', readAt: 'いつか' }, startsAt), false);
+  // startsAt 未取得・不正（レイドマスター取得失敗時は送らせない）
+  assert.strictEqual(L.isRaidReportableRead({ status: 'read', readAt: '2026-08-02T00:00:00.000Z' }, null), false);
+  assert.strictEqual(L.isRaidReportableRead({ status: 'read', readAt: '2026-08-02T00:00:00.000Z' }, 'あした'), false);
+  // エントリ自体が無い
+  assert.strictEqual(L.isRaidReportableRead(null, startsAt), false);
+  assert.strictEqual(L.isRaidReportableRead(undefined, undefined), false);
+});
+
 test('mergeReportedKeys: 既存＋新規を重複なしで結合（順序維持）', () => {
   assert.deepStrictEqual(L.mergeReportedKeys(['a', 'b'], ['b', 'c']), ['a', 'b', 'c']);
   assert.deepStrictEqual(L.mergeReportedKeys([], ['a', 'a']), ['a']); // 新規内の重複も1回

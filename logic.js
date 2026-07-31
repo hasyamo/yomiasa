@@ -383,6 +383,20 @@
     return out;
   }
 
+  // レイド開始後に読んだ記事か（発掘報告の対象か）を判定する（純粋・非破壊）。
+  //   entry: state.readArticles の1エントリ（{ status, source, readAt }）。
+  //   startsAt: レイド開始時刻（ISO文字列）。レイドマスター未取得なら空・null を渡す。
+  //   開始前から既読だった記事を発掘成果に混ぜないための判定。readAt 欠損・不正値、
+  //   startsAt 未取得はすべて false（＝報告対象にしない）。取れないものは送らない側に倒す。
+  function isRaidReportableRead(entry, startsAt) {
+    if (!entry || entry.status !== 'read') return false;
+    if (!entry.readAt || !startsAt) return false;
+    var readAt = Date.parse(entry.readAt);
+    var raidStart = Date.parse(startsAt);
+    if (!isFinite(readAt) || !isFinite(raidStart)) return false;
+    return readAt >= raidStart;
+  }
+
   // 送信済み集合に新しい note_key をマージした配列を返す（重複なし・非破壊）。
   //   prevSent: 既存の送信済み配列。addKeys: 今回成功した note_key。順序は prev→新規追加順。
   function mergeReportedKeys(prevSent, addKeys) {
@@ -1349,6 +1363,7 @@
     isDigTargetInParticipants: isDigTargetInParticipants,
     readNoteKeys: readNoteKeys,
     unsentNoteKeys: unsentNoteKeys,
+    isRaidReportableRead: isRaidReportableRead,
     mergeReportedKeys: mergeReportedKeys,
     // ---- 状態遷移（次状態の計算） ----
     awardKeyOutcome: awardKeyOutcome,
