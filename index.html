@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=0.1.14" />
+    <link rel="stylesheet" href="style.css?v=0.1.15" />
   </head>
   <body>
     <div id="app">
@@ -167,6 +167,10 @@
             <label class="toggle">
               <input id="favorites-only" type="checkbox" />
               <span>⭐お気に入りのみ</span>
+            </label>
+            <label class="toggle">
+              <input id="paid-only" type="checkbox" />
+              <span>有料のみ</span>
             </label>
             <button id="sort-toggle" type="button" class="sort-toggle">
               古い順
@@ -516,7 +520,7 @@
     </div>
 
     <!-- ?v= はリリースごとに APP_VERSION と同じ値へ更新（キャッシュ無効化） -->
-    <script src="logic.js?v=0.1.14"></script>
-    <script src="app.js?v=0.1.14"></script>
+    <script src="logic.js?v=0.1.15"></script>
+    <script src="app.js?v=0.1.15"></script>
   </body>
 </html>

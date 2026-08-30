@@ -104,6 +104,44 @@ test('matchesFilters: 未読のみ＋お気に入りのみ は AND（未読か�
   assert.strictEqual(L.matchesFilters(A1, ui, { read: false, favorite: false }), false); // 非お気に入りで落ちる
 });
 
+// ---- 有料のみフィルタ ----
+
+test('matchesFilters: 有料のみ ON は isPaid=true だけ通す', () => {
+  const ui = { keyword: '', year: 'all', month: 'all', showPaidOnly: true };
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: true }, ui, {}), true);
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: false }, ui, {}), false);
+  // isPaid 未設定（導入前に保存された記事）は無料扱いで落とす
+  assert.strictEqual(L.matchesFilters(A1, ui, {}), false);
+});
+
+test('matchesFilters: 有料のみ OFF なら isPaid に関わらず通す', () => {
+  const ui = { keyword: '', year: 'all', month: 'all', showPaidOnly: false };
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: true }, ui, {}), true);
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: false }, ui, {}), true);
+  assert.strictEqual(L.matchesFilters(A1, ui, {}), true);
+});
+
+test('matchesFilters: 有料のみ＋未読のみ は AND', () => {
+  const ui = { keyword: '', year: 'all', month: 'all', showUnreadOnly: true, showPaidOnly: true };
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: true }, ui, { read: false }), true);
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: true }, ui, { read: true }), false);
+  assert.strictEqual(L.matchesFilters({ ...A1, isPaid: false }, ui, { read: false }), false);
+});
+
+test('hasPaidFlags: isPaid を持つ記事が1件でもあれば true', () => {
+  assert.strictEqual(L.hasPaidFlags([{ ...A1, isPaid: false }, A2]), true);
+  assert.strictEqual(L.hasPaidFlags([{ ...A1, isPaid: true }]), true);
+});
+
+test('hasPaidFlags: 導入前データ（isPaid なし）・空・不正は false', () => {
+  assert.strictEqual(L.hasPaidFlags([A1, A2]), false);
+  assert.strictEqual(L.hasPaidFlags([]), false);
+  assert.strictEqual(L.hasPaidFlags(null), false);
+  assert.strictEqual(L.hasPaidFlags('x'), false);
+  // boolean 以外が入っていても取得済みとはみなさない
+  assert.strictEqual(L.hasPaidFlags([{ ...A1, isPaid: undefined }]), false);
+});
+
 test('matchesFilters: 年・月・キーワードも効く（お気に入りと併用）', () => {
   const base = { keyword: '', year: 'all', month: 'all', showUnreadOnly: false, showFavoritesOnly: false };
   // A1 = 2026-01

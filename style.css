@@ -159,8 +159,8 @@ body {
   border-color: var(--accent);
 }
 
-.btn-primary:hover,
-.btn-primary:active {
+.btn-primary:not(:disabled):hover,
+.btn-primary:not(:disabled):active {
   background: #262626;
 }
 

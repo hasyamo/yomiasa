@@ -98,7 +98,18 @@
       return false;
     if (ui.showUnreadOnly && flags.read) return false;
     if (ui.showFavoritesOnly && !flags.favorite) return false;
+    if (ui.showPaidOnly && !article.isPaid) return false;
     return true;
+  }
+
+  // 記事配列が有料判定（isPaid）を持っているか。
+  // isPaid 導入前に保存されたデータは1件も持たないので、その検出に使う。
+  // 1件でも boolean が付いていれば取得済みとみなす（全件が有料/無料どちらでも成立）。
+  function hasPaidFlags(articles) {
+    if (!Array.isArray(articles)) return false;
+    return articles.some(function (a) {
+      return a && typeof a.isPaid === 'boolean';
+    });
   }
 
   // ---- ロード/インポート時のサニタイズ ----
@@ -1343,6 +1354,7 @@
     favoritesSorted: favoritesSorted,
     favoriteCount: favoriteCount,
     matchesFilters: matchesFilters,
+    hasPaidFlags: hasPaidFlags,
     sanitizeFavorites: sanitizeFavorites,
     // ---- モードエンジン純ロジック ----
     stripHtml: stripHtml,

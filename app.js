@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.14';
+  var APP_VERSION = '0.1.15';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -2122,6 +2122,7 @@
       month: 'all',
       showUnreadOnly: false,
       showFavoritesOnly: false,
+      showPaidOnly: false,
       sortOrder: 'asc',
     };
   }
@@ -2146,6 +2147,7 @@
       month: cu.month,
       showUnreadOnly: cu.showUnreadOnly,
       showFavoritesOnly: cu.showFavoritesOnly,
+      showPaidOnly: cu.showPaidOnly,
       sortOrder: cu.sortOrder,
     };
   }
@@ -2370,6 +2372,11 @@
       likeCount: typeof item.likeCount === 'number' ? item.likeCount : 0,
       commentCount: typeof item.commentCount === 'number' ? item.commentCount : 0,
       thumbnailUrl: item.eyecatch || '',
+      // 有料記事（買い切り・メンシプ限定・マガジン限定をまとめて1種類として扱う）。
+      // canRead は「未ログインの一般読者から見て読めるか」＝実質の有料フラグ
+      // （YOMIASA は note と別ドメインで Cookie を持たないため常にこの意味になる）。
+      // price > 0 は冗長だが canRead の仕様変更に対する保険。
+      isPaid: (typeof item.price === 'number' && item.price > 0) || item.canRead === false,
     };
   }
 
@@ -2566,6 +2573,7 @@
     var common = node.common || {};
     var oc = node.openContents || {};
     var link = common.link || {};
+    var pricing = node.pricing || {};
     return {
       // 通常APIの id（'n'+数値）と衝突しない接頭辞。key はクリエイター内で一意。
       id: 'g' + node.key,
@@ -2575,6 +2583,10 @@
       likeCount: typeof common.likeCount === 'number' ? common.likeCount : 0,
       commentCount: typeof common.commentCount === 'number' ? common.commentCount : 0,
       thumbnailUrl: (oc.thumbnailImage && oc.thumbnailImage.url) || '',
+      // 有料判定。isFree === false と明示比較する（!pricing.isFree にしない）。
+      // pricing が取れなかったとき（Worker 未デプロイ・GraphQL 構造変更）に
+      // 全記事が有料扱いになるのを防ぐため。取れなければ無料扱いで劣化動作する。
+      isPaid: pricing.isFree === false,
     };
   }
 
@@ -4164,6 +4176,7 @@
     monthFilter: document.getElementById('month-filter'),
     unreadOnly: document.getElementById('unread-only'),
     favoritesOnly: document.getElementById('favorites-only'),
+    paidOnly: document.getElementById('paid-only'),
     sortToggle: document.getElementById('sort-toggle'),
     statusMsg: document.getElementById('status-msg'),
     articles: document.getElementById('articles'),
@@ -4766,6 +4779,7 @@
     els.keyword.value = ui.keyword;
     els.unreadOnly.checked = !!ui.showUnreadOnly;
     els.favoritesOnly.checked = !!ui.showFavoritesOnly;
+    els.paidOnly.checked = !!ui.showPaidOnly;
     els.sortToggle.textContent = ui.sortOrder === 'asc' ? '古い順' : '新しい順';
 
     renderFilterOptions();
@@ -6321,7 +6335,11 @@
     if (!c) return;
 
     var existing = articlesOf(c.id);
-    var isFirstFetch = !c.lastFetchedAt || existing.length === 0;
+    // isPaid 導入前に保存された記事は有料判定を持たない。差分取得だと新着分にしか
+    // 付かず既存分が永久に「無料」のままになるので、その場合だけ全件取り直して
+    // 自己修復する（600件フォールバックの自己修復と同じ考え方）。
+    var needsPaidBackfill = existing.length > 0 && !L.hasPaidFlags(existing);
+    var isFirstFetch = !c.lastFetchedAt || existing.length === 0 || needsPaidBackfill;
 
     isFetching = true;
     els.fetchBtn.disabled = true;
@@ -6595,6 +6613,11 @@
     });
     els.favoritesOnly.addEventListener('change', function () {
       creatorUi(state.selectedCreatorId).showFavoritesOnly = els.favoritesOnly.checked;
+      saveState();
+      renderArticles();
+    });
+    els.paidOnly.addEventListener('change', function () {
+      creatorUi(state.selectedCreatorId).showPaidOnly = els.paidOnly.checked;
       saveState();
       renderArticles();
     });
