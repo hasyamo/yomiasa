@@ -119,6 +119,21 @@
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   }
 
+  // インポートで受け取った JSON（パース済み）から、復元してよい state を取り出す。
+  //   受け付けるのは、エクスポート形式（{app:'yomiasa', state:{…}}）と、state の直貼り。
+  //   どちらも state は「配列でないオブジェクト」で、creators が配列であること
+  //   （エクスポートした state には必ず creators がある）。
+  //   app が別のアプリ名のもの・{}・[]・creators の無いものは null を返す。
+  //   null のときは今のデータに触らない（{} を貼ると全項目が初期値で上書きされていたのを防ぐ）。
+  function importableState(parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if ('app' in parsed && parsed.app !== 'yomiasa') return null;
+    var incoming = 'state' in parsed ? parsed.state : parsed;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return null;
+    if (!Array.isArray(incoming.creators)) return null;
+    return incoming;
+  }
+
   // ===========================================================================
   // モードエンジン（キタコレ等）の純ロジック。
   //   state/DOM に依存しない。ランク・ボス・クイズの配列/フラグを引数で受ける。
@@ -1356,6 +1371,7 @@
     matchesFilters: matchesFilters,
     hasPaidFlags: hasPaidFlags,
     sanitizeFavorites: sanitizeFavorites,
+    importableState: importableState,
     // ---- モードエンジン純ロジック ----
     stripHtml: stripHtml,
     countWai: countWai,

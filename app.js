@@ -28,7 +28,7 @@
   var PAGE_LIMIT = 9999;
 
   // アプリのバージョン。updates.json のキーと一致させること。
-  var APP_VERSION = '0.1.15';
+  var APP_VERSION = '0.1.16';
   var VERSION_KEY = 'yomiasa:lastSeenVersion';
 
   // 読了状態の出所。manual=手動トグル / bulk_initial=初期既読セットアップでの一括既読。
@@ -2245,9 +2245,10 @@
   // 失敗時は例外を投げる。成功時は新しい state を返す。
   function importData(jsonText) {
     var parsed = JSON.parse(jsonText);
-    // エクスポート形式（{app,version,state}）と、生の state 直貼りの両対応
-    var incoming = parsed && parsed.state ? parsed.state : parsed;
-    if (!incoming || typeof incoming !== 'object') {
+    // エクスポート形式（{app,version,state}）と、生の state 直貼りの両対応。
+    // {}・[]・別アプリのデータなどは、今のデータに触らずに断る（logic.js の importableState）。
+    var incoming = L.importableState(parsed);
+    if (!incoming) {
       throw new Error('形式が正しくありません');
     }
     var base = defaultState();

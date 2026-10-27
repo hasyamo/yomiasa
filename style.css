@@ -561,6 +561,8 @@ select.field {
   color: var(--ink-muted);
   cursor: pointer;
   user-select: none;
+  /* スマホの狭い幅で「未読の／み」のように文字の途中で折り返さない */
+  white-space: nowrap;
 }
 
 .toggle input {
@@ -572,9 +574,14 @@ select.field {
 
 .filter-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 10px 16px;
+}
+
+/* 並び順のボタンは右端に寄せる（入りきらず次の行に回っても右端） */
+.filter-actions .sort-toggle {
+  margin-left: auto;
 }
 
 .sort-toggle {
